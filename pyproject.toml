@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "gpx-analyzer"
+version = "0.1.0"
+description = "GPX bike route analyzer with physics-based power estimation"
+requires-python = ">=3.12"
+dependencies = [
+    "gpxpy>=1.6",
+    "geopy>=2.4",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+]
+
+[project.scripts]
+gpx-analyzer = "gpx_analyzer.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]

@@ -1,0 +1,89 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<gpx version="1.1" creator="test"
+     xmlns="http://www.topografix.com/GPX/1/1">
+  <trk>
+    <name>Sample Ride</name>
+    <trkseg>
+      <trkpt lat="37.7749" lon="-122.4194">
+        <ele>10</ele>
+        <time>2024-06-15T08:00:00Z</time>
+      </trkpt>
+      <trkpt lat="37.7752" lon="-122.4190">
+        <ele>12</ele>
+        <time>2024-06-15T08:00:15Z</time>
+      </trkpt>
+      <trkpt lat="37.7758" lon="-122.4183">
+        <ele>18</ele>
+        <time>2024-06-15T08:00:35Z</time>
+      </trkpt>
+      <trkpt lat="37.7765" lon="-122.4175">
+        <ele>25</ele>
+        <time>2024-06-15T08:00:55Z</time>
+      </trkpt>
+      <trkpt lat="37.7773" lon="-122.4165">
+        <ele>35</ele>
+        <time>2024-06-15T08:01:20Z</time>
+      </trkpt>
+      <trkpt lat="37.7782" lon="-122.4155">
+        <ele>42</ele>
+        <time>2024-06-15T08:01:45Z</time>
+      </trkpt>
+      <trkpt lat="37.7790" lon="-122.4145">
+        <ele>48</ele>
+        <time>2024-06-15T08:02:10Z</time>
+      </trkpt>
+      <trkpt lat="37.7798" lon="-122.4135">
+        <ele>50</ele>
+        <time>2024-06-15T08:02:35Z</time>
+      </trkpt>
+      <trkpt lat="37.7805" lon="-122.4125">
+        <ele>47</ele>
+        <time>2024-06-15T08:02:55Z</time>
+      </trkpt>
+      <trkpt lat="37.7812" lon="-122.4115">
+        <ele>42</ele>
+        <time>2024-06-15T08:03:15Z</time>
+      </trkpt>
+      <trkpt lat="37.7820" lon="-122.4105">
+        <ele>38</ele>
+        <time>2024-06-15T08:03:35Z</time>
+      </trkpt>
+      <trkpt lat="37.7828" lon="-122.4095">
+        <ele>35</ele>
+        <time>2024-06-15T08:03:55Z</time>
+      </trkpt>
+      <trkpt lat="37.7835" lon="-122.4085">
+        <ele>30</ele>
+        <time>2024-06-15T08:04:15Z</time>
+      </trkpt>
+      <trkpt lat="37.7842" lon="-122.4075">
+        <ele>28</ele>
+        <time>2024-06-15T08:04:35Z</time>
+      </trkpt>
+      <trkpt lat="37.7850" lon="-122.4065">
+        <ele>32</ele>
+        <time>2024-06-15T08:05:00Z</time>
+      </trkpt>
+      <trkpt lat="37.7858" lon="-122.4055">
+        <ele>38</ele>
+        <time>2024-06-15T08:05:25Z</time>
+      </trkpt>
+      <trkpt lat="37.7865" lon="-122.4045">
+        <ele>45</ele>
+        <time>2024-06-15T08:05:50Z</time>
+      </trkpt>
+      <trkpt lat="37.7872" lon="-122.4035">
+        <ele>50</ele>
+        <time>2024-06-15T08:06:15Z</time>
+      </trkpt>
+      <trkpt lat="37.7880" lon="-122.4025">
+        <ele>48</ele>
+        <time>2024-06-15T08:06:35Z</time>
+      </trkpt>
+      <trkpt lat="37.7888" lon="-122.4015">
+        <ele>45</ele>
+        <time>2024-06-15T08:06:55Z</time>
+      </trkpt>
+    </trkseg>
+  </trk>
+</gpx>
