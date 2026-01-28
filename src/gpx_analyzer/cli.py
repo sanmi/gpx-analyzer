@@ -29,6 +29,12 @@ def build_parser() -> argparse.ArgumentParser:
         default=0.005,
         help="Rolling resistance coefficient (default: 0.005)",
     )
+    parser.add_argument(
+        "--power",
+        type=float,
+        default=150.0,
+        help="Assumed average power output in watts (default: 150)",
+    )
     return parser
 
 
@@ -47,6 +53,7 @@ def main(argv: list[str] | None = None) -> None:
         total_mass=args.mass,
         cda=args.cda,
         crr=args.crr,
+        assumed_avg_power=args.power,
     )
 
     try:
@@ -74,3 +81,4 @@ def main(argv: list[str] | None = None) -> None:
     print(f"Max Speed:      {result.max_speed * 3.6:.1f} km/h")
     print(f"Est. Work:      {result.estimated_work / 1000:.1f} kJ")
     print(f"Est. Avg Power: {result.estimated_avg_power:.0f} W")
+    print(f"Est. Time @{params.assumed_avg_power:.0f}W: {format_duration(result.estimated_moving_time_at_power)}")

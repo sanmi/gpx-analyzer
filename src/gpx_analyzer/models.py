@@ -16,6 +16,7 @@ class RiderParams:
     cda: float = 0.35  # m² (drag coefficient * frontal area)
     crr: float = 0.005  # rolling resistance coefficient
     air_density: float = 1.225  # kg/m³
+    assumed_avg_power: float = 150.0  # watts
 
 
 @dataclass
@@ -29,3 +30,4 @@ class RideAnalysis:
     max_speed: float  # m/s
     estimated_work: float  # joules
     estimated_avg_power: float  # watts
+    estimated_moving_time_at_power: timedelta  # time at assumed power

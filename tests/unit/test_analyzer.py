@@ -6,6 +6,11 @@ from gpx_analyzer.analyzer import analyze
 from gpx_analyzer.models import RiderParams, TrackPoint
 
 
+@pytest.fixture
+def high_power_params():
+    return RiderParams(assumed_avg_power=300.0)
+
+
 class TestAnalyze:
     def test_fewer_than_two_points(self, rider_params):
         result = analyze([], rider_params)
@@ -56,3 +61,20 @@ class TestAnalyze:
         result = analyze(simple_track_points, rider_params)
         assert result.max_speed > 0
         assert result.max_speed >= result.avg_speed
+
+    def test_estimated_time_at_power(self, simple_track_points, rider_params):
+        result = analyze(simple_track_points, rider_params)
+        assert result.estimated_moving_time_at_power.total_seconds() > 0
+        expected_seconds = result.estimated_work / rider_params.assumed_avg_power
+        assert result.estimated_moving_time_at_power.total_seconds() == pytest.approx(
+            expected_seconds
+        )
+
+    def test_higher_power_shorter_time(self, simple_track_points, rider_params, high_power_params):
+        result_low = analyze(simple_track_points, rider_params)
+        result_high = analyze(simple_track_points, high_power_params)
+        assert result_high.estimated_moving_time_at_power < result_low.estimated_moving_time_at_power
+
+    def test_fewer_than_two_points_zero_time_at_power(self, rider_params):
+        result = analyze([], rider_params)
+        assert result.estimated_moving_time_at_power == timedelta()

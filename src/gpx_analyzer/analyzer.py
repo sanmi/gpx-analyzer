@@ -20,6 +20,7 @@ def analyze(points: list[TrackPoint], params: RiderParams) -> RideAnalysis:
             max_speed=0.0,
             estimated_work=0.0,
             estimated_avg_power=0.0,
+            estimated_moving_time_at_power=timedelta(),
         )
 
     total_distance = 0.0
@@ -63,6 +64,12 @@ def analyze(points: list[TrackPoint], params: RiderParams) -> RideAnalysis:
     avg_speed = total_distance / moving_seconds if moving_seconds > 0 else 0.0
     avg_power = total_work / moving_seconds if moving_seconds > 0 else 0.0
 
+    if params.assumed_avg_power > 0 and total_work > 0:
+        est_seconds = total_work / params.assumed_avg_power
+        estimated_moving_time_at_power = timedelta(seconds=est_seconds)
+    else:
+        estimated_moving_time_at_power = timedelta()
+
     return RideAnalysis(
         total_distance=total_distance,
         elevation_gain=elevation_gain,
@@ -73,4 +80,5 @@ def analyze(points: list[TrackPoint], params: RiderParams) -> RideAnalysis:
         max_speed=max_speed,
         estimated_work=total_work,
         estimated_avg_power=avg_power,
+        estimated_moving_time_at_power=estimated_moving_time_at_power,
     )
