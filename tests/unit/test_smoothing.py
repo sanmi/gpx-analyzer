@@ -101,3 +101,37 @@ class TestSmoothElevations:
             assert orig.lat == smoothed.lat
             assert orig.lon == smoothed.lon
             assert orig.time == smoothed.time
+
+    def test_elevation_scale_reduces_gain(self):
+        """Elevation scale < 1 should reduce elevation changes."""
+        # Simple climb: 100m to 200m (100m gain)
+        elevations = [100.0, 150.0, 200.0]
+        points = _make_points(elevations)
+
+        # Scale by 0.5 should give 50m gain: 100 -> 125 -> 150
+        result = smooth_elevations(points, radius_m=0.0, elevation_scale=0.5)
+
+        assert result[0].elevation == 100.0  # Reference stays the same
+        assert result[1].elevation == 125.0  # 100 + (150-100)*0.5
+        assert result[2].elevation == 150.0  # 100 + (200-100)*0.5
+
+    def test_elevation_scale_without_smoothing(self):
+        """Elevation scaling should work even with radius=0."""
+        elevations = [100.0, 200.0, 150.0]
+        points = _make_points(elevations)
+
+        result = smooth_elevations(points, radius_m=0.0, elevation_scale=0.8)
+
+        assert result[0].elevation == 100.0  # Reference unchanged
+        assert result[1].elevation == 180.0  # 100 + (200-100)*0.8
+        assert result[2].elevation == 140.0  # 100 + (150-100)*0.8
+
+    def test_elevation_scale_one_is_noop(self):
+        """Elevation scale of 1.0 should not change elevations."""
+        elevations = [100.0, 150.0, 200.0]
+        points = _make_points(elevations)
+
+        result = smooth_elevations(points, radius_m=0.0, elevation_scale=1.0)
+
+        for orig, scaled in zip(points, result):
+            assert orig.elevation == scaled.elevation

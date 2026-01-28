@@ -60,6 +60,12 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Disable elevation smoothing",
     )
+    parser.add_argument(
+        "--elevation-scale",
+        type=float,
+        default=1.0,
+        help="Scale factor for elevation changes (default: 1.0). Use <1 to reduce overestimated GPS elevation.",
+    )
     return parser
 
 
@@ -106,8 +112,8 @@ def main(argv: list[str] | None = None) -> None:
         sys.exit(1)
 
     smoothing_radius = 0.0 if args.no_smoothing else args.smoothing
-    if smoothing_radius > 0:
-        points = smooth_elevations(points, smoothing_radius)
+    if smoothing_radius > 0 or args.elevation_scale != 1.0:
+        points = smooth_elevations(points, smoothing_radius, args.elevation_scale)
 
     result = analyze(points, params)
 

@@ -6,7 +6,7 @@ from gpx_analyzer.models import TrackPoint
 
 
 def smooth_elevations(
-    points: list[TrackPoint], radius_m: float = 50.0
+    points: list[TrackPoint], radius_m: float = 50.0, elevation_scale: float = 1.0
 ) -> list[TrackPoint]:
     """Smooth elevation values using a distance-based centered moving average.
 
@@ -14,10 +14,17 @@ def smooth_elevations(
     [cumulative_dist - radius_m, cumulative_dist + radius_m].
     Points with elevation=None are left unchanged.
 
+    If elevation_scale != 1.0, elevation changes are scaled relative to the
+    starting elevation. For example, scale=0.81 reduces all elevation deltas
+    by 19%, useful when GPS elevation data overstates the actual gain.
+
     Returns new TrackPoint instances with smoothed elevations;
     lat, lon, and time are preserved.
     """
-    if radius_m <= 0 or len(points) < 2:
+    if len(points) < 2:
+        return list(points)
+
+    if radius_m <= 0 and elevation_scale == 1.0:
         return list(points)
 
     # Build cumulative distance array
@@ -57,5 +64,26 @@ def smooth_elevations(
         smoothed.append(
             TrackPoint(lat=pt.lat, lon=pt.lon, elevation=avg, time=pt.time)
         )
+
+    # Apply elevation scaling if needed
+    if elevation_scale != 1.0:
+        # Find reference elevation (first point with elevation data)
+        ref_elev = None
+        for pt in smoothed:
+            if pt.elevation is not None:
+                ref_elev = pt.elevation
+                break
+
+        if ref_elev is not None:
+            scaled = []
+            for pt in smoothed:
+                if pt.elevation is None:
+                    scaled.append(pt)
+                else:
+                    new_elev = ref_elev + (pt.elevation - ref_elev) * elevation_scale
+                    scaled.append(
+                        TrackPoint(lat=pt.lat, lon=pt.lon, elevation=new_elev, time=pt.time)
+                    )
+            return scaled
 
     return smoothed
