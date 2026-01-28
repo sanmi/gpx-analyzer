@@ -26,7 +26,7 @@ class TestCli:
         )
         assert result.returncode == 0
         output = result.stdout
-        assert "GPX Ride Analysis" in output
+        assert "GPX Route Analysis" in output
         assert "Distance:" in output
         assert "Elevation Gain:" in output
         assert "Elevation Loss:" in output
@@ -45,7 +45,7 @@ class TestCli:
             text=True,
         )
         assert result.returncode == 0
-        assert "GPX Ride Analysis" in result.stdout
+        assert "GPX Route Analysis" in result.stdout
 
     def test_run_with_custom_power(self):
         result = subprocess.run(
@@ -68,7 +68,7 @@ class TestCli:
             text=True,
         )
         assert result.returncode == 0
-        assert "GPX Ride Analysis" in result.stdout
+        assert "GPX Route Analysis" in result.stdout
 
     def test_nonexistent_file(self):
         result = subprocess.run(
@@ -201,7 +201,7 @@ class TestCli:
             text=True,
         )
         assert result.returncode == 0
-        assert "GPX Ride Analysis" in result.stdout
+        assert "GPX Route Analysis" in result.stdout
 
     def test_output_has_units(self):
         result = subprocess.run(
@@ -225,7 +225,7 @@ class TestCli:
         )
         assert result.returncode == 0, f"stderr: {result.stderr}"
         output = result.stdout
-        assert "GPX Ride Analysis" in output
+        assert "GPX Route Analysis" in output
         assert "Distance:" in output
         assert "Elevation Gain:" in output
 
@@ -248,6 +248,6 @@ class TestCli:
         )
         assert result.returncode == 0, f"stderr: {result.stderr}"
         output = result.stdout
-        assert "GPX Ride Analysis" in output
+        assert "GPX Route Analysis" in output
         assert "Distance:" in output
         assert "Elevation Gain:" in output

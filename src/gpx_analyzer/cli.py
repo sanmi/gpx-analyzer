@@ -111,7 +111,7 @@ def main(argv: list[str] | None = None) -> None:
 
     result = analyze(points, params)
 
-    print("=== GPX Ride Analysis ===")
+    print("=== GPX Route Analysis ===")
     print(f"Distance:       {result.total_distance / 1000:.2f} km")
     print(f"Elevation Gain: {result.elevation_gain:.0f} m")
     print(f"Elevation Loss: {result.elevation_loss:.0f} m")

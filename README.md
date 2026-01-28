@@ -37,7 +37,7 @@ gpx-analyzer ride.gpx --mass 75 --cda 0.30
 Output:
 
 ```
-=== GPX Ride Analysis ===
+=== GPX Route Analysis ===
 Distance:       2.21 km
 Elevation Gain: 62 m
 Elevation Loss: 27 m
