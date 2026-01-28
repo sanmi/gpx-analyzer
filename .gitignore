@@ -18,4 +18,3 @@ env/
 *.swo
 *~
 .DS_Store
-gpx-analyzer.json
