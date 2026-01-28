@@ -112,9 +112,13 @@ def main(argv: list[str] | None = None) -> None:
     result = analyze(points, params)
 
     print("=== GPX Route Analysis ===")
-    print(f"Distance:       {result.total_distance / 1000:.2f} km")
-    print(f"Elevation Gain: {result.elevation_gain:.0f} m")
-    print(f"Elevation Loss: {result.elevation_loss:.0f} m")
+    dist_km = result.total_distance / 1000
+    dist_mi = dist_km * 0.621371
+    print(f"Distance:       {dist_km:.2f} km ({dist_mi:.2f} mi)")
+    gain_ft = result.elevation_gain * 3.28084
+    print(f"Elevation Gain: {result.elevation_gain:.0f} m ({gain_ft:.0f} ft)")
+    loss_ft = result.elevation_loss * 3.28084
+    print(f"Elevation Loss: {result.elevation_loss:.0f} m ({loss_ft:.0f} ft)")
     print(f"Duration:       {format_duration(result.duration)}")
     print(f"Moving Time:    {format_duration(result.moving_time)}")
     print(f"Avg Speed:      {result.avg_speed * 3.6:.1f} km/h")
