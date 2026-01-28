@@ -17,6 +17,8 @@ class RiderParams:
     crr: float = 0.005  # rolling resistance coefficient
     air_density: float = 1.225  # kg/m³
     assumed_avg_power: float = 150.0  # watts
+    coasting_grade_threshold: float = -5.0  # degrees; fully coasting at this grade
+    max_coasting_speed: float = 48.0 / 3.6  # m/s (default 48 km/h)
 
 
 @dataclass

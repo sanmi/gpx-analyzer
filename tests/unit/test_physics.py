@@ -4,7 +4,7 @@ from datetime import datetime, timedelta, timezone
 import pytest
 
 from gpx_analyzer.models import RiderParams, TrackPoint
-from gpx_analyzer.physics import calculate_segment_work, estimate_speed_from_power
+from gpx_analyzer.physics import calculate_segment_work, effective_power, estimate_speed_from_power
 
 
 @pytest.fixture
@@ -110,6 +110,35 @@ class TestCalculateSegmentWork:
         assert work > 0
 
 
+class TestEffectivePower:
+    def test_flat_full_power(self, params):
+        assert effective_power(0.0, params) == params.assumed_avg_power
+
+    def test_uphill_full_power(self, params):
+        assert effective_power(math.radians(5), params) == params.assumed_avg_power
+
+    def test_at_threshold_zero_power(self, params):
+        threshold_rad = math.radians(params.coasting_grade_threshold)
+        assert effective_power(threshold_rad, params) == pytest.approx(0.0)
+
+    def test_beyond_threshold_zero_power(self, params):
+        beyond_rad = math.radians(params.coasting_grade_threshold - 3.0)
+        assert effective_power(beyond_rad, params) == 0.0
+
+    def test_mid_downhill_partial_power(self, params):
+        # Halfway between 0 and threshold (-5°) is -2.5°
+        mid_rad = math.radians(-2.5)
+        power = effective_power(mid_rad, params)
+        assert 0 < power < params.assumed_avg_power
+        assert power == pytest.approx(params.assumed_avg_power * 0.5, rel=0.01)
+
+    def test_gentle_downhill_mostly_full_power(self, params):
+        # -1° on a -5° threshold → 80% power
+        gentle_rad = math.radians(-1.0)
+        power = effective_power(gentle_rad, params)
+        assert power == pytest.approx(params.assumed_avg_power * 0.8, rel=0.01)
+
+
 class TestEstimateSpeedFromPower:
     def test_flat_returns_positive_speed(self, params):
         speed = estimate_speed_from_power(0.0, params)
@@ -134,3 +163,14 @@ class TestEstimateSpeedFromPower:
         params = RiderParams(assumed_avg_power=0.0)
         speed = estimate_speed_from_power(math.radians(-5), params)
         assert speed > 0, "Should coast downhill even with zero power"
+
+    def test_max_coasting_speed_cap(self):
+        params = RiderParams()
+        # Very steep descent should be capped at max_coasting_speed
+        speed = estimate_speed_from_power(math.radians(-15), params)
+        assert speed == pytest.approx(params.max_coasting_speed)
+
+    def test_custom_max_coasting_speed(self):
+        params = RiderParams(max_coasting_speed=10.0)
+        speed = estimate_speed_from_power(math.radians(-15), params)
+        assert speed == pytest.approx(10.0)

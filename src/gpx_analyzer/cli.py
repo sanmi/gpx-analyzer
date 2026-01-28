@@ -35,6 +35,18 @@ def build_parser() -> argparse.ArgumentParser:
         default=150.0,
         help="Assumed average power output in watts (default: 150)",
     )
+    parser.add_argument(
+        "--coasting-grade",
+        type=float,
+        default=-5.0,
+        help="Grade in degrees at which rider fully coasts (default: -5)",
+    )
+    parser.add_argument(
+        "--max-coast-speed",
+        type=float,
+        default=48.0,
+        help="Maximum coasting speed in km/h (default: 48)",
+    )
     return parser
 
 
@@ -54,6 +66,8 @@ def main(argv: list[str] | None = None) -> None:
         cda=args.cda,
         crr=args.crr,
         assumed_avg_power=args.power,
+        coasting_grade_threshold=args.coasting_grade,
+        max_coasting_speed=args.max_coast_speed / 3.6,
     )
 
     try:

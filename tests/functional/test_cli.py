@@ -52,6 +52,20 @@ class TestCli:
         assert result.returncode == 0
         assert "Est. Time @200W:" in result.stdout
 
+    def test_run_with_coasting_params(self):
+        result = subprocess.run(
+            [
+                sys.executable, "-m", "gpx_analyzer",
+                "--coasting-grade", "-3",
+                "--max-coast-speed", "40",
+                SAMPLE_GPX_PATH,
+            ],
+            capture_output=True,
+            text=True,
+        )
+        assert result.returncode == 0
+        assert "GPX Ride Analysis" in result.stdout
+
     def test_nonexistent_file(self):
         result = subprocess.run(
             [sys.executable, "-m", "gpx_analyzer", "/nonexistent/file.gpx"],

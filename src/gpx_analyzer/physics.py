@@ -5,32 +5,50 @@ from geopy.distance import geodesic
 from gpx_analyzer.models import RiderParams, TrackPoint
 
 G = 9.81  # m/s²
-MAX_ESTIMATED_SPEED = 20.0  # m/s (~72 km/h) cap for descent speed estimation
+
+
+def effective_power(slope_angle: float, params: RiderParams) -> float:
+    """Compute effective rider power output adjusted for grade.
+
+    On flat or uphill (grade >= 0): full assumed power.
+    On downhill: linearly reduces from full power at 0 degrees to zero
+    at the coasting grade threshold. Beyond the threshold: zero power.
+    """
+    threshold_rad = math.radians(params.coasting_grade_threshold)
+    if slope_angle >= 0:
+        return params.assumed_avg_power
+    if slope_angle <= threshold_rad:
+        return 0.0
+    # Linear interpolation: full power at 0, zero at threshold
+    fraction = slope_angle / threshold_rad  # 0 at flat, 1 at threshold
+    return params.assumed_avg_power * (1.0 - fraction)
 
 
 def estimate_speed_from_power(slope_angle: float, params: RiderParams) -> float:
     """Estimate rider speed by solving the power balance equation.
 
-    Solves: P = (F_grade + F_roll) * v + 0.5 * rho * CdA * v^3
-    where F_grade = m*g*sin(theta), F_roll = Crr*m*g*cos(theta).
+    Solves: P_eff = (F_grade + F_roll) * v + 0.5 * rho * CdA * v^3
+    where F_grade = m*g*sin(theta), F_roll = Crr*m*g*cos(theta),
+    and P_eff is the effective power adjusted for downhill coasting.
 
     On steep descents where coasting speed exceeds pedaling speed,
-    returns the coasting speed (rider does zero work).
+    returns the coasting speed capped at max_coasting_speed.
     """
     A = 0.5 * params.air_density * params.cda
     B = params.total_mass * G * (
         math.sin(slope_angle) + params.crr * math.cos(slope_angle)
     )
-    P = params.assumed_avg_power
+    P = effective_power(slope_angle, params)
+    max_speed = params.max_coasting_speed
 
     # Coasting speed on descents (where gravity exceeds rolling resistance)
     if B < 0:
-        v_coast = math.sqrt(-B / A)
+        v_coast = min(math.sqrt(-B / A), max_speed)
     else:
         v_coast = 0.0
 
     if P <= 0:
-        return min(v_coast, MAX_ESTIMATED_SPEED)
+        return v_coast
 
     # Solve A*v^3 + B*v - P = 0 using Newton's method
     v = max(5.0, v_coast)
@@ -46,7 +64,7 @@ def estimate_speed_from_power(slope_angle: float, params: RiderParams) -> float:
             break
         v = v_new
 
-    return min(max(v, v_coast), MAX_ESTIMATED_SPEED)
+    return min(max(v, v_coast), max_speed)
 
 
 def calculate_segment_work(
