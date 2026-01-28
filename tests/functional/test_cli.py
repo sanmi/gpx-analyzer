@@ -115,6 +115,57 @@ class TestCli:
         assert 4.5 < moving_hours < 6.0, f"Expected moving time ~5.5h, got {moving_hours:.2f}h"
         assert 4.5 < est_time_hours < 6.0, f"Expected est. time ~5.5h at 120W, got {est_time_hours:.2f}h"
 
+    def test_loma_prieta_elevation_gain_with_smoothing(self):
+        """Default smoothing (50m radius) should yield ~1420m elevation gain."""
+        result = subprocess.run(
+            [
+                sys.executable, "-m", "gpx_analyzer",
+                "--mass", "84",
+                "--power", "120",
+                LOMA_PRIETA_GPX_PATH,
+            ],
+            capture_output=True,
+            text=True,
+        )
+        assert result.returncode == 0
+        match = re.search(r"Elevation Gain:\s+([\d.]+)", result.stdout)
+        assert match, "Could not find 'Elevation Gain:' in output"
+        gain = float(match.group(1))
+        assert 1380 < gain < 1460, f"Expected elevation gain ~1420m, got {gain}"
+
+    def test_no_smoothing_flag(self):
+        """--no-smoothing should produce higher (raw) elevation gain."""
+        result = subprocess.run(
+            [
+                sys.executable, "-m", "gpx_analyzer",
+                "--no-smoothing",
+                "--mass", "84",
+                "--power", "120",
+                LOMA_PRIETA_GPX_PATH,
+            ],
+            capture_output=True,
+            text=True,
+        )
+        assert result.returncode == 0
+        match = re.search(r"Elevation Gain:\s+([\d.]+)", result.stdout)
+        assert match, "Could not find 'Elevation Gain:' in output"
+        gain = float(match.group(1))
+        assert 1490 < gain < 1570, f"Expected raw elevation gain ~1528m, got {gain}"
+
+    def test_custom_smoothing_radius(self):
+        """--smoothing with a custom radius should work without error."""
+        result = subprocess.run(
+            [
+                sys.executable, "-m", "gpx_analyzer",
+                "--smoothing", "25",
+                SAMPLE_GPX_PATH,
+            ],
+            capture_output=True,
+            text=True,
+        )
+        assert result.returncode == 0
+        assert "GPX Ride Analysis" in result.stdout
+
     def test_output_has_units(self):
         result = subprocess.run(
             [sys.executable, "-m", "gpx_analyzer", SAMPLE_GPX_PATH],

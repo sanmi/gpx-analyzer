@@ -4,6 +4,7 @@ import sys
 from gpx_analyzer.analyzer import analyze
 from gpx_analyzer.models import RiderParams
 from gpx_analyzer.parser import parse_gpx
+from gpx_analyzer.smoothing import smooth_elevations
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -47,6 +48,17 @@ def build_parser() -> argparse.ArgumentParser:
         default=48.0,
         help="Maximum coasting speed in km/h (default: 48)",
     )
+    parser.add_argument(
+        "--smoothing",
+        type=float,
+        default=50.0,
+        help="Elevation smoothing radius in meters (default: 50)",
+    )
+    parser.add_argument(
+        "--no-smoothing",
+        action="store_true",
+        help="Disable elevation smoothing",
+    )
     return parser
 
 
@@ -82,6 +94,10 @@ def main(argv: list[str] | None = None) -> None:
     if len(points) < 2:
         print("Error: GPX file contains fewer than 2 track points.", file=sys.stderr)
         sys.exit(1)
+
+    smoothing_radius = 0.0 if args.no_smoothing else args.smoothing
+    if smoothing_radius > 0:
+        points = smooth_elevations(points, smoothing_radius)
 
     result = analyze(points, params)
 
