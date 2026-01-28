@@ -1,0 +1,647 @@
+import json
+import tempfile
+from pathlib import Path
+from unittest.mock import MagicMock, patch
+
+import pytest
+
+from gpx_analyzer import ridewithgps
+
+
+class TestIsRidewithgpsUrl:
+    def test_valid_url(self):
+        assert ridewithgps.is_ridewithgps_url("https://ridewithgps.com/routes/53835626")
+
+    def test_valid_url_with_www(self):
+        assert ridewithgps.is_ridewithgps_url(
+            "https://www.ridewithgps.com/routes/53835626"
+        )
+
+    def test_valid_url_http(self):
+        assert ridewithgps.is_ridewithgps_url("http://ridewithgps.com/routes/53835626")
+
+    def test_local_file_path(self):
+        assert not ridewithgps.is_ridewithgps_url("/path/to/file.gpx")
+
+    def test_other_url(self):
+        assert not ridewithgps.is_ridewithgps_url("https://strava.com/routes/123")
+
+    def test_empty_string(self):
+        assert not ridewithgps.is_ridewithgps_url("")
+
+    def test_invalid_route_path(self):
+        assert not ridewithgps.is_ridewithgps_url("https://ridewithgps.com/trips/123")
+
+    def test_valid_url_with_privacy_code(self):
+        assert ridewithgps.is_ridewithgps_url(
+            "https://ridewithgps.com/routes/53835626?privacy_code=ABC123"
+        )
+
+
+class TestExtractRouteId:
+    def test_valid_url(self):
+        assert (
+            ridewithgps.extract_route_id("https://ridewithgps.com/routes/53835626")
+            == 53835626
+        )
+
+    def test_valid_url_with_www(self):
+        assert (
+            ridewithgps.extract_route_id("https://www.ridewithgps.com/routes/12345")
+            == 12345
+        )
+
+    def test_invalid_url_raises(self):
+        with pytest.raises(ValueError, match="Invalid RideWithGPS URL"):
+            ridewithgps.extract_route_id("https://example.com/routes/123")
+
+    def test_local_path_raises(self):
+        with pytest.raises(ValueError, match="Invalid RideWithGPS URL"):
+            ridewithgps.extract_route_id("/path/to/file.gpx")
+
+
+class TestExtractPrivacyCode:
+    def test_url_with_privacy_code(self):
+        url = "https://ridewithgps.com/routes/53835626?privacy_code=ABC123"
+        assert ridewithgps.extract_privacy_code(url) == "ABC123"
+
+    def test_url_without_privacy_code(self):
+        url = "https://ridewithgps.com/routes/53835626"
+        assert ridewithgps.extract_privacy_code(url) is None
+
+    def test_url_with_other_params(self):
+        url = "https://ridewithgps.com/routes/53835626?foo=bar&privacy_code=XYZ789&baz=qux"
+        assert ridewithgps.extract_privacy_code(url) == "XYZ789"
+
+    def test_url_with_empty_privacy_code(self):
+        url = "https://ridewithgps.com/routes/53835626?privacy_code="
+        # Empty privacy_code is treated as None (not useful)
+        assert ridewithgps.extract_privacy_code(url) is None
+
+
+class TestCacheOperations:
+    @pytest.fixture
+    def temp_cache_dir(self, tmp_path, monkeypatch):
+        """Set up a temporary cache directory for testing."""
+        cache_dir = tmp_path / ".cache" / "gpx-analyzer"
+        routes_dir = cache_dir / "routes"
+        routes_dir.mkdir(parents=True)
+        index_path = cache_dir / "cache_index.json"
+
+        monkeypatch.setattr(ridewithgps, "CACHE_DIR", cache_dir)
+        monkeypatch.setattr(ridewithgps, "ROUTES_DIR", routes_dir)
+        monkeypatch.setattr(ridewithgps, "CACHE_INDEX_PATH", index_path)
+
+        return {
+            "cache_dir": cache_dir,
+            "routes_dir": routes_dir,
+            "index_path": index_path,
+        }
+
+    def test_get_cached_path_exists(self, temp_cache_dir):
+        routes_dir = temp_cache_dir["routes_dir"]
+        gpx_file = routes_dir / "12345.gpx"
+        gpx_file.write_text("<gpx></gpx>")
+
+        result = ridewithgps._get_cached_path(12345)
+        assert result == gpx_file
+
+    def test_get_cached_path_not_exists(self, temp_cache_dir):
+        result = ridewithgps._get_cached_path(99999)
+        assert result is None
+
+    def test_save_to_cache(self, temp_cache_dir):
+        routes_dir = temp_cache_dir["routes_dir"]
+        index_path = temp_cache_dir["index_path"]
+
+        gpx_data = b"<gpx>test data</gpx>"
+        path = ridewithgps._save_to_cache(12345, gpx_data)
+
+        assert path == routes_dir / "12345.gpx"
+        assert path.read_bytes() == gpx_data
+        assert index_path.exists()
+
+        with index_path.open() as f:
+            index = json.load(f)
+        assert "12345" in index
+
+    def test_update_lru(self, temp_cache_dir):
+        index_path = temp_cache_dir["index_path"]
+
+        ridewithgps._update_lru(12345)
+
+        with index_path.open() as f:
+            index = json.load(f)
+        assert "12345" in index
+        assert isinstance(index["12345"], float)
+
+    def test_update_lru_updates_existing(self, temp_cache_dir):
+        index_path = temp_cache_dir["index_path"]
+
+        ridewithgps._update_lru(12345)
+        with index_path.open() as f:
+            first_time = json.load(f)["12345"]
+
+        ridewithgps._update_lru(12345)
+        with index_path.open() as f:
+            second_time = json.load(f)["12345"]
+
+        assert second_time >= first_time
+
+
+class TestLruEviction:
+    @pytest.fixture
+    def temp_cache_with_files(self, tmp_path, monkeypatch):
+        """Set up a cache with existing files for LRU testing."""
+        cache_dir = tmp_path / ".cache" / "gpx-analyzer"
+        routes_dir = cache_dir / "routes"
+        routes_dir.mkdir(parents=True)
+        index_path = cache_dir / "cache_index.json"
+
+        monkeypatch.setattr(ridewithgps, "CACHE_DIR", cache_dir)
+        monkeypatch.setattr(ridewithgps, "ROUTES_DIR", routes_dir)
+        monkeypatch.setattr(ridewithgps, "CACHE_INDEX_PATH", index_path)
+
+        return {
+            "cache_dir": cache_dir,
+            "routes_dir": routes_dir,
+            "index_path": index_path,
+        }
+
+    def test_enforce_lru_limit_under_limit(self, temp_cache_with_files):
+        routes_dir = temp_cache_with_files["routes_dir"]
+        index_path = temp_cache_with_files["index_path"]
+
+        index = {}
+        for i in range(5):
+            (routes_dir / f"{i}.gpx").write_text("<gpx></gpx>")
+            index[str(i)] = float(i)
+
+        with index_path.open("w") as f:
+            json.dump(index, f)
+
+        ridewithgps._enforce_lru_limit()
+
+        assert len(list(routes_dir.glob("*.gpx"))) == 5
+
+    def test_enforce_lru_limit_over_limit(self, temp_cache_with_files):
+        routes_dir = temp_cache_with_files["routes_dir"]
+        index_path = temp_cache_with_files["index_path"]
+
+        index = {}
+        for i in range(12):
+            (routes_dir / f"{i}.gpx").write_text("<gpx></gpx>")
+            index[str(i)] = float(i)
+
+        with index_path.open("w") as f:
+            json.dump(index, f)
+
+        ridewithgps._enforce_lru_limit()
+
+        remaining_files = list(routes_dir.glob("*.gpx"))
+        assert len(remaining_files) == 10
+
+        with index_path.open() as f:
+            new_index = json.load(f)
+        assert len(new_index) == 10
+
+        assert "0" not in new_index
+        assert "1" not in new_index
+        assert "11" in new_index
+
+    def test_evicts_oldest_files(self, temp_cache_with_files):
+        routes_dir = temp_cache_with_files["routes_dir"]
+        index_path = temp_cache_with_files["index_path"]
+
+        index = {
+            "oldest": 100.0,
+            "second_oldest": 200.0,
+            "newest": 300.0,
+        }
+        for route_id in index:
+            (routes_dir / f"{route_id}.gpx").write_text("<gpx></gpx>")
+
+        with index_path.open("w") as f:
+            json.dump(index, f)
+
+        with patch.object(ridewithgps, "MAX_CACHED_ROUTES", 2):
+            ridewithgps._enforce_lru_limit()
+
+        assert not (routes_dir / "oldest.gpx").exists()
+        assert (routes_dir / "second_oldest.gpx").exists()
+        assert (routes_dir / "newest.gpx").exists()
+
+
+class TestGetGpx:
+    @pytest.fixture
+    def temp_cache_dir(self, tmp_path, monkeypatch):
+        cache_dir = tmp_path / ".cache" / "gpx-analyzer"
+        routes_dir = cache_dir / "routes"
+        routes_dir.mkdir(parents=True)
+        index_path = cache_dir / "cache_index.json"
+
+        monkeypatch.setattr(ridewithgps, "CACHE_DIR", cache_dir)
+        monkeypatch.setattr(ridewithgps, "ROUTES_DIR", routes_dir)
+        monkeypatch.setattr(ridewithgps, "CACHE_INDEX_PATH", index_path)
+
+        return {
+            "cache_dir": cache_dir,
+            "routes_dir": routes_dir,
+            "index_path": index_path,
+        }
+
+    def test_cache_hit_returns_path(self, temp_cache_dir):
+        routes_dir = temp_cache_dir["routes_dir"]
+        index_path = temp_cache_dir["index_path"]
+
+        gpx_file = routes_dir / "12345.gpx"
+        gpx_file.write_text("<gpx>cached</gpx>")
+        with index_path.open("w") as f:
+            json.dump({"12345": 100.0}, f)
+
+        result = ridewithgps.get_gpx("https://ridewithgps.com/routes/12345")
+
+        assert result == str(gpx_file)
+
+    def test_cache_hit_updates_lru(self, temp_cache_dir):
+        routes_dir = temp_cache_dir["routes_dir"]
+        index_path = temp_cache_dir["index_path"]
+
+        gpx_file = routes_dir / "12345.gpx"
+        gpx_file.write_text("<gpx>cached</gpx>")
+        with index_path.open("w") as f:
+            json.dump({"12345": 100.0}, f)
+
+        ridewithgps.get_gpx("https://ridewithgps.com/routes/12345")
+
+        with index_path.open() as f:
+            index = json.load(f)
+        assert index["12345"] > 100.0
+
+    @patch.object(ridewithgps, "_download_gpx")
+    def test_cache_miss_downloads(self, mock_download, temp_cache_dir):
+        routes_dir = temp_cache_dir["routes_dir"]
+
+        mock_download.return_value = b"<gpx>downloaded</gpx>"
+
+        result = ridewithgps.get_gpx("https://ridewithgps.com/routes/99999")
+
+        mock_download.assert_called_once_with(99999, None)
+        assert result == str(routes_dir / "99999.gpx")
+        assert (routes_dir / "99999.gpx").read_bytes() == b"<gpx>downloaded</gpx>"
+
+    @patch.object(ridewithgps, "_download_gpx")
+    def test_cache_miss_downloads_with_privacy_code(self, mock_download, temp_cache_dir):
+        routes_dir = temp_cache_dir["routes_dir"]
+
+        mock_download.return_value = b"<gpx>private route</gpx>"
+
+        result = ridewithgps.get_gpx(
+            "https://ridewithgps.com/routes/99999?privacy_code=SECRET"
+        )
+
+        mock_download.assert_called_once_with(99999, "SECRET")
+        assert result == str(routes_dir / "99999.gpx")
+        assert (routes_dir / "99999.gpx").read_bytes() == b"<gpx>private route</gpx>"
+
+
+class TestLoadConfig:
+    @pytest.fixture
+    def no_local_config(self, tmp_path, monkeypatch):
+        """Ensure no local config file exists."""
+        local_path = tmp_path / "nonexistent" / "gpx-analyzer.json"
+        monkeypatch.setattr(ridewithgps, "LOCAL_CONFIG_PATH", local_path)
+
+    def test_returns_config_from_global_file(self, tmp_path, monkeypatch, no_local_config):
+        config_dir = tmp_path / ".config" / "gpx-analyzer"
+        config_dir.mkdir(parents=True)
+        config_path = config_dir / "gpx-analyzer.json"
+        config_path.write_text('{"ridewithgps_api_key": "global-key"}')
+
+        monkeypatch.setattr(ridewithgps, "CONFIG_PATH", config_path)
+
+        config = ridewithgps._load_config()
+
+        assert config == {"ridewithgps_api_key": "global-key"}
+
+    def test_returns_config_from_local_file(self, tmp_path, monkeypatch):
+        local_path = tmp_path / "gpx-analyzer.json"
+        local_path.write_text('{"ridewithgps_api_key": "local-key"}')
+        monkeypatch.setattr(ridewithgps, "LOCAL_CONFIG_PATH", local_path)
+
+        # Global config also exists
+        config_dir = tmp_path / ".config" / "gpx-analyzer"
+        config_dir.mkdir(parents=True)
+        global_path = config_dir / "gpx-analyzer.json"
+        global_path.write_text('{"ridewithgps_api_key": "global-key"}')
+        monkeypatch.setattr(ridewithgps, "CONFIG_PATH", global_path)
+
+        config = ridewithgps._load_config()
+
+        # Local takes precedence
+        assert config == {"ridewithgps_api_key": "local-key"}
+
+    def test_falls_back_to_global_when_local_missing(self, tmp_path, monkeypatch):
+        local_path = tmp_path / "nonexistent" / "gpx-analyzer.json"
+        monkeypatch.setattr(ridewithgps, "LOCAL_CONFIG_PATH", local_path)
+
+        config_dir = tmp_path / ".config" / "gpx-analyzer"
+        config_dir.mkdir(parents=True)
+        global_path = config_dir / "gpx-analyzer.json"
+        global_path.write_text('{"ridewithgps_api_key": "global-key"}')
+        monkeypatch.setattr(ridewithgps, "CONFIG_PATH", global_path)
+
+        config = ridewithgps._load_config()
+
+        assert config == {"ridewithgps_api_key": "global-key"}
+
+    def test_returns_empty_when_both_files_missing(self, tmp_path, monkeypatch):
+        local_path = tmp_path / "nonexistent" / "gpx-analyzer.json"
+        monkeypatch.setattr(ridewithgps, "LOCAL_CONFIG_PATH", local_path)
+
+        global_path = tmp_path / "nonexistent" / "gpx-analyzer.json"
+        monkeypatch.setattr(ridewithgps, "CONFIG_PATH", global_path)
+
+        config = ridewithgps._load_config()
+
+        assert config == {}
+
+    def test_skips_invalid_local_and_uses_global(self, tmp_path, monkeypatch):
+        local_path = tmp_path / "gpx-analyzer.json"
+        local_path.write_text("not valid json")
+        monkeypatch.setattr(ridewithgps, "LOCAL_CONFIG_PATH", local_path)
+
+        config_dir = tmp_path / ".config" / "gpx-analyzer"
+        config_dir.mkdir(parents=True)
+        global_path = config_dir / "gpx-analyzer.json"
+        global_path.write_text('{"ridewithgps_api_key": "global-key"}')
+        monkeypatch.setattr(ridewithgps, "CONFIG_PATH", global_path)
+
+        config = ridewithgps._load_config()
+
+        assert config == {"ridewithgps_api_key": "global-key"}
+
+    def test_returns_empty_when_both_invalid(self, tmp_path, monkeypatch):
+        local_path = tmp_path / "gpx-analyzer.json"
+        local_path.write_text("not valid json")
+        monkeypatch.setattr(ridewithgps, "LOCAL_CONFIG_PATH", local_path)
+
+        config_dir = tmp_path / ".config" / "gpx-analyzer"
+        config_dir.mkdir(parents=True)
+        global_path = config_dir / "gpx-analyzer.json"
+        global_path.write_text("also not valid")
+        monkeypatch.setattr(ridewithgps, "CONFIG_PATH", global_path)
+
+        config = ridewithgps._load_config()
+
+        assert config == {}
+
+
+class TestGetAuthHeaders:
+    @pytest.fixture
+    def no_config(self, tmp_path, monkeypatch):
+        """Ensure no config files exist."""
+        local_path = tmp_path / "nonexistent" / "gpx-analyzer.json"
+        monkeypatch.setattr(ridewithgps, "LOCAL_CONFIG_PATH", local_path)
+        global_path = tmp_path / "nonexistent" / "gpx-analyzer.json"
+        monkeypatch.setattr(ridewithgps, "CONFIG_PATH", global_path)
+
+    def test_returns_headers_from_config_file(self, tmp_path, monkeypatch):
+        monkeypatch.delenv("RIDEWITHGPS_API_KEY", raising=False)
+        monkeypatch.delenv("RIDEWITHGPS_AUTH_TOKEN", raising=False)
+
+        local_path = tmp_path / "nonexistent" / "gpx-analyzer.json"
+        monkeypatch.setattr(ridewithgps, "LOCAL_CONFIG_PATH", local_path)
+
+        config_dir = tmp_path / ".config" / "gpx-analyzer"
+        config_dir.mkdir(parents=True)
+        config_path = config_dir / "gpx-analyzer.json"
+        config_path.write_text(
+            '{"ridewithgps_api_key": "file-key", "ridewithgps_auth_token": "file-token"}'
+        )
+        monkeypatch.setattr(ridewithgps, "CONFIG_PATH", config_path)
+
+        headers = ridewithgps._get_auth_headers()
+
+        assert headers == {
+            "x-rwgps-api-key": "file-key",
+            "x-rwgps-auth-token": "file-token",
+        }
+
+    def test_returns_headers_from_env_vars(self, tmp_path, monkeypatch, no_config):
+        monkeypatch.setenv("RIDEWITHGPS_API_KEY", "env-key")
+        monkeypatch.setenv("RIDEWITHGPS_AUTH_TOKEN", "env-token")
+
+        headers = ridewithgps._get_auth_headers()
+
+        assert headers == {
+            "x-rwgps-api-key": "env-key",
+            "x-rwgps-auth-token": "env-token",
+        }
+
+    def test_config_file_takes_precedence_over_env_vars(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("RIDEWITHGPS_API_KEY", "env-key")
+        monkeypatch.setenv("RIDEWITHGPS_AUTH_TOKEN", "env-token")
+
+        local_path = tmp_path / "nonexistent" / "gpx-analyzer.json"
+        monkeypatch.setattr(ridewithgps, "LOCAL_CONFIG_PATH", local_path)
+
+        config_dir = tmp_path / ".config" / "gpx-analyzer"
+        config_dir.mkdir(parents=True)
+        config_path = config_dir / "gpx-analyzer.json"
+        config_path.write_text(
+            '{"ridewithgps_api_key": "file-key", "ridewithgps_auth_token": "file-token"}'
+        )
+        monkeypatch.setattr(ridewithgps, "CONFIG_PATH", config_path)
+
+        headers = ridewithgps._get_auth_headers()
+
+        assert headers == {
+            "x-rwgps-api-key": "file-key",
+            "x-rwgps-auth-token": "file-token",
+        }
+
+    def test_falls_back_to_env_for_missing_config_values(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("RIDEWITHGPS_AUTH_TOKEN", "env-token")
+        monkeypatch.delenv("RIDEWITHGPS_API_KEY", raising=False)
+
+        local_path = tmp_path / "nonexistent" / "gpx-analyzer.json"
+        monkeypatch.setattr(ridewithgps, "LOCAL_CONFIG_PATH", local_path)
+
+        config_dir = tmp_path / ".config" / "gpx-analyzer"
+        config_dir.mkdir(parents=True)
+        config_path = config_dir / "gpx-analyzer.json"
+        # Config only has api_key, not auth_token
+        config_path.write_text('{"ridewithgps_api_key": "file-key"}')
+        monkeypatch.setattr(ridewithgps, "CONFIG_PATH", config_path)
+
+        headers = ridewithgps._get_auth_headers()
+
+        assert headers == {
+            "x-rwgps-api-key": "file-key",
+            "x-rwgps-auth-token": "env-token",
+        }
+
+    def test_returns_empty_when_api_key_missing(self, tmp_path, monkeypatch, no_config):
+        monkeypatch.delenv("RIDEWITHGPS_API_KEY", raising=False)
+        monkeypatch.setenv("RIDEWITHGPS_AUTH_TOKEN", "my-auth-token")
+
+        headers = ridewithgps._get_auth_headers()
+
+        assert headers == {}
+
+    def test_returns_empty_when_auth_token_missing(self, tmp_path, monkeypatch, no_config):
+        monkeypatch.setenv("RIDEWITHGPS_API_KEY", "my-api-key")
+        monkeypatch.delenv("RIDEWITHGPS_AUTH_TOKEN", raising=False)
+
+        headers = ridewithgps._get_auth_headers()
+
+        assert headers == {}
+
+    def test_returns_empty_when_both_missing(self, tmp_path, monkeypatch, no_config):
+        monkeypatch.delenv("RIDEWITHGPS_API_KEY", raising=False)
+        monkeypatch.delenv("RIDEWITHGPS_AUTH_TOKEN", raising=False)
+
+        headers = ridewithgps._get_auth_headers()
+
+        assert headers == {}
+
+
+class TestDownloadGpx:
+    @pytest.fixture
+    def no_config(self, tmp_path, monkeypatch):
+        """Ensure no config files exist and no env vars are set."""
+        local_path = tmp_path / "nonexistent" / "gpx-analyzer.json"
+        monkeypatch.setattr(ridewithgps, "LOCAL_CONFIG_PATH", local_path)
+        global_path = tmp_path / "nonexistent" / "gpx-analyzer.json"
+        monkeypatch.setattr(ridewithgps, "CONFIG_PATH", global_path)
+        monkeypatch.delenv("RIDEWITHGPS_API_KEY", raising=False)
+        monkeypatch.delenv("RIDEWITHGPS_AUTH_TOKEN", raising=False)
+
+    @patch("gpx_analyzer.ridewithgps.requests.get")
+    def test_download_success(self, mock_get, no_config):
+        mock_response = MagicMock()
+        mock_response.content = b"<gpx>downloaded content</gpx>"
+        mock_get.return_value = mock_response
+
+        result = ridewithgps._download_gpx(12345)
+
+        mock_get.assert_called_once_with(
+            "https://ridewithgps.com/routes/12345.gpx?sub_format=track",
+            headers={},
+            timeout=30,
+        )
+        mock_response.raise_for_status.assert_called_once()
+        assert result == b"<gpx>downloaded content</gpx>"
+
+    @patch("gpx_analyzer.ridewithgps.requests.get")
+    def test_download_with_privacy_code(self, mock_get, no_config):
+        mock_response = MagicMock()
+        mock_response.content = b"<gpx>private content</gpx>"
+        mock_get.return_value = mock_response
+
+        result = ridewithgps._download_gpx(12345, "SECRET123")
+
+        mock_get.assert_called_once_with(
+            "https://ridewithgps.com/routes/12345.gpx?sub_format=track&privacy_code=SECRET123",
+            headers={},
+            timeout=30,
+        )
+        mock_response.raise_for_status.assert_called_once()
+        assert result == b"<gpx>private content</gpx>"
+
+    @patch("gpx_analyzer.ridewithgps.requests.get")
+    def test_download_with_auth_from_env(self, mock_get, tmp_path, monkeypatch):
+        local_path = tmp_path / "nonexistent" / "gpx-analyzer.json"
+        monkeypatch.setattr(ridewithgps, "LOCAL_CONFIG_PATH", local_path)
+        global_path = tmp_path / "nonexistent" / "gpx-analyzer.json"
+        monkeypatch.setattr(ridewithgps, "CONFIG_PATH", global_path)
+        monkeypatch.setenv("RIDEWITHGPS_API_KEY", "test-key")
+        monkeypatch.setenv("RIDEWITHGPS_AUTH_TOKEN", "test-token")
+
+        mock_response = MagicMock()
+        mock_response.content = b"<gpx>authenticated content</gpx>"
+        mock_get.return_value = mock_response
+
+        result = ridewithgps._download_gpx(12345)
+
+        mock_get.assert_called_once_with(
+            "https://ridewithgps.com/routes/12345.gpx?sub_format=track",
+            headers={
+                "x-rwgps-api-key": "test-key",
+                "x-rwgps-auth-token": "test-token",
+            },
+            timeout=30,
+        )
+        assert result == b"<gpx>authenticated content</gpx>"
+
+    @patch("gpx_analyzer.ridewithgps.requests.get")
+    def test_download_with_auth_from_global_config(self, mock_get, tmp_path, monkeypatch):
+        local_path = tmp_path / "nonexistent" / "gpx-analyzer.json"
+        monkeypatch.setattr(ridewithgps, "LOCAL_CONFIG_PATH", local_path)
+
+        config_dir = tmp_path / ".config" / "gpx-analyzer"
+        config_dir.mkdir(parents=True)
+        global_path = config_dir / "gpx-analyzer.json"
+        global_path.write_text(
+            '{"ridewithgps_api_key": "cfg-key", "ridewithgps_auth_token": "cfg-token"}'
+        )
+        monkeypatch.setattr(ridewithgps, "CONFIG_PATH", global_path)
+        monkeypatch.delenv("RIDEWITHGPS_API_KEY", raising=False)
+        monkeypatch.delenv("RIDEWITHGPS_AUTH_TOKEN", raising=False)
+
+        mock_response = MagicMock()
+        mock_response.content = b"<gpx>authenticated content</gpx>"
+        mock_get.return_value = mock_response
+
+        result = ridewithgps._download_gpx(12345)
+
+        mock_get.assert_called_once_with(
+            "https://ridewithgps.com/routes/12345.gpx?sub_format=track",
+            headers={
+                "x-rwgps-api-key": "cfg-key",
+                "x-rwgps-auth-token": "cfg-token",
+            },
+            timeout=30,
+        )
+        assert result == b"<gpx>authenticated content</gpx>"
+
+    @patch("gpx_analyzer.ridewithgps.requests.get")
+    def test_download_with_auth_from_local_config(self, mock_get, tmp_path, monkeypatch):
+        local_path = tmp_path / "gpx-analyzer.json"
+        local_path.write_text(
+            '{"ridewithgps_api_key": "local-key", "ridewithgps_auth_token": "local-token"}'
+        )
+        monkeypatch.setattr(ridewithgps, "LOCAL_CONFIG_PATH", local_path)
+
+        global_path = tmp_path / "nonexistent" / "gpx-analyzer.json"
+        monkeypatch.setattr(ridewithgps, "CONFIG_PATH", global_path)
+        monkeypatch.delenv("RIDEWITHGPS_API_KEY", raising=False)
+        monkeypatch.delenv("RIDEWITHGPS_AUTH_TOKEN", raising=False)
+
+        mock_response = MagicMock()
+        mock_response.content = b"<gpx>authenticated content</gpx>"
+        mock_get.return_value = mock_response
+
+        result = ridewithgps._download_gpx(12345)
+
+        mock_get.assert_called_once_with(
+            "https://ridewithgps.com/routes/12345.gpx?sub_format=track",
+            headers={
+                "x-rwgps-api-key": "local-key",
+                "x-rwgps-auth-token": "local-token",
+            },
+            timeout=30,
+        )
+        assert result == b"<gpx>authenticated content</gpx>"
+
+    @patch("gpx_analyzer.ridewithgps.requests.get")
+    def test_download_failure(self, mock_get, no_config):
+        import requests
+
+        mock_response = MagicMock()
+        mock_response.raise_for_status.side_effect = requests.HTTPError("404 Not Found")
+        mock_get.return_value = mock_response
+
+        with pytest.raises(requests.HTTPError):
+            ridewithgps._download_gpx(99999)

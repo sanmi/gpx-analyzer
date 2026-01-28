@@ -4,6 +4,7 @@ import sys
 from gpx_analyzer.analyzer import analyze
 from gpx_analyzer.models import RiderParams
 from gpx_analyzer.parser import parse_gpx
+from gpx_analyzer.ridewithgps import get_gpx, is_ridewithgps_url
 from gpx_analyzer.smoothing import smooth_elevations
 
 
@@ -82,10 +83,19 @@ def main(argv: list[str] | None = None) -> None:
         max_coasting_speed=args.max_coast_speed / 3.6,
     )
 
+    if is_ridewithgps_url(args.gpx_file):
+        try:
+            gpx_path = get_gpx(args.gpx_file)
+        except Exception as e:
+            print(f"Error downloading GPX from RideWithGPS: {e}", file=sys.stderr)
+            sys.exit(1)
+    else:
+        gpx_path = args.gpx_file
+
     try:
-        points = parse_gpx(args.gpx_file)
+        points = parse_gpx(gpx_path)
     except FileNotFoundError:
-        print(f"Error: File not found: {args.gpx_file}", file=sys.stderr)
+        print(f"Error: File not found: {gpx_path}", file=sys.stderr)
         sys.exit(1)
     except Exception as e:
         print(f"Error parsing GPX file: {e}", file=sys.stderr)

@@ -10,6 +10,7 @@ requires-python = ">=3.12"
 dependencies = [
     "gpxpy>=1.6",
     "geopy>=2.4",
+    "requests>=2.31",
 ]
 
 [project.optional-dependencies]
@@ -22,3 +23,8 @@ gpx-analyzer = "gpx_analyzer.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.pytest.ini_options]
+markers = [
+    "network: marks tests that require network access (may be slow or flaky)",
+]

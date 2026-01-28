@@ -14,6 +14,7 @@ LOMA_PRIETA_GPX_PATH = os.path.join(
 CROIX_DE_FER_GPX_PATH = os.path.join(
     os.path.dirname(__file__), "data", "col_de_la_croix_de_fer.gpx"
 )
+RIDEWITHGPS_URL = "https://ridewithgps.com/routes/53835626?privacy_code=Z5O4f4AuMpY9ylt1Ht4o3XvAyd1zmzji"
 
 
 class TestCli:
@@ -213,3 +214,40 @@ class TestCli:
         assert "km/h" in output
         assert "kJ" in output
         assert "W" in output
+
+    @pytest.mark.network
+    def test_ridewithgps_url(self):
+        """Test fetching and analyzing a route from RideWithGPS URL."""
+        result = subprocess.run(
+            [sys.executable, "-m", "gpx_analyzer", RIDEWITHGPS_URL],
+            capture_output=True,
+            text=True,
+        )
+        assert result.returncode == 0, f"stderr: {result.stderr}"
+        output = result.stdout
+        assert "GPX Ride Analysis" in output
+        assert "Distance:" in output
+        assert "Elevation Gain:" in output
+
+    @pytest.mark.network
+    def test_ridewithgps_authenticated_route(self):
+        """Test fetching a route that requires authentication.
+
+        Skipped if RideWithGPS credentials are not configured.
+        Configure via gpx-analyzer.json or environment variables.
+        """
+        from gpx_analyzer.ridewithgps import _get_auth_headers
+
+        if not _get_auth_headers():
+            pytest.skip("RideWithGPS credentials not configured")
+
+        result = subprocess.run(
+            [sys.executable, "-m", "gpx_analyzer", "https://ridewithgps.com/routes/53835558"],
+            capture_output=True,
+            text=True,
+        )
+        assert result.returncode == 0, f"stderr: {result.stderr}"
+        output = result.stdout
+        assert "GPX Ride Analysis" in output
+        assert "Distance:" in output
+        assert "Elevation Gain:" in output
