@@ -2,12 +2,12 @@
     "ridewithgps_api_key": "c89cc230",
     "ridewithgps_auth_token": "7695fc6f15c10c214231b94f92e94c28",
     "mass": 84.0,
-    "power": 120.0,
+    "power": 100.0,
     "cda": 0.32,
     "crr": 0.012,
     "coasting_grade": -4.0,
     "max_coast_speed": 40.0,
     "smoothing": 50.0,
-    "elevation_scale": 1.0
-
+    "elevation_scale": 1.0,
+    "headwind": 0.0
 }

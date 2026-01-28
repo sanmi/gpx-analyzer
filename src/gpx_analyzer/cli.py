@@ -17,6 +17,7 @@ DEFAULTS = {
     "max_coast_speed": 48.0,
     "smoothing": 50.0,
     "elevation_scale": 1.0,
+    "headwind": 0.0,
 }
 
 
@@ -85,6 +86,12 @@ def build_parser(config: dict | None = None) -> argparse.ArgumentParser:
         default=get_default("elevation_scale"),
         help=f"Scale factor for elevation changes (default: {DEFAULTS['elevation_scale']}). Use <1 to reduce overestimated GPS elevation.",
     )
+    parser.add_argument(
+        "--headwind",
+        type=float,
+        default=get_default("headwind"),
+        help=f"Headwind speed in km/h (default: {DEFAULTS['headwind']}). Positive = into wind, negative = tailwind.",
+    )
     return parser
 
 
@@ -107,6 +114,7 @@ def main(argv: list[str] | None = None) -> None:
         assumed_avg_power=args.power,
         coasting_grade_threshold=args.coasting_grade,
         max_coasting_speed=args.max_coast_speed / 3.6,
+        headwind=args.headwind / 3.6,
     )
 
     if is_ridewithgps_url(args.gpx_file):
@@ -138,10 +146,12 @@ def main(argv: list[str] | None = None) -> None:
     result = analyze(points, params)
 
     print("=== GPX Route Analysis ===")
+    headwind_mph = args.headwind * 0.621371
     print(
         f"Config: mass={args.mass}kg cda={args.cda} crr={args.crr} power={args.power}W "
         f"coasting_grade={args.coasting_grade}° max_coast_speed={args.max_coast_speed}km/h "
-        f"smoothing={smoothing_radius}m elevation_scale={args.elevation_scale}"
+        f"smoothing={smoothing_radius}m elevation_scale={args.elevation_scale} "
+        f"headwind={args.headwind}km/h ({headwind_mph:.1f}mph)"
     )
     dist_km = result.total_distance / 1000
     dist_mi = dist_km * 0.621371

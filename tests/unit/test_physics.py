@@ -174,3 +174,69 @@ class TestEstimateSpeedFromPower:
         params = RiderParams(max_coasting_speed=10.0)
         speed = estimate_speed_from_power(math.radians(-15), params)
         assert speed == pytest.approx(10.0)
+
+    def test_headwind_reduces_speed(self):
+        """Headwind should reduce estimated speed."""
+        no_wind = RiderParams(headwind=0.0)
+        headwind = RiderParams(headwind=5.0)
+        speed_no_wind = estimate_speed_from_power(0.0, no_wind)
+        speed_headwind = estimate_speed_from_power(0.0, headwind)
+        assert speed_headwind < speed_no_wind
+
+    def test_tailwind_increases_speed(self):
+        """Tailwind (negative headwind) should increase estimated speed."""
+        no_wind = RiderParams(headwind=0.0)
+        tailwind = RiderParams(headwind=-5.0)
+        speed_no_wind = estimate_speed_from_power(0.0, no_wind)
+        speed_tailwind = estimate_speed_from_power(0.0, tailwind)
+        assert speed_tailwind > speed_no_wind
+
+
+class TestHeadwindWork:
+    def test_headwind_increases_work(self):
+        """Headwind should increase work due to higher aero drag."""
+        base = datetime(2024, 6, 15, 8, 0, 0, tzinfo=timezone.utc)
+        a = TrackPoint(lat=37.7749, lon=-122.4194, elevation=10.0, time=base)
+        b = TrackPoint(
+            lat=37.7758,
+            lon=-122.4183,
+            elevation=10.0,
+            time=base + timedelta(seconds=20),
+        )
+        no_wind = RiderParams(headwind=0.0)
+        headwind = RiderParams(headwind=5.0)
+        work_no_wind, _, _ = calculate_segment_work(a, b, no_wind)
+        work_headwind, _, _ = calculate_segment_work(a, b, headwind)
+        assert work_headwind > work_no_wind
+
+    def test_tailwind_decreases_work(self):
+        """Tailwind should decrease work due to lower aero drag."""
+        base = datetime(2024, 6, 15, 8, 0, 0, tzinfo=timezone.utc)
+        a = TrackPoint(lat=37.7749, lon=-122.4194, elevation=10.0, time=base)
+        b = TrackPoint(
+            lat=37.7758,
+            lon=-122.4183,
+            elevation=10.0,
+            time=base + timedelta(seconds=20),
+        )
+        no_wind = RiderParams(headwind=0.0)
+        tailwind = RiderParams(headwind=-3.0)
+        work_no_wind, _, _ = calculate_segment_work(a, b, no_wind)
+        work_tailwind, _, _ = calculate_segment_work(a, b, tailwind)
+        assert work_tailwind < work_no_wind
+
+    def test_zero_headwind_unchanged(self):
+        """Zero headwind should give same result as default params."""
+        base = datetime(2024, 6, 15, 8, 0, 0, tzinfo=timezone.utc)
+        a = TrackPoint(lat=37.7749, lon=-122.4194, elevation=10.0, time=base)
+        b = TrackPoint(
+            lat=37.7758,
+            lon=-122.4183,
+            elevation=10.0,
+            time=base + timedelta(seconds=20),
+        )
+        default_params = RiderParams()
+        explicit_zero = RiderParams(headwind=0.0)
+        work_default, _, _ = calculate_segment_work(a, b, default_params)
+        work_explicit, _, _ = calculate_segment_work(a, b, explicit_zero)
+        assert work_default == pytest.approx(work_explicit)

@@ -20,7 +20,7 @@ RIDEWITHGPS_URL = "https://ridewithgps.com/routes/53835626?privacy_code=Z5O4f4Au
 class TestCli:
     def test_run_with_sample_file(self):
         result = subprocess.run(
-            [sys.executable, "-m", "gpx_analyzer", SAMPLE_GPX_PATH],
+            [sys.executable, "-m", "gpx_analyzer", "--power", "150", SAMPLE_GPX_PATH],
             capture_output=True,
             text=True,
         )
@@ -126,6 +126,8 @@ class TestCli:
                 sys.executable, "-m", "gpx_analyzer",
                 "--mass", "98",
                 "--power", "120",
+                "--cda", "0.35",
+                "--crr", "0.005",
                 CROIX_DE_FER_GPX_PATH,
             ],
             capture_output=True,

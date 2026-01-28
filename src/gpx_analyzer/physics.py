@@ -27,9 +27,10 @@ def effective_power(slope_angle: float, params: RiderParams) -> float:
 def estimate_speed_from_power(slope_angle: float, params: RiderParams) -> float:
     """Estimate rider speed by solving the power balance equation.
 
-    Solves: P_eff = (F_grade + F_roll) * v + 0.5 * rho * CdA * v^3
+    Solves: P_eff = (F_grade + F_roll) * v + 0.5 * rho * CdA * (v + headwind)^2 * v
     where F_grade = m*g*sin(theta), F_roll = Crr*m*g*cos(theta),
     and P_eff is the effective power adjusted for downhill coasting.
+    Headwind is positive when riding into the wind.
 
     On steep descents where coasting speed exceeds pedaling speed,
     returns the coasting speed capped at max_coasting_speed.
@@ -40,8 +41,10 @@ def estimate_speed_from_power(slope_angle: float, params: RiderParams) -> float:
     )
     P = effective_power(slope_angle, params)
     max_speed = params.max_coasting_speed
+    w = params.headwind
 
     # Coasting speed on descents (where gravity exceeds rolling resistance)
+    # Simplified: ignore headwind for coasting estimate
     if B < 0:
         v_coast = min(math.sqrt(-B / A), max_speed)
     else:
@@ -50,11 +53,12 @@ def estimate_speed_from_power(slope_angle: float, params: RiderParams) -> float:
     if P <= 0:
         return v_coast
 
-    # Solve A*v^3 + B*v - P = 0 using Newton's method
+    # Solve A*(v+w)^2*v + B*v - P = 0 using Newton's method
     v = max(5.0, v_coast)
     for _ in range(50):
-        f = A * v**3 + B * v - P
-        fp = 3 * A * v**2 + B
+        airspeed = v + w
+        f = A * airspeed**2 * v + B * v - P
+        fp = A * (airspeed**2 + 2 * airspeed * v) + B
         if abs(fp) < 1e-12:
             break
         v_new = v - f / fp
@@ -107,8 +111,9 @@ def calculate_segment_work(
     # Rolling resistance work
     work_rolling = params.crr * params.total_mass * G * math.cos(slope_angle) * distance
 
-    # Aerodynamic drag work
-    work_aero = 0.5 * params.air_density * params.cda * speed**2 * distance
+    # Aerodynamic drag work (based on airspeed = ground speed + headwind)
+    airspeed = speed + params.headwind
+    work_aero = 0.5 * params.air_density * params.cda * airspeed**2 * distance
 
     total_work = work_gravity + work_rolling + work_aero
 
