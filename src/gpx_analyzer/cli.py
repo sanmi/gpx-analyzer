@@ -4,11 +4,30 @@ import sys
 from gpx_analyzer.analyzer import analyze
 from gpx_analyzer.models import RiderParams
 from gpx_analyzer.parser import parse_gpx
-from gpx_analyzer.ridewithgps import get_gpx, is_ridewithgps_url
+from gpx_analyzer.ridewithgps import _load_config, get_gpx, is_ridewithgps_url
 from gpx_analyzer.smoothing import smooth_elevations
 
+# Default values for CLI options
+DEFAULTS = {
+    "mass": 85.0,
+    "cda": 0.35,
+    "crr": 0.005,
+    "power": 150.0,
+    "coasting_grade": -5.0,
+    "max_coast_speed": 48.0,
+    "smoothing": 50.0,
+    "elevation_scale": 1.0,
+}
 
-def build_parser() -> argparse.ArgumentParser:
+
+def build_parser(config: dict | None = None) -> argparse.ArgumentParser:
+    """Build argument parser with defaults from config file."""
+    if config is None:
+        config = {}
+
+    def get_default(key: str) -> float:
+        return config.get(key, DEFAULTS[key])
+
     parser = argparse.ArgumentParser(
         description="Analyze a GPX bike route with physics-based power estimation."
     )
@@ -16,44 +35,44 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--mass",
         type=float,
-        default=85.0,
-        help="Total mass of rider + bike in kg (default: 85)",
+        default=get_default("mass"),
+        help=f"Total mass of rider + bike in kg (default: {DEFAULTS['mass']})",
     )
     parser.add_argument(
         "--cda",
         type=float,
-        default=0.35,
-        help="Drag coefficient * frontal area in m² (default: 0.35)",
+        default=get_default("cda"),
+        help=f"Drag coefficient * frontal area in m² (default: {DEFAULTS['cda']})",
     )
     parser.add_argument(
         "--crr",
         type=float,
-        default=0.005,
-        help="Rolling resistance coefficient (default: 0.005)",
+        default=get_default("crr"),
+        help=f"Rolling resistance coefficient (default: {DEFAULTS['crr']})",
     )
     parser.add_argument(
         "--power",
         type=float,
-        default=150.0,
-        help="Assumed average power output in watts (default: 150)",
+        default=get_default("power"),
+        help=f"Assumed average power output in watts (default: {DEFAULTS['power']})",
     )
     parser.add_argument(
         "--coasting-grade",
         type=float,
-        default=-5.0,
-        help="Grade in degrees at which rider fully coasts (default: -5)",
+        default=get_default("coasting_grade"),
+        help=f"Grade in degrees at which rider fully coasts (default: {DEFAULTS['coasting_grade']})",
     )
     parser.add_argument(
         "--max-coast-speed",
         type=float,
-        default=48.0,
-        help="Maximum coasting speed in km/h (default: 48)",
+        default=get_default("max_coast_speed"),
+        help=f"Maximum coasting speed in km/h (default: {DEFAULTS['max_coast_speed']})",
     )
     parser.add_argument(
         "--smoothing",
         type=float,
-        default=50.0,
-        help="Elevation smoothing radius in meters (default: 50)",
+        default=get_default("smoothing"),
+        help=f"Elevation smoothing radius in meters (default: {DEFAULTS['smoothing']})",
     )
     parser.add_argument(
         "--no-smoothing",
@@ -63,8 +82,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--elevation-scale",
         type=float,
-        default=1.0,
-        help="Scale factor for elevation changes (default: 1.0). Use <1 to reduce overestimated GPS elevation.",
+        default=get_default("elevation_scale"),
+        help=f"Scale factor for elevation changes (default: {DEFAULTS['elevation_scale']}). Use <1 to reduce overestimated GPS elevation.",
     )
     return parser
 
@@ -77,7 +96,8 @@ def format_duration(td) -> str:
 
 
 def main(argv: list[str] | None = None) -> None:
-    parser = build_parser()
+    config = _load_config()
+    parser = build_parser(config)
     args = parser.parse_args(argv)
 
     params = RiderParams(
@@ -118,6 +138,11 @@ def main(argv: list[str] | None = None) -> None:
     result = analyze(points, params)
 
     print("=== GPX Route Analysis ===")
+    print(
+        f"Config: mass={args.mass}kg cda={args.cda} crr={args.crr} power={args.power}W "
+        f"coasting_grade={args.coasting_grade}° max_coast_speed={args.max_coast_speed}km/h "
+        f"smoothing={smoothing_radius}m elevation_scale={args.elevation_scale}"
+    )
     dist_km = result.total_distance / 1000
     dist_mi = dist_km * 0.621371
     print(f"Distance:       {dist_km:.2f} km ({dist_mi:.2f} mi)")
