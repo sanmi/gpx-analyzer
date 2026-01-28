@@ -127,8 +127,12 @@ def main(argv: list[str] | None = None) -> None:
     print(f"Elevation Loss: {result.elevation_loss:.0f} m ({loss_ft:.0f} ft)")
     print(f"Duration:       {format_duration(result.duration)}")
     print(f"Moving Time:    {format_duration(result.moving_time)}")
-    print(f"Avg Speed:      {result.avg_speed * 3.6:.1f} km/h")
-    print(f"Max Speed:      {result.max_speed * 3.6:.1f} km/h")
+    avg_kmh = result.avg_speed * 3.6
+    avg_mph = avg_kmh * 0.621371
+    print(f"Avg Speed:      {avg_kmh:.1f} km/h ({avg_mph:.1f} mph)")
+    max_kmh = result.max_speed * 3.6
+    max_mph = max_kmh * 0.621371
+    print(f"Max Speed:      {max_kmh:.1f} km/h ({max_mph:.1f} mph)")
     print(f"Est. Work:      {result.estimated_work / 1000:.1f} kJ")
     print(f"Est. Avg Power: {result.estimated_avg_power:.0f} W")
     print(f"Est. Time @{params.assumed_avg_power:.0f}W: {format_duration(result.estimated_moving_time_at_power)}")
