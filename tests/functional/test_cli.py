@@ -11,6 +11,9 @@ SAMPLE_GPX_PATH = os.path.join(
 LOMA_PRIETA_GPX_PATH = os.path.join(
     os.path.dirname(__file__), "data", "Lexington_OSC_Loma_Prieta.gpx"
 )
+CROIX_DE_FER_GPX_PATH = os.path.join(
+    os.path.dirname(__file__), "data", "col_de_la_croix_de_fer.gpx"
+)
 
 
 class TestCli:
@@ -114,6 +117,39 @@ class TestCli:
         assert 1900 < work_kj < 2500, f"Expected work ~2100 kJ, got {work_kj}"
         assert 4.5 < moving_hours < 6.0, f"Expected moving time ~5.5h, got {moving_hours:.2f}h"
         assert 4.5 < est_time_hours < 6.0, f"Expected est. time ~5.5h at 120W, got {est_time_hours:.2f}h"
+
+    def test_col_de_la_croix_de_fer_ride(self):
+        """Validate Col de la Croix de Fer against known actuals."""
+        result = subprocess.run(
+            [
+                sys.executable, "-m", "gpx_analyzer",
+                "--mass", "98",
+                "--power", "120",
+                CROIX_DE_FER_GPX_PATH,
+            ],
+            capture_output=True,
+            text=True,
+        )
+        assert result.returncode == 0
+        output = result.stdout
+
+        def parse_value(label):
+            match = re.search(rf"{re.escape(label)}\s+([\d.]+)", output)
+            assert match, f"Could not find '{label}' in output"
+            return float(match.group(1))
+
+        def parse_duration_hours(label):
+            match = re.search(rf"{re.escape(label)}\s+(\d+)h\s+(\d+)m\s+(\d+)s", output)
+            assert match, f"Could not find '{label}' in output"
+            return int(match.group(1)) + int(match.group(2)) / 60 + int(match.group(3)) / 3600
+
+        elevation_gain = parse_value("Elevation Gain:")
+        work_kj = parse_value("Est. Work:")
+        moving_hours = parse_duration_hours("Moving Time:")
+
+        assert 1760 < elevation_gain < 1840, f"Expected elevation gain ~1800m, got {elevation_gain}"
+        assert 1950 < work_kj < 2250, f"Expected work ~2100 kJ, got {work_kj}"
+        assert 4.6 < moving_hours < 5.2, f"Expected moving time ~4:50h, got {moving_hours:.2f}h"
 
     def test_loma_prieta_elevation_gain_with_smoothing(self):
         """Default smoothing (50m radius) should yield ~1420m elevation gain."""
