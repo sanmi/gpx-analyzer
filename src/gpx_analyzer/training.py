@@ -106,6 +106,10 @@ def analyze_training_route(
         max_coasting_speed=params.max_coasting_speed,
         max_coasting_speed_unpaved=params.max_coasting_speed_unpaved,
         headwind=params.headwind,
+        climb_power_factor=params.climb_power_factor,
+        climb_threshold_grade=params.climb_threshold_grade,
+        steep_descent_speed=params.steep_descent_speed,
+        steep_descent_grade=params.steep_descent_grade,
     )
 
     try:

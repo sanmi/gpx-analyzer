@@ -173,9 +173,10 @@ class TestEstimateSpeedFromPower:
         uphill_speed = estimate_speed_from_power(math.radians(5), params)
         assert uphill_speed < flat_speed
 
-    def test_downhill_faster_than_flat(self, params):
+    def test_gentle_downhill_faster_than_flat(self, params):
         flat_speed = estimate_speed_from_power(0.0, params)
-        downhill_speed = estimate_speed_from_power(math.radians(-5), params)
+        # Gentle descent (-1°) should be faster than flat
+        downhill_speed = estimate_speed_from_power(math.radians(-1), params)
         assert downhill_speed > flat_speed
 
     def test_higher_power_faster(self):
@@ -188,26 +189,34 @@ class TestEstimateSpeedFromPower:
         speed = estimate_speed_from_power(math.radians(-5), params)
         assert speed > 0, "Should coast downhill even with zero power"
 
-    def test_max_coasting_speed_cap(self):
-        params = RiderParams()
-        # Very steep descent should be capped at max_coasting_speed
+    def test_steep_descent_speed_cap(self):
+        """Very steep descents should be capped at steep_descent_speed."""
+        params = RiderParams(steep_descent_speed=5.0, steep_descent_grade=-8.0)
+        # Very steep descent (-15°) should be capped at steep_descent_speed
         speed = estimate_speed_from_power(math.radians(-15), params)
-        assert speed == pytest.approx(params.max_coasting_speed)
+        assert speed == pytest.approx(params.steep_descent_speed)
 
-    def test_custom_max_coasting_speed(self):
-        params = RiderParams(max_coasting_speed=10.0)
+    def test_custom_steep_descent_speed(self):
+        """Custom steep descent speed should be used."""
+        params = RiderParams(steep_descent_speed=6.0, steep_descent_grade=-10.0)
         speed = estimate_speed_from_power(math.radians(-15), params)
-        assert speed == pytest.approx(10.0)
+        assert speed == pytest.approx(6.0)
 
-    def test_max_coasting_speed_unpaved_cap(self):
-        """Unpaved surfaces should use lower max coasting speed."""
-        params = RiderParams(max_coasting_speed=15.0, max_coasting_speed_unpaved=10.0)
-        # Very steep descent on paved should cap at paved max
+    def test_gradient_limited_speed_unpaved(self):
+        """Unpaved surfaces should have proportionally lower descent speed."""
+        params = RiderParams(
+            max_coasting_speed=15.0,
+            max_coasting_speed_unpaved=10.0,
+            steep_descent_speed=6.0,
+            steep_descent_grade=-10.0,
+        )
+        # Very steep descent on paved should cap at steep_descent_speed
         speed_paved = estimate_speed_from_power(math.radians(-15), params, unpaved=False)
-        assert speed_paved == pytest.approx(15.0)
-        # Very steep descent on unpaved should cap at unpaved max
+        assert speed_paved == pytest.approx(6.0)
+        # Unpaved should be proportionally lower (10/15 ratio)
         speed_unpaved = estimate_speed_from_power(math.radians(-15), params, unpaved=True)
-        assert speed_unpaved == pytest.approx(10.0)
+        expected_unpaved = 6.0 * (10.0 / 15.0)
+        assert speed_unpaved == pytest.approx(expected_unpaved)
 
     def test_unpaved_coasting_speed_slower(self):
         """On descents, unpaved should result in slower coasting speed."""

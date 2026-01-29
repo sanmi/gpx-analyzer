@@ -42,6 +42,41 @@ def effective_power(slope_angle: float, params: RiderParams) -> float:
     return base_power * power_factor
 
 
+def _gradient_limited_speed(slope_angle: float, params: RiderParams, unpaved: bool) -> float:
+    """Calculate max descent speed based on gradient (braking model).
+
+    Riders brake more on steeper descents. This models the relationship:
+    - At flat (0°): max_coasting_speed (or max_coasting_speed_unpaved)
+    - At steep_descent_grade: steep_descent_speed
+    - Linear interpolation between
+
+    For unpaved surfaces, applies an additional reduction factor.
+    """
+    # Base speeds for paved
+    gentle_speed = params.max_coasting_speed
+    steep_speed = params.steep_descent_speed
+    steep_grade_rad = math.radians(params.steep_descent_grade)
+
+    # For unpaved, scale down both speeds proportionally
+    if unpaved:
+        unpaved_ratio = params.max_coasting_speed_unpaved / params.max_coasting_speed
+        gentle_speed *= unpaved_ratio
+        steep_speed *= unpaved_ratio
+
+    # Flat or uphill: no gradient-based limit (use gentle_speed as cap)
+    if slope_angle >= 0:
+        return gentle_speed
+
+    # Beyond steep descent grade: use steep descent speed
+    if slope_angle <= steep_grade_rad:
+        return steep_speed
+
+    # Interpolate between gentle and steep speeds
+    # fraction = 0 at flat, 1 at steep_descent_grade
+    fraction = slope_angle / steep_grade_rad
+    return gentle_speed + (steep_speed - gentle_speed) * fraction
+
+
 def estimate_speed_from_power(
     slope_angle: float, params: RiderParams, crr: float | None = None, unpaved: bool = False
 ) -> float:
@@ -52,9 +87,7 @@ def estimate_speed_from_power(
     and P_eff is the effective power adjusted for downhill coasting.
     Headwind is positive when riding into the wind.
 
-    On steep descents where coasting speed exceeds pedaling speed,
-    returns the coasting speed capped at max_coasting_speed (or max_coasting_speed_unpaved
-    for unpaved surfaces).
+    On descents, speed is limited by gradient-dependent braking (steeper = slower).
     """
     effective_crr = crr if crr is not None else params.crr
     A = 0.5 * params.air_density * params.cda
@@ -62,7 +95,7 @@ def estimate_speed_from_power(
         math.sin(slope_angle) + effective_crr * math.cos(slope_angle)
     )
     P = effective_power(slope_angle, params)
-    max_speed = params.max_coasting_speed_unpaved if unpaved else params.max_coasting_speed
+    max_speed = _gradient_limited_speed(slope_angle, params, unpaved)
     w = params.headwind
 
     # Coasting speed on descents (where gravity exceeds rolling resistance)

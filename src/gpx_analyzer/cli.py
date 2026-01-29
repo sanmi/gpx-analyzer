@@ -34,6 +34,8 @@ DEFAULTS = {
     "max_coast_speed_unpaved": 24.0,
     "climb_power_factor": 1.5,
     "climb_threshold_grade": 4.0,
+    "steep_descent_speed": 18.0,
+    "steep_descent_grade": -8.0,
     "smoothing": 50.0,
     "elevation_scale": 1.0,
     "headwind": 0.0,
@@ -112,6 +114,18 @@ def build_parser(config: dict | None = None) -> argparse.ArgumentParser:
         type=float,
         default=get_default("climb_threshold_grade"),
         help=f"Grade in degrees at which full climb power factor is reached (default: {DEFAULTS['climb_threshold_grade']})",
+    )
+    parser.add_argument(
+        "--steep-descent-speed",
+        type=float,
+        default=get_default("steep_descent_speed"),
+        help=f"Max speed on steep descents in km/h (default: {DEFAULTS['steep_descent_speed']})",
+    )
+    parser.add_argument(
+        "--steep-descent-grade",
+        type=float,
+        default=get_default("steep_descent_grade"),
+        help=f"Grade in degrees where steep descent speed applies (default: {DEFAULTS['steep_descent_grade']})",
     )
     parser.add_argument(
         "--smoothing",
@@ -201,6 +215,8 @@ def main(argv: list[str] | None = None) -> None:
         headwind=args.headwind / 3.6,
         climb_power_factor=args.climb_power_factor,
         climb_threshold_grade=args.climb_threshold_grade,
+        steep_descent_speed=args.steep_descent_speed / 3.6,
+        steep_descent_grade=args.steep_descent_grade,
     )
 
     # Training mode
