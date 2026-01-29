@@ -45,6 +45,8 @@ This fetches route data including surface type information (road vs gravel) for 
 | `--max-coast-speed-unpaved` | Maximum coasting speed on gravel (km/h) | 24 |
 | `--climb-power-factor` | Power multiplier on steep climbs (1.5 = 50% more) | 1.5 |
 | `--climb-threshold-grade` | Grade (degrees) at which full climb power is reached | 4.0 |
+| `--steep-descent-speed` | Max speed on steep descents (km/h) | 18 |
+| `--steep-descent-grade` | Grade (degrees) where steep descent speed applies | -8.0 |
 | `--smoothing` | Elevation smoothing radius (m) | 50 |
 | `--elevation-scale` | Scale factor for elevation changes | 1.0 |
 | `--headwind` | Headwind speed (km/h, negative = tailwind) | 0 |
@@ -186,7 +188,9 @@ Create `gpx-analyzer.json` in the project directory or `~/.config/gpx-analyzer/g
   "max_coast_speed": 52.0,
   "max_coast_speed_unpaved": 24.0,
   "climb_power_factor": 1.5,
-  "climb_threshold_grade": 4.0
+  "climb_threshold_grade": 4.0,
+  "steep_descent_speed": 20.0,
+  "steep_descent_grade": -4.0
 }
 ```
 
