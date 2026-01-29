@@ -1,5 +1,6 @@
 import argparse
 import sys
+from pathlib import Path
 
 from geopy.distance import geodesic
 
@@ -16,6 +17,11 @@ from gpx_analyzer.ridewithgps import (
     is_ridewithgps_url,
 )
 from gpx_analyzer.smoothing import smooth_elevations
+from gpx_analyzer.training import (
+    format_training_summary,
+    load_training_data,
+    run_training_analysis,
+)
 
 # Default values for CLI options
 DEFAULTS = {
@@ -43,7 +49,14 @@ def build_parser(config: dict | None = None) -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Analyze a GPX bike route with physics-based power estimation."
     )
-    parser.add_argument("gpx_file", help="Path to GPX file")
+    parser.add_argument("gpx_file", nargs="?", help="Path to GPX file or RideWithGPS route URL")
+    parser.add_argument(
+        "--training",
+        type=str,
+        default=None,
+        metavar="FILE",
+        help="Run batch analysis on training data JSON file instead of single route.",
+    )
     parser.add_argument(
         "--mass",
         type=float,
@@ -173,6 +186,40 @@ def main(argv: list[str] | None = None) -> None:
         max_coasting_speed_unpaved=args.max_coast_speed_unpaved / 3.6,
         headwind=args.headwind / 3.6,
     )
+
+    # Training mode
+    if args.training:
+        training_path = Path(args.training)
+        if not training_path.exists():
+            print(f"Error: Training data file not found: {args.training}", file=sys.stderr)
+            sys.exit(1)
+
+        try:
+            training_data = load_training_data(training_path)
+        except Exception as e:
+            print(f"Error loading training data: {e}", file=sys.stderr)
+            sys.exit(1)
+
+        if not training_data:
+            print("Error: No routes found in training data.", file=sys.stderr)
+            sys.exit(1)
+
+        print(f"Loaded {len(training_data)} routes from {args.training}")
+        print("")
+
+        smoothing_radius = 0.0 if args.no_smoothing else args.smoothing
+        results, summary = run_training_analysis(
+            training_data, params, smoothing_radius, args.elevation_scale
+        )
+
+        print("")
+        print(format_training_summary(results, summary, params))
+        return
+
+    # Single route mode - require gpx_file
+    if not args.gpx_file:
+        print("Error: gpx_file is required (or use --training for batch mode)", file=sys.stderr)
+        sys.exit(1)
 
     route_metadata = None
     if is_ridewithgps_url(args.gpx_file):

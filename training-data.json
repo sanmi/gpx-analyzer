@@ -1,0 +1,12 @@
+{
+  "description": "Training data for tuning GPX analyzer parameters",
+  "routes": [
+    {
+      "name": "Santa Cruz Mixed",
+      "route_url": "https://ridewithgps.com/routes/48889111",
+      "trip_url": "https://ridewithgps.com/trips/233763291",
+      "tags": ["road", "gravel", "hilly", "california"],
+      "notes": "Mixed surface route with significant climbing"
+    }
+  ]
+}
