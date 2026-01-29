@@ -9,6 +9,7 @@ class TrackPoint:
     elevation: float | None  # meters
     time: datetime | None
     crr: float | None = None  # per-segment rolling resistance coefficient
+    unpaved: bool = False  # whether segment is on unpaved surface
 
 
 @dataclass

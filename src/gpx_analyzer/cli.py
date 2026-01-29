@@ -109,28 +109,21 @@ def format_duration(td) -> str:
     return f"{hours}h {minutes:02d}m {seconds:02d}s"
 
 
-def calculate_surface_breakdown(
-    points: list[TrackPoint], baseline_crr: float
-) -> tuple[float, float] | None:
+def calculate_surface_breakdown(points: list[TrackPoint]) -> tuple[float, float] | None:
     """Calculate distance on paved vs unpaved surfaces.
 
     Args:
-        points: List of TrackPoints with optional crr values
-        baseline_crr: The baseline crr value (used for threshold calculation)
+        points: List of TrackPoints with optional unpaved flag
 
     Returns (paved_distance_m, unpaved_distance_m) or None if no surface data.
     """
     if not points or len(points) < 2:
         return None
 
-    # Check if any points have crr data
+    # Check if any points have surface data (crr set means we have RWGPS surface info)
     has_surface_data = any(pt.crr is not None for pt in points)
     if not has_surface_data:
         return None
-
-    # Paved surfaces have delta <= 0.001, unpaved have delta >= 0.006
-    # Use threshold delta of 0.003 (midpoint)
-    paved_threshold = baseline_crr + 0.003
 
     paved_dist = 0.0
     unpaved_dist = 0.0
@@ -140,12 +133,11 @@ def calculate_surface_breakdown(
         pt_b = points[i]
         dist = geodesic((pt_a.lat, pt_a.lon), (pt_b.lat, pt_b.lon)).meters
 
-        # Use the destination point's crr to classify the segment
-        crr = pt_b.crr if pt_b.crr is not None else baseline_crr
-        if crr <= paved_threshold:
-            paved_dist += dist
-        else:
+        # Use the destination point's unpaved flag to classify the segment
+        if pt_b.unpaved:
             unpaved_dist += dist
+        else:
+            paved_dist += dist
 
     return paved_dist, unpaved_dist
 
@@ -221,7 +213,7 @@ def main(argv: list[str] | None = None) -> None:
     print(f"Est. Time @{params.assumed_avg_power:.0f}W: {format_duration(result.estimated_moving_time_at_power)}")
 
     # Surface breakdown if available
-    surface_breakdown = calculate_surface_breakdown(points, args.crr)
+    surface_breakdown = calculate_surface_breakdown(points)
     if surface_breakdown:
         paved_km, unpaved_km = surface_breakdown[0] / 1000, surface_breakdown[1] / 1000
         total_km = paved_km + unpaved_km

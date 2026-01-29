@@ -215,7 +215,7 @@ def _enforce_lru_limit() -> None:
 
 # Surface type crr deltas from baseline (R=3 quality paved is the baseline)
 # R values from RideWithGPS JSON route data
-# Actual crr = baseline_crr + delta
+# Actual crr = baseline_crr + R_delta + (unpaved_delta if S >= 50)
 SURFACE_CRR_DELTAS: dict[int, float] = {
     3: 0.0,     # Paved (quality) - baseline
     4: 0.001,   # Paved (standard)
@@ -224,6 +224,12 @@ SURFACE_CRR_DELTAS: dict[int, float] = {
     15: 0.006,  # Gravel/unpaved
     25: 0.008,  # Rough gravel
 }
+
+# S values >= this threshold indicate unpaved surfaces
+UNPAVED_S_THRESHOLD = 50
+
+# Additional crr delta for unpaved surfaces (S >= threshold)
+UNPAVED_CRR_DELTA = 0.005
 
 
 def _get_surface_crr_deltas() -> dict[int, float]:
@@ -242,23 +248,48 @@ def _get_surface_crr_deltas() -> dict[int, float]:
     return SURFACE_CRR_DELTAS
 
 
-def _surface_type_to_crr(r_value: int | None, baseline_crr: float) -> float:
-    """Convert RideWithGPS surface R value to rolling resistance coefficient.
+def _get_unpaved_crr_delta() -> float:
+    """Get the additional crr delta for unpaved surfaces.
+
+    Config file can specify 'unpaved_crr_delta' to override the default.
+    """
+    config = _load_config()
+    return config.get("unpaved_crr_delta", UNPAVED_CRR_DELTA)
+
+
+def _surface_type_to_crr(
+    r_value: int | None, s_value: int | None, baseline_crr: float
+) -> float:
+    """Convert RideWithGPS surface values to rolling resistance coefficient.
 
     Args:
-        r_value: The R surface type value from RideWithGPS
+        r_value: The R surface type value from RideWithGPS (road quality)
+        s_value: The S surface value from RideWithGPS (S >= 50 indicates unpaved)
         baseline_crr: The baseline crr (used for R=3 quality paved)
 
     Returns:
-        The effective crr = baseline_crr + delta for the surface type.
-        Unknown surface types use delta=0 (baseline).
+        The effective crr = baseline_crr + R_delta + unpaved_delta.
+        Unknown R values use delta=0 (baseline).
+        S values >= 50 add an additional unpaved penalty.
     """
-    if r_value is None:
-        return baseline_crr
+    # Start with baseline
+    crr = baseline_crr
 
-    deltas = _get_surface_crr_deltas()
-    delta = deltas.get(r_value, 0.0)
-    return baseline_crr + delta
+    # Add R-based delta for road quality
+    if r_value is not None:
+        deltas = _get_surface_crr_deltas()
+        crr += deltas.get(r_value, 0.0)
+
+    # Add unpaved penalty if S >= threshold
+    if s_value is not None and s_value >= UNPAVED_S_THRESHOLD:
+        crr += _get_unpaved_crr_delta()
+
+    return crr
+
+
+def is_unpaved(s_value: int | None) -> bool:
+    """Check if an S value indicates an unpaved surface."""
+    return s_value is not None and s_value >= UNPAVED_S_THRESHOLD
 
 
 def _download_json(route_id: int, privacy_code: str | None = None) -> dict:
@@ -281,7 +312,7 @@ def parse_json_track_points(route_data: dict, baseline_crr: float) -> list[Track
     """Parse RideWithGPS JSON route data into TrackPoints with surface crr.
 
     Extracts track points from the 'track_points' array. Surface data is read
-    from the 'R' field on each track point, representing the surface type.
+    from the 'R' field (road quality) and 'S' field (S >= 50 indicates unpaved).
 
     The route_data can have track_points at the top level (API format) or
     nested under 'route' key.
@@ -308,9 +339,17 @@ def parse_json_track_points(route_data: dict, baseline_crr: float) -> list[Track
         if lat is None or lon is None:
             continue
 
-        # Get surface type R value directly from track point
+        # Get surface values from track point
         r_value = tp.get("R")
-        crr = _surface_type_to_crr(r_value, baseline_crr) if r_value is not None else None
+        s_value = tp.get("S")
+
+        # Calculate crr if we have surface data
+        if r_value is not None or s_value is not None:
+            crr = _surface_type_to_crr(r_value, s_value, baseline_crr)
+            unpaved = is_unpaved(s_value)
+        else:
+            crr = None
+            unpaved = False
 
         points.append(
             TrackPoint(
@@ -319,6 +358,7 @@ def parse_json_track_points(route_data: dict, baseline_crr: float) -> list[Track
                 elevation=elevation,
                 time=None,
                 crr=crr,
+                unpaved=unpaved,
             )
         )
 

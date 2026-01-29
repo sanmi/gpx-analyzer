@@ -651,41 +651,55 @@ class TestSurfaceCrrDeltas:
     """Tests for surface crr delta calculations."""
 
     def test_paved_quality_baseline(self):
-        """R=3 (quality paved) should return baseline crr (delta=0)."""
+        """R=3 (quality paved) with S=0 (paved) should return baseline crr."""
         baseline = 0.004
-        assert ridewithgps._surface_type_to_crr(3, baseline) == 0.004
+        assert ridewithgps._surface_type_to_crr(3, 0, baseline) == 0.004
 
     def test_paved_standard(self):
-        """R=4 (standard paved) should add delta of 0.001."""
+        """R=4 (standard paved) with S=0 should add delta of 0.001."""
         baseline = 0.004
-        assert ridewithgps._surface_type_to_crr(4, baseline) == 0.005
+        assert ridewithgps._surface_type_to_crr(4, 0, baseline) == 0.005
 
     def test_gravel(self):
-        """R=15 (gravel) should add delta of 0.006."""
+        """R=15 (gravel) with S=0 should add delta of 0.006."""
         baseline = 0.004
-        assert ridewithgps._surface_type_to_crr(15, baseline) == 0.010
+        assert ridewithgps._surface_type_to_crr(15, 0, baseline) == 0.010
 
     def test_rough_gravel(self):
-        """R=25 (rough gravel) should add delta of 0.008."""
+        """R=25 (rough gravel) with S=0 should add delta of 0.008."""
         baseline = 0.004
-        assert ridewithgps._surface_type_to_crr(25, baseline) == 0.012
+        assert ridewithgps._surface_type_to_crr(25, 0, baseline) == 0.012
 
-    def test_unknown_returns_baseline(self):
-        """Unknown R values should return baseline (delta=0)."""
+    def test_unknown_r_returns_baseline(self):
+        """Unknown R values with S=0 should return baseline (delta=0)."""
         baseline = 0.005
-        assert ridewithgps._surface_type_to_crr(999, baseline) == 0.005
+        assert ridewithgps._surface_type_to_crr(999, 0, baseline) == 0.005
 
-    def test_none_returns_baseline(self):
-        """None R value should return baseline."""
+    def test_none_r_returns_baseline(self):
+        """None R value with S=0 should return baseline."""
         baseline = 0.006
-        assert ridewithgps._surface_type_to_crr(None, baseline) == 0.006
+        assert ridewithgps._surface_type_to_crr(None, 0, baseline) == 0.006
 
     def test_different_baseline(self):
         """Deltas should apply correctly with different baseline values."""
         baseline = 0.010
-        assert ridewithgps._surface_type_to_crr(3, baseline) == 0.010   # delta=0
-        assert ridewithgps._surface_type_to_crr(4, baseline) == 0.011   # delta=0.001
-        assert ridewithgps._surface_type_to_crr(15, baseline) == 0.016  # delta=0.006
+        assert ridewithgps._surface_type_to_crr(3, 0, baseline) == 0.010   # delta=0
+        assert ridewithgps._surface_type_to_crr(4, 0, baseline) == 0.011   # delta=0.001
+        assert ridewithgps._surface_type_to_crr(15, 0, baseline) == 0.016  # delta=0.006
+
+    def test_unpaved_s_adds_delta(self):
+        """S >= 50 should add unpaved penalty."""
+        baseline = 0.004
+        # R=4 with S=0: 0.004 + 0.001 = 0.005
+        assert ridewithgps._surface_type_to_crr(4, 0, baseline) == 0.005
+        # R=4 with S=56 (unpaved): 0.004 + 0.001 + 0.005 = 0.010
+        assert ridewithgps._surface_type_to_crr(4, 56, baseline) == 0.010
+
+    def test_unpaved_s_threshold(self):
+        """S values below 50 should not add unpaved penalty."""
+        baseline = 0.004
+        assert ridewithgps._surface_type_to_crr(4, 49, baseline) == 0.005  # no penalty
+        assert ridewithgps._surface_type_to_crr(4, 50, baseline) == 0.010  # penalty added
 
 
 class TestSurfaceCrrDeltasConfig:
@@ -700,10 +714,10 @@ class TestSurfaceCrrDeltasConfig:
 
         baseline = 0.004
         # With custom deltas: R=3 has delta 0.002, R=15 has delta 0.010
-        assert ridewithgps._surface_type_to_crr(3, baseline) == 0.006   # 0.004 + 0.002
-        assert ridewithgps._surface_type_to_crr(15, baseline) == 0.014  # 0.004 + 0.010
+        assert ridewithgps._surface_type_to_crr(3, 0, baseline) == 0.006   # 0.004 + 0.002
+        assert ridewithgps._surface_type_to_crr(15, 0, baseline) == 0.014  # 0.004 + 0.010
         # Unknown R value still uses delta=0
-        assert ridewithgps._surface_type_to_crr(999, baseline) == 0.004
+        assert ridewithgps._surface_type_to_crr(999, 0, baseline) == 0.004
 
     def test_no_config_uses_defaults(self, tmp_path, monkeypatch):
         """Without config, default deltas are used."""
@@ -711,8 +725,19 @@ class TestSurfaceCrrDeltasConfig:
         monkeypatch.setattr(ridewithgps, "CONFIG_PATH", tmp_path / "nonexistent2.json")
 
         baseline = 0.004
-        assert ridewithgps._surface_type_to_crr(3, baseline) == 0.004   # delta=0
-        assert ridewithgps._surface_type_to_crr(15, baseline) == 0.010  # delta=0.006
+        assert ridewithgps._surface_type_to_crr(3, 0, baseline) == 0.004   # delta=0
+        assert ridewithgps._surface_type_to_crr(15, 0, baseline) == 0.010  # delta=0.006
+
+    def test_config_overrides_unpaved_delta(self, tmp_path, monkeypatch):
+        """Config file can override unpaved_crr_delta."""
+        config_path = tmp_path / "gpx-analyzer.json"
+        config_path.write_text('{"unpaved_crr_delta": 0.010}')
+        monkeypatch.setattr(ridewithgps, "LOCAL_CONFIG_PATH", config_path)
+        monkeypatch.setattr(ridewithgps, "CONFIG_PATH", tmp_path / "nonexistent.json")
+
+        baseline = 0.004
+        # R=4 with S=56 (unpaved): 0.004 + 0.001 + 0.010 = 0.015
+        assert ridewithgps._surface_type_to_crr(4, 56, baseline) == 0.015
 
 
 class TestParseJsonTrackPoints:
