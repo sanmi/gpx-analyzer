@@ -22,6 +22,7 @@ DEFAULTS = {
     "power": 150.0,
     "coasting_grade": -5.0,
     "max_coast_speed": 48.0,
+    "max_coast_speed_unpaved": 24.0,
     "smoothing": 50.0,
     "elevation_scale": 1.0,
     "headwind": 0.0,
@@ -75,6 +76,12 @@ def build_parser(config: dict | None = None) -> argparse.ArgumentParser:
         type=float,
         default=get_default("max_coast_speed"),
         help=f"Maximum coasting speed in km/h (default: {DEFAULTS['max_coast_speed']})",
+    )
+    parser.add_argument(
+        "--max-coast-speed-unpaved",
+        type=float,
+        default=get_default("max_coast_speed_unpaved"),
+        help=f"Maximum coasting speed on unpaved surfaces in km/h (default: {DEFAULTS['max_coast_speed_unpaved']})",
     )
     parser.add_argument(
         "--smoothing",
@@ -154,6 +161,7 @@ def main(argv: list[str] | None = None) -> None:
         assumed_avg_power=args.power,
         coasting_grade_threshold=args.coasting_grade,
         max_coasting_speed=args.max_coast_speed / 3.6,
+        max_coasting_speed_unpaved=args.max_coast_speed_unpaved / 3.6,
         headwind=args.headwind / 3.6,
     )
 

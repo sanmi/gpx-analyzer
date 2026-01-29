@@ -175,6 +175,23 @@ class TestEstimateSpeedFromPower:
         speed = estimate_speed_from_power(math.radians(-15), params)
         assert speed == pytest.approx(10.0)
 
+    def test_max_coasting_speed_unpaved_cap(self):
+        """Unpaved surfaces should use lower max coasting speed."""
+        params = RiderParams(max_coasting_speed=15.0, max_coasting_speed_unpaved=10.0)
+        # Very steep descent on paved should cap at paved max
+        speed_paved = estimate_speed_from_power(math.radians(-15), params, unpaved=False)
+        assert speed_paved == pytest.approx(15.0)
+        # Very steep descent on unpaved should cap at unpaved max
+        speed_unpaved = estimate_speed_from_power(math.radians(-15), params, unpaved=True)
+        assert speed_unpaved == pytest.approx(10.0)
+
+    def test_unpaved_coasting_speed_slower(self):
+        """On descents, unpaved should result in slower coasting speed."""
+        params = RiderParams()
+        speed_paved = estimate_speed_from_power(math.radians(-10), params, unpaved=False)
+        speed_unpaved = estimate_speed_from_power(math.radians(-10), params, unpaved=True)
+        assert speed_unpaved < speed_paved
+
     def test_headwind_reduces_speed(self):
         """Headwind should reduce estimated speed."""
         no_wind = RiderParams(headwind=0.0)
@@ -286,6 +303,31 @@ class TestSurfaceCrr:
         _, _, elapsed_gravel = calculate_segment_work(a, b_gravel, params)
         # Higher crr means slower speed, so longer elapsed time
         assert elapsed_gravel > elapsed_paved
+
+    def test_unpaved_uses_lower_max_coasting_speed(self):
+        """Unpaved segments should use max_coasting_speed_unpaved on descents."""
+        params = RiderParams(max_coasting_speed=15.0, max_coasting_speed_unpaved=10.0)
+        # Steep descent without time data - speed should be estimated and capped
+        a = TrackPoint(lat=37.7749, lon=-122.4194, elevation=100.0, time=None)
+        b_paved = TrackPoint(
+            lat=37.7758,
+            lon=-122.4183,
+            elevation=0.0,
+            time=None,
+            unpaved=False,
+        )
+        b_unpaved = TrackPoint(
+            lat=37.7758,
+            lon=-122.4183,
+            elevation=0.0,
+            time=None,
+            unpaved=True,
+        )
+        _, dist_paved, elapsed_paved = calculate_segment_work(a, b_paved, params)
+        _, dist_unpaved, elapsed_unpaved = calculate_segment_work(a, b_unpaved, params)
+        # Same distance, but unpaved should have longer elapsed time (slower speed)
+        assert dist_paved == pytest.approx(dist_unpaved)
+        assert elapsed_unpaved > elapsed_paved
 
 
 class TestHeadwindWork:

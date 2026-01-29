@@ -24,7 +24,9 @@ def effective_power(slope_angle: float, params: RiderParams) -> float:
     return params.assumed_avg_power * (1.0 - fraction)
 
 
-def estimate_speed_from_power(slope_angle: float, params: RiderParams, crr: float | None = None) -> float:
+def estimate_speed_from_power(
+    slope_angle: float, params: RiderParams, crr: float | None = None, unpaved: bool = False
+) -> float:
     """Estimate rider speed by solving the power balance equation.
 
     Solves: P_eff = (F_grade + F_roll) * v + 0.5 * rho * CdA * (v + headwind)^2 * v
@@ -33,7 +35,8 @@ def estimate_speed_from_power(slope_angle: float, params: RiderParams, crr: floa
     Headwind is positive when riding into the wind.
 
     On steep descents where coasting speed exceeds pedaling speed,
-    returns the coasting speed capped at max_coasting_speed.
+    returns the coasting speed capped at max_coasting_speed (or max_coasting_speed_unpaved
+    for unpaved surfaces).
     """
     effective_crr = crr if crr is not None else params.crr
     A = 0.5 * params.air_density * params.cda
@@ -41,7 +44,7 @@ def estimate_speed_from_power(slope_angle: float, params: RiderParams, crr: floa
         math.sin(slope_angle) + effective_crr * math.cos(slope_angle)
     )
     P = effective_power(slope_angle, params)
-    max_speed = params.max_coasting_speed
+    max_speed = params.max_coasting_speed_unpaved if unpaved else params.max_coasting_speed
     w = params.headwind
 
     # Coasting speed on descents (where gravity exceeds rolling resistance)
@@ -106,7 +109,7 @@ def calculate_segment_work(
     if elapsed > 0:
         speed = distance / elapsed
     else:
-        speed = estimate_speed_from_power(slope_angle, params, segment_crr)
+        speed = estimate_speed_from_power(slope_angle, params, segment_crr, point_b.unpaved)
         elapsed = distance / speed if speed > 0 else 0.0
 
     # Gravitational work

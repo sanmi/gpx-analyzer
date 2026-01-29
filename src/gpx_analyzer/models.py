@@ -21,6 +21,7 @@ class RiderParams:
     assumed_avg_power: float = 150.0  # watts
     coasting_grade_threshold: float = -5.0  # degrees; fully coasting at this grade
     max_coasting_speed: float = 48.0 / 3.6  # m/s (default 48 km/h)
+    max_coasting_speed_unpaved: float = 32.0 / 3.6  # m/s (default 32 km/h for gravel)
     headwind: float = 0.0  # m/s (positive = into the wind, negative = tailwind)
 
 

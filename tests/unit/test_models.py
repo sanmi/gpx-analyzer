@@ -30,18 +30,20 @@ class TestRiderParams:
         assert params.assumed_avg_power == 150.0
         assert params.coasting_grade_threshold == -5.0
         assert params.max_coasting_speed == pytest.approx(48.0 / 3.6)
+        assert params.max_coasting_speed_unpaved == pytest.approx(32.0 / 3.6)
 
     def test_custom_values(self):
         params = RiderParams(
             total_mass=75.0, cda=0.30, crr=0.004, air_density=1.1,
             assumed_avg_power=200.0, coasting_grade_threshold=-3.0,
-            max_coasting_speed=15.0,
+            max_coasting_speed=15.0, max_coasting_speed_unpaved=10.0,
         )
         assert params.total_mass == 75.0
         assert params.cda == 0.30
         assert params.assumed_avg_power == 200.0
         assert params.coasting_grade_threshold == -3.0
         assert params.max_coasting_speed == 15.0
+        assert params.max_coasting_speed_unpaved == 10.0
 
 
 class TestRideAnalysis:

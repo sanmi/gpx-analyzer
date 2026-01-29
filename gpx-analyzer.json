@@ -9,6 +9,7 @@
     "unpaved_crr_delta": 0.04,
     "coasting_grade": -4.0,
     "max_coast_speed": 52.0,
+    "max_coast_speed_unpaved": 24.0,
     "smoothing": 50.0,
     "elevation_scale": 1.0,
     "headwind": 0.0
