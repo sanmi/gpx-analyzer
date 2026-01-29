@@ -35,6 +35,7 @@ class TrainingResult:
     route: TrainingRoute
     comparison: ComparisonResult
     route_elevation_gain: float
+    trip_elevation_gain: float | None
     route_distance: float
     unpaved_pct: float
     power_used: float  # The power value used for prediction
@@ -134,10 +135,14 @@ def analyze_training_route(
         # Calculate unpaved percentage
         unpaved_pct = route_metadata.get("unpaved_pct", 0) or 0
 
+        # Get trip elevation gain from metadata
+        trip_elevation_gain = trip_metadata.get("elevation_gain")
+
         return TrainingResult(
             route=route,
             comparison=comparison,
             route_elevation_gain=analysis.elevation_gain,
+            trip_elevation_gain=trip_elevation_gain,
             route_distance=analysis.total_distance,
             unpaved_pct=unpaved_pct,
             power_used=power_used,
@@ -267,14 +272,21 @@ def format_training_summary(
 
     # Per-route breakdown
     lines.append("PER-ROUTE BREAKDOWN:")
-    lines.append("-" * 60)
-    lines.append(f"{'Route':<22} {'Pwr':>5} {'Dist':>6} {'Elev':>6} {'Time%':>7} {'Work%':>7}")
-    lines.append("-" * 60)
+    lines.append("-" * 70)
+    lines.append(f"{'Route':<22} {'Pwr':>5} {'Dist':>6} {'Elev':>6} {'Elev%':>6} {'Time%':>7} {'Work%':>7}")
+    lines.append("-" * 70)
 
     for r in results:
         dist_km = r.route_distance / 1000
         elev_m = r.route_elevation_gain
         time_err = r.comparison.time_error_pct
+
+        # Elevation difference: (route - trip) / trip * 100
+        if r.trip_elevation_gain and r.trip_elevation_gain > 0:
+            elev_err = (r.route_elevation_gain - r.trip_elevation_gain) / r.trip_elevation_gain * 100
+            elev_str = f"{elev_err:+.0f}%"
+        else:
+            elev_str = "n/a"
 
         if r.comparison.actual_work and r.comparison.actual_work > 0:
             work_err = (r.comparison.predicted_work - r.comparison.actual_work) / r.comparison.actual_work * 100
@@ -283,7 +295,7 @@ def format_training_summary(
             work_str = "n/a"
 
         name = r.route.name[:21]
-        lines.append(f"{name:<22} {r.power_used:>4.0f}W {dist_km:>5.0f}k {elev_m:>5.0f}m {time_err:>+6.1f}% {work_str:>7}")
+        lines.append(f"{name:<22} {r.power_used:>4.0f}W {dist_km:>5.0f}k {elev_m:>5.0f}m {elev_str:>6} {time_err:>+6.1f}% {work_str:>7}")
 
     lines.append("")
 
