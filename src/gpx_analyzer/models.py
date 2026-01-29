@@ -18,11 +18,14 @@ class RiderParams:
     cda: float = 0.35  # m² (drag coefficient * frontal area)
     crr: float = 0.005  # rolling resistance coefficient
     air_density: float = 1.225  # kg/m³
-    assumed_avg_power: float = 150.0  # watts
+    assumed_avg_power: float = 150.0  # watts (base power on flat terrain)
     coasting_grade_threshold: float = -5.0  # degrees; fully coasting at this grade
     max_coasting_speed: float = 48.0 / 3.6  # m/s (default 48 km/h)
     max_coasting_speed_unpaved: float = 32.0 / 3.6  # m/s (default 32 km/h for gravel)
     headwind: float = 0.0  # m/s (positive = into the wind, negative = tailwind)
+    # Gradient-dependent power model
+    climb_power_factor: float = 1.5  # power multiplier on steep climbs (1.5 = 50% more power)
+    climb_threshold_grade: float = 4.0  # degrees; full climb factor reached at this grade
 
 
 @dataclass

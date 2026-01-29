@@ -10,18 +10,36 @@ G = 9.81  # m/s²
 def effective_power(slope_angle: float, params: RiderParams) -> float:
     """Compute effective rider power output adjusted for grade.
 
-    On flat or uphill (grade >= 0): full assumed power.
-    On downhill: linearly reduces from full power at 0 degrees to zero
-    at the coasting grade threshold. Beyond the threshold: zero power.
+    Models how riders modulate power based on terrain:
+    - Steep descents (beyond coasting threshold): zero power (coasting/braking)
+    - Gentle descents (threshold to 0): linearly ramps from 0 to base power
+    - Flat (0 degrees): base power (assumed_avg_power)
+    - Climbs (0 to climb threshold): linearly increases to climb_power_factor * base
+    - Steep climbs (beyond climb threshold): plateau at climb_power_factor * base
     """
-    threshold_rad = math.radians(params.coasting_grade_threshold)
-    if slope_angle >= 0:
-        return params.assumed_avg_power
-    if slope_angle <= threshold_rad:
+    coasting_threshold_rad = math.radians(params.coasting_grade_threshold)
+    climb_threshold_rad = math.radians(params.climb_threshold_grade)
+    base_power = params.assumed_avg_power
+
+    # Steep descent: coasting/braking
+    if slope_angle <= coasting_threshold_rad:
         return 0.0
-    # Linear interpolation: full power at 0, zero at threshold
-    fraction = slope_angle / threshold_rad  # 0 at flat, 1 at threshold
-    return params.assumed_avg_power * (1.0 - fraction)
+
+    # Gentle descent: ramp from 0 to base power
+    if slope_angle < 0:
+        # Linear interpolation: 0 at coasting threshold, base power at 0
+        fraction = slope_angle / coasting_threshold_rad  # 1 at threshold, 0 at flat
+        return base_power * (1.0 - fraction)
+
+    # Steep climb: plateau at max climb power
+    if slope_angle >= climb_threshold_rad:
+        return base_power * params.climb_power_factor
+
+    # Moderate climb: ramp from base power to climb power
+    # Linear interpolation: base at 0, climb_factor * base at climb_threshold
+    fraction = slope_angle / climb_threshold_rad  # 0 at flat, 1 at threshold
+    power_factor = 1.0 + (params.climb_power_factor - 1.0) * fraction
+    return base_power * power_factor
 
 
 def estimate_speed_from_power(

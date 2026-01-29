@@ -32,6 +32,8 @@ DEFAULTS = {
     "coasting_grade": -5.0,
     "max_coast_speed": 48.0,
     "max_coast_speed_unpaved": 24.0,
+    "climb_power_factor": 1.5,
+    "climb_threshold_grade": 4.0,
     "smoothing": 50.0,
     "elevation_scale": 1.0,
     "headwind": 0.0,
@@ -98,6 +100,18 @@ def build_parser(config: dict | None = None) -> argparse.ArgumentParser:
         type=float,
         default=get_default("max_coast_speed_unpaved"),
         help=f"Maximum coasting speed on unpaved surfaces in km/h (default: {DEFAULTS['max_coast_speed_unpaved']})",
+    )
+    parser.add_argument(
+        "--climb-power-factor",
+        type=float,
+        default=get_default("climb_power_factor"),
+        help=f"Power multiplier on steep climbs, e.g. 1.5 = 50%% more power (default: {DEFAULTS['climb_power_factor']})",
+    )
+    parser.add_argument(
+        "--climb-threshold-grade",
+        type=float,
+        default=get_default("climb_threshold_grade"),
+        help=f"Grade in degrees at which full climb power factor is reached (default: {DEFAULTS['climb_threshold_grade']})",
     )
     parser.add_argument(
         "--smoothing",
@@ -185,6 +199,8 @@ def main(argv: list[str] | None = None) -> None:
         max_coasting_speed=args.max_coast_speed / 3.6,
         max_coasting_speed_unpaved=args.max_coast_speed_unpaved / 3.6,
         headwind=args.headwind / 3.6,
+        climb_power_factor=args.climb_power_factor,
+        climb_threshold_grade=args.climb_threshold_grade,
     )
 
     # Training mode

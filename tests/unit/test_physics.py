@@ -111,17 +111,32 @@ class TestCalculateSegmentWork:
 
 
 class TestEffectivePower:
-    def test_flat_full_power(self, params):
+    def test_flat_base_power(self, params):
         assert effective_power(0.0, params) == params.assumed_avg_power
 
-    def test_uphill_full_power(self, params):
-        assert effective_power(math.radians(5), params) == params.assumed_avg_power
+    def test_steep_climb_increased_power(self, params):
+        # Beyond climb threshold should have full climb power factor
+        steep_rad = math.radians(params.climb_threshold_grade + 2.0)
+        expected = params.assumed_avg_power * params.climb_power_factor
+        assert effective_power(steep_rad, params) == pytest.approx(expected)
 
-    def test_at_threshold_zero_power(self, params):
+    def test_moderate_climb_partial_increase(self, params):
+        # Halfway to climb threshold should have partial increase
+        # Default climb_threshold_grade is 4°, so 2° is halfway
+        mid_rad = math.radians(2.0)
+        power = effective_power(mid_rad, params)
+        # Should be between base and max climb power
+        assert power > params.assumed_avg_power
+        assert power < params.assumed_avg_power * params.climb_power_factor
+        # At halfway, factor should be 1.0 + 0.5 * (1.5 - 1.0) = 1.25
+        expected = params.assumed_avg_power * 1.25
+        assert power == pytest.approx(expected, rel=0.01)
+
+    def test_at_coasting_threshold_zero_power(self, params):
         threshold_rad = math.radians(params.coasting_grade_threshold)
         assert effective_power(threshold_rad, params) == pytest.approx(0.0)
 
-    def test_beyond_threshold_zero_power(self, params):
+    def test_beyond_coasting_threshold_zero_power(self, params):
         beyond_rad = math.radians(params.coasting_grade_threshold - 3.0)
         assert effective_power(beyond_rad, params) == 0.0
 
@@ -137,6 +152,15 @@ class TestEffectivePower:
         gentle_rad = math.radians(-1.0)
         power = effective_power(gentle_rad, params)
         assert power == pytest.approx(params.assumed_avg_power * 0.8, rel=0.01)
+
+    def test_custom_climb_power_factor(self):
+        params = RiderParams(
+            assumed_avg_power=100.0,
+            climb_power_factor=2.0,
+            climb_threshold_grade=5.0,
+        )
+        steep_rad = math.radians(6.0)  # Beyond threshold
+        assert effective_power(steep_rad, params) == pytest.approx(200.0)
 
 
 class TestEstimateSpeedFromPower:
