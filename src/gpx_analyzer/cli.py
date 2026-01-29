@@ -7,7 +7,6 @@ from gpx_analyzer.analyzer import analyze
 from gpx_analyzer.models import RiderParams, TrackPoint
 from gpx_analyzer.parser import parse_gpx
 from gpx_analyzer.ridewithgps import (
-    DEFAULT_CRR,
     _load_config,
     get_gpx,
     get_route_with_surface,
@@ -110,8 +109,14 @@ def format_duration(td) -> str:
     return f"{hours}h {minutes:02d}m {seconds:02d}s"
 
 
-def calculate_surface_breakdown(points: list[TrackPoint]) -> tuple[float, float] | None:
+def calculate_surface_breakdown(
+    points: list[TrackPoint], baseline_crr: float
+) -> tuple[float, float] | None:
     """Calculate distance on paved vs unpaved surfaces.
+
+    Args:
+        points: List of TrackPoints with optional crr values
+        baseline_crr: The baseline crr value (used for threshold calculation)
 
     Returns (paved_distance_m, unpaved_distance_m) or None if no surface data.
     """
@@ -123,6 +128,10 @@ def calculate_surface_breakdown(points: list[TrackPoint]) -> tuple[float, float]
     if not has_surface_data:
         return None
 
+    # Paved surfaces have delta <= 0.001, unpaved have delta >= 0.006
+    # Use threshold delta of 0.003 (midpoint)
+    paved_threshold = baseline_crr + 0.003
+
     paved_dist = 0.0
     unpaved_dist = 0.0
 
@@ -132,8 +141,8 @@ def calculate_surface_breakdown(points: list[TrackPoint]) -> tuple[float, float]
         dist = geodesic((pt_a.lat, pt_a.lon), (pt_b.lat, pt_b.lon)).meters
 
         # Use the destination point's crr to classify the segment
-        crr = pt_b.crr if pt_b.crr is not None else DEFAULT_CRR
-        if crr <= 0.006:  # Paved threshold
+        crr = pt_b.crr if pt_b.crr is not None else baseline_crr
+        if crr <= paved_threshold:
             paved_dist += dist
         else:
             unpaved_dist += dist
@@ -159,7 +168,7 @@ def main(argv: list[str] | None = None) -> None:
     route_metadata = None
     if is_ridewithgps_url(args.gpx_file):
         try:
-            points, route_metadata = get_route_with_surface(args.gpx_file)
+            points, route_metadata = get_route_with_surface(args.gpx_file, args.crr)
         except Exception as e:
             print(f"Error downloading from RideWithGPS: {e}", file=sys.stderr)
             sys.exit(1)
@@ -212,7 +221,7 @@ def main(argv: list[str] | None = None) -> None:
     print(f"Est. Time @{params.assumed_avg_power:.0f}W: {format_duration(result.estimated_moving_time_at_power)}")
 
     # Surface breakdown if available
-    surface_breakdown = calculate_surface_breakdown(points)
+    surface_breakdown = calculate_surface_breakdown(points, args.crr)
     if surface_breakdown:
         paved_km, unpaved_km = surface_breakdown[0] / 1000, surface_breakdown[1] / 1000
         total_km = paved_km + unpaved_km

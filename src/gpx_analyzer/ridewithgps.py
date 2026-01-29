@@ -213,24 +213,52 @@ def _enforce_lru_limit() -> None:
     _save_cache_index(index)
 
 
-# Surface type to rolling resistance coefficient mapping
+# Surface type crr deltas from baseline (R=3 quality paved is the baseline)
 # R values from RideWithGPS JSON route data
-SURFACE_CRR_MAP: dict[int, float] = {
-    3: 0.004,   # Paved (quality)
-    4: 0.005,   # Paved (standard)
-    5: 0.005,   # Paved
-    6: 0.005,   # Paved
-    15: 0.010,  # Gravel/unpaved
-    25: 0.012,  # Rough gravel
+# Actual crr = baseline_crr + delta
+SURFACE_CRR_DELTAS: dict[int, float] = {
+    3: 0.0,     # Paved (quality) - baseline
+    4: 0.001,   # Paved (standard)
+    5: 0.001,   # Paved
+    6: 0.001,   # Paved
+    15: 0.006,  # Gravel/unpaved
+    25: 0.008,  # Rough gravel
 }
-DEFAULT_CRR = 0.005  # Default for unknown surface types
 
 
-def _surface_type_to_crr(r_value: int | None) -> float:
-    """Convert RideWithGPS surface R value to rolling resistance coefficient."""
+def _get_surface_crr_deltas() -> dict[int, float]:
+    """Get surface crr deltas, allowing config file override.
+
+    Config file can specify 'surface_crr_deltas' as a dict mapping
+    R values (as strings) to delta values.
+    """
+    config = _load_config()
+    config_deltas = config.get("surface_crr_deltas")
+
+    if config_deltas and isinstance(config_deltas, dict):
+        # Convert string keys to int (JSON keys are strings)
+        return {int(k): float(v) for k, v in config_deltas.items()}
+
+    return SURFACE_CRR_DELTAS
+
+
+def _surface_type_to_crr(r_value: int | None, baseline_crr: float) -> float:
+    """Convert RideWithGPS surface R value to rolling resistance coefficient.
+
+    Args:
+        r_value: The R surface type value from RideWithGPS
+        baseline_crr: The baseline crr (used for R=3 quality paved)
+
+    Returns:
+        The effective crr = baseline_crr + delta for the surface type.
+        Unknown surface types use delta=0 (baseline).
+    """
     if r_value is None:
-        return DEFAULT_CRR
-    return SURFACE_CRR_MAP.get(r_value, DEFAULT_CRR)
+        return baseline_crr
+
+    deltas = _get_surface_crr_deltas()
+    delta = deltas.get(r_value, 0.0)
+    return baseline_crr + delta
 
 
 def _download_json(route_id: int, privacy_code: str | None = None) -> dict:
@@ -249,7 +277,7 @@ def _download_json(route_id: int, privacy_code: str | None = None) -> dict:
     return response.json()
 
 
-def parse_json_track_points(route_data: dict) -> list[TrackPoint]:
+def parse_json_track_points(route_data: dict, baseline_crr: float) -> list[TrackPoint]:
     """Parse RideWithGPS JSON route data into TrackPoints with surface crr.
 
     Extracts track points from the 'track_points' array. Surface data is read
@@ -257,6 +285,10 @@ def parse_json_track_points(route_data: dict) -> list[TrackPoint]:
 
     The route_data can have track_points at the top level (API format) or
     nested under 'route' key.
+
+    Args:
+        route_data: The JSON route data from RideWithGPS API
+        baseline_crr: The baseline crr value (from config/CLI) used for R=3 quality paved
     """
     # Handle both top-level and nested route data
     if "route" in route_data and "track_points" in route_data.get("route", {}):
@@ -278,7 +310,7 @@ def parse_json_track_points(route_data: dict) -> list[TrackPoint]:
 
         # Get surface type R value directly from track point
         r_value = tp.get("R")
-        crr = _surface_type_to_crr(r_value) if r_value is not None else None
+        crr = _surface_type_to_crr(r_value, baseline_crr) if r_value is not None else None
 
         points.append(
             TrackPoint(
@@ -293,8 +325,12 @@ def parse_json_track_points(route_data: dict) -> list[TrackPoint]:
     return points
 
 
-def get_route_with_surface(url: str) -> tuple[list[TrackPoint], dict]:
+def get_route_with_surface(url: str, baseline_crr: float) -> tuple[list[TrackPoint], dict]:
     """Get route track points with surface data from RideWithGPS JSON API.
+
+    Args:
+        url: The RideWithGPS route URL
+        baseline_crr: The baseline crr value (from config/CLI) used for R=3 quality paved
 
     Returns:
         Tuple of (list of TrackPoints with crr, route metadata dict).
@@ -307,7 +343,7 @@ def get_route_with_surface(url: str) -> tuple[list[TrackPoint], dict]:
     privacy_code = extract_privacy_code(url)
 
     route_data = _download_json(route_id, privacy_code)
-    points = parse_json_track_points(route_data)
+    points = parse_json_track_points(route_data, baseline_crr)
 
     # Extract useful metadata - handle both top-level and nested formats
     if "route" in route_data:

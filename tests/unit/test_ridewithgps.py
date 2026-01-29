@@ -647,33 +647,81 @@ class TestDownloadGpx:
             ridewithgps._download_gpx(99999)
 
 
-class TestSurfaceCrrMap:
-    def test_paved_quality(self):
-        assert ridewithgps._surface_type_to_crr(3) == 0.004
+class TestSurfaceCrrDeltas:
+    """Tests for surface crr delta calculations."""
+
+    def test_paved_quality_baseline(self):
+        """R=3 (quality paved) should return baseline crr (delta=0)."""
+        baseline = 0.004
+        assert ridewithgps._surface_type_to_crr(3, baseline) == 0.004
 
     def test_paved_standard(self):
-        assert ridewithgps._surface_type_to_crr(4) == 0.005
+        """R=4 (standard paved) should add delta of 0.001."""
+        baseline = 0.004
+        assert ridewithgps._surface_type_to_crr(4, baseline) == 0.005
 
     def test_gravel(self):
-        assert ridewithgps._surface_type_to_crr(15) == 0.010
+        """R=15 (gravel) should add delta of 0.006."""
+        baseline = 0.004
+        assert ridewithgps._surface_type_to_crr(15, baseline) == 0.010
 
     def test_rough_gravel(self):
-        assert ridewithgps._surface_type_to_crr(25) == 0.012
+        """R=25 (rough gravel) should add delta of 0.008."""
+        baseline = 0.004
+        assert ridewithgps._surface_type_to_crr(25, baseline) == 0.012
 
-    def test_unknown_returns_default(self):
-        assert ridewithgps._surface_type_to_crr(999) == ridewithgps.DEFAULT_CRR
+    def test_unknown_returns_baseline(self):
+        """Unknown R values should return baseline (delta=0)."""
+        baseline = 0.005
+        assert ridewithgps._surface_type_to_crr(999, baseline) == 0.005
 
-    def test_none_returns_default(self):
-        assert ridewithgps._surface_type_to_crr(None) == ridewithgps.DEFAULT_CRR
+    def test_none_returns_baseline(self):
+        """None R value should return baseline."""
+        baseline = 0.006
+        assert ridewithgps._surface_type_to_crr(None, baseline) == 0.006
+
+    def test_different_baseline(self):
+        """Deltas should apply correctly with different baseline values."""
+        baseline = 0.010
+        assert ridewithgps._surface_type_to_crr(3, baseline) == 0.010   # delta=0
+        assert ridewithgps._surface_type_to_crr(4, baseline) == 0.011   # delta=0.001
+        assert ridewithgps._surface_type_to_crr(15, baseline) == 0.016  # delta=0.006
+
+
+class TestSurfaceCrrDeltasConfig:
+    """Tests for config file override of surface crr deltas."""
+
+    def test_config_overrides_deltas(self, tmp_path, monkeypatch):
+        """Config file can override surface_crr_deltas."""
+        config_path = tmp_path / "gpx-analyzer.json"
+        config_path.write_text('{"surface_crr_deltas": {"3": 0.002, "15": 0.010}}')
+        monkeypatch.setattr(ridewithgps, "LOCAL_CONFIG_PATH", config_path)
+        monkeypatch.setattr(ridewithgps, "CONFIG_PATH", tmp_path / "nonexistent.json")
+
+        baseline = 0.004
+        # With custom deltas: R=3 has delta 0.002, R=15 has delta 0.010
+        assert ridewithgps._surface_type_to_crr(3, baseline) == 0.006   # 0.004 + 0.002
+        assert ridewithgps._surface_type_to_crr(15, baseline) == 0.014  # 0.004 + 0.010
+        # Unknown R value still uses delta=0
+        assert ridewithgps._surface_type_to_crr(999, baseline) == 0.004
+
+    def test_no_config_uses_defaults(self, tmp_path, monkeypatch):
+        """Without config, default deltas are used."""
+        monkeypatch.setattr(ridewithgps, "LOCAL_CONFIG_PATH", tmp_path / "nonexistent1.json")
+        monkeypatch.setattr(ridewithgps, "CONFIG_PATH", tmp_path / "nonexistent2.json")
+
+        baseline = 0.004
+        assert ridewithgps._surface_type_to_crr(3, baseline) == 0.004   # delta=0
+        assert ridewithgps._surface_type_to_crr(15, baseline) == 0.010  # delta=0.006
 
 
 class TestParseJsonTrackPoints:
     def test_empty_route_data(self):
-        result = ridewithgps.parse_json_track_points({})
+        result = ridewithgps.parse_json_track_points({}, baseline_crr=0.004)
         assert result == []
 
     def test_empty_track_points(self):
-        result = ridewithgps.parse_json_track_points({"track_points": []})
+        result = ridewithgps.parse_json_track_points({"track_points": []}, baseline_crr=0.004)
         assert result == []
 
     def test_basic_track_points_no_surface(self):
@@ -684,7 +732,7 @@ class TestParseJsonTrackPoints:
                 {"x": -122.4183, "y": 37.7758, "e": 15.0, "d": 100},
             ],
         }
-        result = ridewithgps.parse_json_track_points(route_data)
+        result = ridewithgps.parse_json_track_points(route_data, baseline_crr=0.004)
         assert len(result) == 2
         assert result[0].lat == 37.7749
         assert result[0].lon == -122.4194
@@ -692,7 +740,7 @@ class TestParseJsonTrackPoints:
         assert result[0].crr is None  # No R value
 
     def test_track_points_with_r_values(self):
-        """Track points with R values should have corresponding crr."""
+        """Track points with R values should have crr = baseline + delta."""
         route_data = {
             "track_points": [
                 {"x": -122.4194, "y": 37.7749, "e": 10.0, "d": 0, "R": 4},
@@ -700,11 +748,11 @@ class TestParseJsonTrackPoints:
                 {"x": -122.4172, "y": 37.7767, "e": 20.0, "d": 200, "R": 15},
             ],
         }
-        result = ridewithgps.parse_json_track_points(route_data)
+        result = ridewithgps.parse_json_track_points(route_data, baseline_crr=0.004)
         assert len(result) == 3
-        assert result[0].crr == 0.005  # R=4 paved
-        assert result[1].crr == 0.005  # R=4 paved
-        assert result[2].crr == 0.010  # R=15 gravel
+        assert result[0].crr == 0.005  # R=4: 0.004 + 0.001
+        assert result[1].crr == 0.005  # R=4: 0.004 + 0.001
+        assert result[2].crr == 0.010  # R=15: 0.004 + 0.006
 
     def test_track_points_missing_lat_lon_skipped(self):
         route_data = {
@@ -714,7 +762,7 @@ class TestParseJsonTrackPoints:
                 {"x": -122.4172, "e": 20.0, "d": 200, "R": 15},           # Missing lat
             ],
         }
-        result = ridewithgps.parse_json_track_points(route_data)
+        result = ridewithgps.parse_json_track_points(route_data, baseline_crr=0.004)
         assert len(result) == 1
         assert result[0].lat == 37.7749
 
@@ -727,9 +775,21 @@ class TestParseJsonTrackPoints:
                 ],
             }
         }
-        result = ridewithgps.parse_json_track_points(route_data)
+        result = ridewithgps.parse_json_track_points(route_data, baseline_crr=0.004)
         assert len(result) == 1
-        assert result[0].crr == 0.005
+        assert result[0].crr == 0.005  # 0.004 + 0.001
+
+    def test_different_baseline_crr(self):
+        """Verify deltas are applied to different baseline values."""
+        route_data = {
+            "track_points": [
+                {"x": -122.4194, "y": 37.7749, "e": 10.0, "R": 3},
+                {"x": -122.4183, "y": 37.7758, "e": 15.0, "R": 15},
+            ],
+        }
+        result = ridewithgps.parse_json_track_points(route_data, baseline_crr=0.010)
+        assert result[0].crr == 0.010  # R=3: 0.010 + 0 (baseline)
+        assert result[1].crr == 0.016  # R=15: 0.010 + 0.006
 
 
 class TestDownloadJson:
@@ -798,12 +858,12 @@ class TestGetRouteWithSurface:
         }
 
         points, metadata = ridewithgps.get_route_with_surface(
-            "https://ridewithgps.com/routes/12345"
+            "https://ridewithgps.com/routes/12345", baseline_crr=0.004
         )
 
         assert len(points) == 2
         assert points[0].lat == 37.7749
-        assert points[0].crr == 0.005
+        assert points[0].crr == 0.005  # 0.004 + 0.001
         assert metadata["name"] == "Test Route"
         assert metadata["unpaved_pct"] == 15
 
@@ -816,7 +876,24 @@ class TestGetRouteWithSurface:
         }
 
         ridewithgps.get_route_with_surface(
-            "https://ridewithgps.com/routes/12345?privacy_code=SECRET"
+            "https://ridewithgps.com/routes/12345?privacy_code=SECRET", baseline_crr=0.004
         )
 
         mock_download.assert_called_once_with(12345, "SECRET")
+
+    @patch.object(ridewithgps, "_download_json")
+    def test_uses_baseline_crr(self, mock_download, no_config):
+        """Verify baseline_crr is used correctly in crr calculation."""
+        mock_download.return_value = {
+            "track_points": [
+                {"x": -122.4194, "y": 37.7749, "e": 10.0, "R": 3},   # baseline
+                {"x": -122.4183, "y": 37.7758, "e": 15.0, "R": 15},  # gravel
+            ],
+        }
+
+        points, _ = ridewithgps.get_route_with_surface(
+            "https://ridewithgps.com/routes/12345", baseline_crr=0.008
+        )
+
+        assert points[0].crr == 0.008  # R=3: baseline + 0
+        assert points[1].crr == 0.014  # R=15: baseline + 0.006
