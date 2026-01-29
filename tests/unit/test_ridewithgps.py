@@ -650,6 +650,12 @@ class TestDownloadGpx:
 class TestSurfaceCrrDeltas:
     """Tests for surface crr delta calculations."""
 
+    @pytest.fixture(autouse=True)
+    def use_default_config(self, tmp_path, monkeypatch):
+        """Ensure tests use default code values, not config file values."""
+        monkeypatch.setattr(ridewithgps, "LOCAL_CONFIG_PATH", tmp_path / "nonexistent1.json")
+        monkeypatch.setattr(ridewithgps, "CONFIG_PATH", tmp_path / "nonexistent2.json")
+
     def test_paved_quality_baseline(self):
         """R=3 (quality paved) with S=0 (paved) should return baseline crr."""
         baseline = 0.004
@@ -761,6 +767,12 @@ class TestIsUnpaved:
 
 
 class TestParseJsonTrackPoints:
+    @pytest.fixture(autouse=True)
+    def use_default_config(self, tmp_path, monkeypatch):
+        """Ensure tests use default code values, not config file values."""
+        monkeypatch.setattr(ridewithgps, "LOCAL_CONFIG_PATH", tmp_path / "nonexistent1.json")
+        monkeypatch.setattr(ridewithgps, "CONFIG_PATH", tmp_path / "nonexistent2.json")
+
     def test_empty_route_data(self):
         result = ridewithgps.parse_json_track_points({}, baseline_crr=0.004)
         assert result == []
