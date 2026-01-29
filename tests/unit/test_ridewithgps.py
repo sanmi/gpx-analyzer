@@ -740,6 +740,26 @@ class TestSurfaceCrrDeltasConfig:
         assert ridewithgps._surface_type_to_crr(4, 56, baseline) == 0.015
 
 
+class TestIsUnpaved:
+    """Tests for is_unpaved() function."""
+
+    def test_s_below_threshold_is_paved(self):
+        assert ridewithgps.is_unpaved(0) is False
+        assert ridewithgps.is_unpaved(1) is False
+        assert ridewithgps.is_unpaved(49) is False
+
+    def test_s_at_threshold_is_unpaved(self):
+        assert ridewithgps.is_unpaved(50) is True
+
+    def test_s_above_threshold_is_unpaved(self):
+        assert ridewithgps.is_unpaved(56) is True
+        assert ridewithgps.is_unpaved(63) is True
+        assert ridewithgps.is_unpaved(99) is True
+
+    def test_none_is_paved(self):
+        assert ridewithgps.is_unpaved(None) is False
+
+
 class TestParseJsonTrackPoints:
     def test_empty_route_data(self):
         result = ridewithgps.parse_json_track_points({}, baseline_crr=0.004)
@@ -808,13 +828,43 @@ class TestParseJsonTrackPoints:
         """Verify deltas are applied to different baseline values."""
         route_data = {
             "track_points": [
-                {"x": -122.4194, "y": 37.7749, "e": 10.0, "R": 3},
-                {"x": -122.4183, "y": 37.7758, "e": 15.0, "R": 15},
+                {"x": -122.4194, "y": 37.7749, "e": 10.0, "R": 3, "S": 0},
+                {"x": -122.4183, "y": 37.7758, "e": 15.0, "R": 15, "S": 0},
             ],
         }
         result = ridewithgps.parse_json_track_points(route_data, baseline_crr=0.010)
         assert result[0].crr == 0.010  # R=3: 0.010 + 0 (baseline)
         assert result[1].crr == 0.016  # R=15: 0.010 + 0.006
+
+    def test_unpaved_flag_set_from_s_value(self):
+        """Verify unpaved flag is set based on S value >= 50."""
+        route_data = {
+            "track_points": [
+                {"x": -122.4194, "y": 37.7749, "e": 10.0, "R": 4, "S": 0},   # paved
+                {"x": -122.4183, "y": 37.7758, "e": 15.0, "R": 4, "S": 49},  # paved (below threshold)
+                {"x": -122.4172, "y": 37.7767, "e": 20.0, "R": 5, "S": 56},  # unpaved
+                {"x": -122.4161, "y": 37.7776, "e": 25.0, "R": 5, "S": 63},  # unpaved
+            ],
+        }
+        result = ridewithgps.parse_json_track_points(route_data, baseline_crr=0.004)
+        assert result[0].unpaved is False
+        assert result[1].unpaved is False
+        assert result[2].unpaved is True
+        assert result[3].unpaved is True
+
+    def test_unpaved_adds_crr_penalty(self):
+        """Verify unpaved surfaces get additional crr penalty."""
+        route_data = {
+            "track_points": [
+                {"x": -122.4194, "y": 37.7749, "e": 10.0, "R": 4, "S": 0},   # paved
+                {"x": -122.4183, "y": 37.7758, "e": 15.0, "R": 4, "S": 56},  # unpaved
+            ],
+        }
+        result = ridewithgps.parse_json_track_points(route_data, baseline_crr=0.004)
+        # Paved: baseline + R_delta = 0.004 + 0.001 = 0.005
+        assert result[0].crr == 0.005
+        # Unpaved: baseline + R_delta + unpaved_delta = 0.004 + 0.001 + 0.005 = 0.010
+        assert result[1].crr == 0.010
 
 
 class TestDownloadJson:
