@@ -6,10 +6,13 @@ from geopy.distance import geodesic
 from gpx_analyzer.analyzer import analyze
 from gpx_analyzer.models import RiderParams, TrackPoint
 from gpx_analyzer.parser import parse_gpx
+from gpx_analyzer.compare import compare_route_with_trip, format_comparison_report
 from gpx_analyzer.ridewithgps import (
     _load_config,
     get_gpx,
     get_route_with_surface,
+    get_trip_data,
+    is_ridewithgps_trip_url,
     is_ridewithgps_url,
 )
 from gpx_analyzer.smoothing import smooth_elevations
@@ -105,6 +108,12 @@ def build_parser(config: dict | None = None) -> argparse.ArgumentParser:
         type=float,
         default=get_default("headwind"),
         help=f"Headwind speed in km/h (default: {DEFAULTS['headwind']}). Positive = into wind, negative = tailwind.",
+    )
+    parser.add_argument(
+        "--compare-trip",
+        type=str,
+        default=None,
+        help="RideWithGPS trip URL to compare predictions against actual ride data.",
     )
     return parser
 
@@ -233,3 +242,28 @@ def main(argv: list[str] | None = None) -> None:
                 f"Surface:        {paved_km:.1f} km ({paved_mi:.1f} mi) paved, "
                 f"{unpaved_km:.1f} km ({unpaved_mi:.1f} mi) unpaved ({unpaved_pct:.0f}%)"
             )
+
+    # Compare with actual trip data if provided
+    if args.compare_trip:
+        if not is_ridewithgps_trip_url(args.compare_trip):
+            print(f"Error: Invalid RideWithGPS trip URL: {args.compare_trip}", file=sys.stderr)
+            sys.exit(1)
+
+        try:
+            trip_points, trip_metadata = get_trip_data(args.compare_trip)
+        except Exception as e:
+            print(f"Error downloading trip data: {e}", file=sys.stderr)
+            sys.exit(1)
+
+        if len(trip_points) < 2:
+            print("Error: Trip contains fewer than 2 track points.", file=sys.stderr)
+            sys.exit(1)
+
+        print("")
+        comparison = compare_route_with_trip(
+            points,
+            trip_points,
+            params,
+            result.estimated_moving_time_at_power.total_seconds(),
+        )
+        print(format_comparison_report(comparison, params))

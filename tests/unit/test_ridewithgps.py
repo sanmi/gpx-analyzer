@@ -972,3 +972,160 @@ class TestGetRouteWithSurface:
 
         assert points[0].crr == 0.008  # R=3: baseline + 0
         assert points[1].crr == 0.014  # R=15: baseline + 0.006
+
+
+class TestIsRidewithgpsTripUrl:
+    def test_valid_trip_url(self):
+        assert ridewithgps.is_ridewithgps_trip_url("https://ridewithgps.com/trips/233763291")
+
+    def test_valid_trip_url_with_www(self):
+        assert ridewithgps.is_ridewithgps_trip_url(
+            "https://www.ridewithgps.com/trips/233763291"
+        )
+
+    def test_valid_trip_url_http(self):
+        assert ridewithgps.is_ridewithgps_trip_url("http://ridewithgps.com/trips/233763291")
+
+    def test_route_url_not_trip(self):
+        assert not ridewithgps.is_ridewithgps_trip_url("https://ridewithgps.com/routes/12345")
+
+    def test_local_file_path(self):
+        assert not ridewithgps.is_ridewithgps_trip_url("/path/to/file.gpx")
+
+    def test_empty_string(self):
+        assert not ridewithgps.is_ridewithgps_trip_url("")
+
+
+class TestExtractTripId:
+    def test_valid_url(self):
+        assert (
+            ridewithgps.extract_trip_id("https://ridewithgps.com/trips/233763291")
+            == 233763291
+        )
+
+    def test_valid_url_with_www(self):
+        assert (
+            ridewithgps.extract_trip_id("https://www.ridewithgps.com/trips/12345")
+            == 12345
+        )
+
+    def test_invalid_url_raises(self):
+        with pytest.raises(ValueError, match="Invalid RideWithGPS trip URL"):
+            ridewithgps.extract_trip_id("https://ridewithgps.com/routes/123")
+
+    def test_local_path_raises(self):
+        with pytest.raises(ValueError, match="Invalid RideWithGPS trip URL"):
+            ridewithgps.extract_trip_id("/path/to/file.gpx")
+
+
+class TestParseTripTrackPoints:
+    def test_parses_basic_fields(self):
+        trip_data = {
+            "trip": {
+                "track_points": [
+                    {"x": -122.4194, "y": 37.7749, "e": 100.0, "d": 0.0, "s": 5.0, "t": 1000000},
+                    {"x": -122.4183, "y": 37.7758, "e": 105.0, "d": 100.0, "s": 6.0, "t": 1000020},
+                ]
+            }
+        }
+        points = ridewithgps.parse_trip_track_points(trip_data)
+
+        assert len(points) == 2
+        assert points[0].lat == 37.7749
+        assert points[0].lon == -122.4194
+        assert points[0].elevation == 100.0
+        assert points[0].distance == 0.0
+        assert points[0].speed == 5.0
+        assert points[0].timestamp == 1000000
+
+    def test_parses_power_hr_cadence(self):
+        trip_data = {
+            "track_points": [
+                {"x": -122.4194, "y": 37.7749, "e": 100.0, "d": 0.0, "s": 5.0, "p": 150, "h": 130, "c": 80},
+            ]
+        }
+        points = ridewithgps.parse_trip_track_points(trip_data)
+
+        assert points[0].power == 150
+        assert points[0].heart_rate == 130
+        assert points[0].cadence == 80
+
+    def test_handles_missing_optional_fields(self):
+        trip_data = {
+            "track_points": [
+                {"x": -122.4194, "y": 37.7749},  # Only lat/lon
+            ]
+        }
+        points = ridewithgps.parse_trip_track_points(trip_data)
+
+        assert len(points) == 1
+        assert points[0].elevation is None
+        assert points[0].speed is None
+        assert points[0].power is None
+
+    def test_skips_points_without_lat_lon(self):
+        trip_data = {
+            "track_points": [
+                {"x": -122.4194},  # Missing lat
+                {"y": 37.7749},  # Missing lon
+                {"x": -122.4194, "y": 37.7749},  # Valid
+            ]
+        }
+        points = ridewithgps.parse_trip_track_points(trip_data)
+
+        assert len(points) == 1
+
+    def test_empty_track_points(self):
+        trip_data = {"track_points": []}
+        points = ridewithgps.parse_trip_track_points(trip_data)
+        assert points == []
+
+    def test_missing_track_points(self):
+        trip_data = {"name": "Test Trip"}
+        points = ridewithgps.parse_trip_track_points(trip_data)
+        assert points == []
+
+
+class TestGetTripData:
+    @pytest.fixture
+    def no_config(self, tmp_path, monkeypatch):
+        local_path = tmp_path / "nonexistent" / "gpx-analyzer.json"
+        monkeypatch.setattr(ridewithgps, "LOCAL_CONFIG_PATH", local_path)
+        global_path = tmp_path / "nonexistent" / "gpx-analyzer.json"
+        monkeypatch.setattr(ridewithgps, "CONFIG_PATH", global_path)
+        monkeypatch.delenv("RIDEWITHGPS_API_KEY", raising=False)
+        monkeypatch.delenv("RIDEWITHGPS_AUTH_TOKEN", raising=False)
+
+    @patch.object(ridewithgps, "_download_trip_json")
+    def test_returns_points_and_metadata(self, mock_download, no_config):
+        mock_download.return_value = {
+            "trip": {
+                "name": "Test Ride",
+                "distance": 50000,
+                "elevation_gain": 500,
+                "moving_time": 7200,
+                "duration": 8000,
+                "avg_speed": 6.9,
+                "avg_watts": 120,
+                "track_points": [
+                    {"x": -122.4194, "y": 37.7749, "e": 100.0, "d": 0.0, "s": 5.0},
+                    {"x": -122.4183, "y": 37.7758, "e": 105.0, "d": 100.0, "s": 6.0},
+                ],
+            }
+        }
+
+        points, metadata = ridewithgps.get_trip_data(
+            "https://ridewithgps.com/trips/233763291"
+        )
+
+        assert len(points) == 2
+        assert points[0].lat == 37.7749
+        assert metadata["name"] == "Test Ride"
+        assert metadata["distance"] == 50000
+        assert metadata["moving_time"] == 7200
+        assert metadata["avg_watts"] == 120
+
+    @patch.object(ridewithgps, "_download_trip_json")
+    def test_invalid_url_raises(self, mock_download, no_config):
+        with pytest.raises(ValueError, match="Invalid RideWithGPS trip URL"):
+            ridewithgps.get_trip_data("https://ridewithgps.com/routes/12345")

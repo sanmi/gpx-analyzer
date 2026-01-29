@@ -1,5 +1,6 @@
 """RideWithGPS URL support with local GPX caching."""
 
+from dataclasses import dataclass
 import json
 import os
 import re
@@ -19,6 +20,7 @@ CACHE_INDEX_PATH = CACHE_DIR / "cache_index.json"
 MAX_CACHED_ROUTES = 10
 
 RIDEWITHGPS_PATTERN = re.compile(r"^https?://(?:www\.)?ridewithgps\.com/routes/(\d+)")
+RIDEWITHGPS_TRIP_PATTERN = re.compile(r"^https?://(?:www\.)?ridewithgps\.com/trips/(\d+)")
 
 
 def is_ridewithgps_url(path: str) -> bool:
@@ -397,6 +399,132 @@ def get_route_with_surface(url: str, baseline_crr: float) -> tuple[list[TrackPoi
         "elevation_gain": route_info.get("elevation_gain"),
         "unpaved_pct": route_info.get("unpaved_pct"),
         "surface": route_info.get("surface"),
+    }
+
+    return points, metadata
+
+
+def is_ridewithgps_trip_url(path: str) -> bool:
+    """Check if the given path is a RideWithGPS trip URL."""
+    return bool(RIDEWITHGPS_TRIP_PATTERN.match(path))
+
+
+def extract_trip_id(url: str) -> int:
+    """Extract the trip ID from a RideWithGPS trip URL.
+
+    Raises:
+        ValueError: If the URL is not a valid RideWithGPS trip URL.
+    """
+    match = RIDEWITHGPS_TRIP_PATTERN.match(url)
+    if not match:
+        raise ValueError(f"Invalid RideWithGPS trip URL: {url}")
+    return int(match.group(1))
+
+
+def _download_trip_json(trip_id: int, privacy_code: str | None = None) -> dict:
+    """Download trip JSON data from RideWithGPS.
+
+    Raises:
+        requests.RequestException: If the download fails.
+    """
+    url = f"https://ridewithgps.com/trips/{trip_id}.json"
+    if privacy_code:
+        url += f"?privacy_code={privacy_code}"
+
+    headers = _get_auth_headers()
+    response = requests.get(url, headers=headers, timeout=30)
+    response.raise_for_status()
+    return response.json()
+
+
+@dataclass
+class TripPoint:
+    """A point from an actual ride with recorded data."""
+
+    lat: float
+    lon: float
+    elevation: float | None
+    distance: float  # cumulative distance in meters
+    speed: float | None  # m/s
+    timestamp: float | None  # unix timestamp
+    power: float | None  # watts
+    heart_rate: int | None
+    cadence: int | None
+
+
+def parse_trip_track_points(trip_data: dict) -> list[TripPoint]:
+    """Parse RideWithGPS trip JSON data into TripPoints.
+
+    Args:
+        trip_data: The JSON trip data from RideWithGPS API
+    """
+    # Handle both top-level and nested trip data
+    if "trip" in trip_data and "track_points" in trip_data.get("trip", {}):
+        track_points_data = trip_data["trip"]["track_points"]
+    else:
+        track_points_data = trip_data.get("track_points", [])
+
+    if not track_points_data:
+        return []
+
+    points: list[TripPoint] = []
+    for tp in track_points_data:
+        lat = tp.get("y")
+        lon = tp.get("x")
+
+        if lat is None or lon is None:
+            continue
+
+        points.append(
+            TripPoint(
+                lat=lat,
+                lon=lon,
+                elevation=tp.get("e"),
+                distance=tp.get("d", 0.0),
+                speed=tp.get("s"),
+                timestamp=tp.get("t"),
+                power=tp.get("p"),
+                heart_rate=tp.get("h"),
+                cadence=tp.get("c"),
+            )
+        )
+
+    return points
+
+
+def get_trip_data(url: str) -> tuple[list[TripPoint], dict]:
+    """Get trip track points from RideWithGPS JSON API.
+
+    Args:
+        url: The RideWithGPS trip URL
+
+    Returns:
+        Tuple of (list of TripPoints, trip metadata dict).
+
+    Raises:
+        ValueError: If the URL is not a valid RideWithGPS trip URL.
+        requests.RequestException: If the download fails.
+    """
+    trip_id = extract_trip_id(url)
+    privacy_code = extract_privacy_code(url)
+
+    trip_data = _download_trip_json(trip_id, privacy_code)
+    points = parse_trip_track_points(trip_data)
+
+    # Extract useful metadata
+    if "trip" in trip_data:
+        trip_info = trip_data["trip"]
+    else:
+        trip_info = trip_data
+
+    metadata = {
+        "name": trip_info.get("name"),
+        "distance": trip_info.get("distance"),
+        "elevation_gain": trip_info.get("elevation_gain"),
+        "moving_time": trip_info.get("moving_time"),
+        "duration": trip_info.get("duration"),
+        "avg_speed": trip_info.get("avg_speed"),
+        "avg_watts": trip_info.get("avg_watts"),
     }
 
     return points, metadata
