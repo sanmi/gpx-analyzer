@@ -118,7 +118,8 @@ class TestCompareRouteWithTrip:
 
     def test_calculates_trip_distance(self, route_points, trip_points, params):
         result = compare_route_with_trip(route_points, trip_points, params, 120.0, 50000.0)
-        assert result.trip_distance == 990.0  # 99 points * 10m each
+        # 99 segments * ~11.1m (0.0001° latitude) ≈ 1099m, calculated from geodesic
+        assert result.trip_distance == pytest.approx(1099, rel=0.01)
 
     def test_calculates_moving_time(self, route_points, trip_points, params):
         result = compare_route_with_trip(route_points, trip_points, params, 120.0, 50000.0)

@@ -73,9 +73,8 @@ def compare_route_with_trip(
         predicted_time_seconds: The predicted moving time from analyze()
         predicted_work_joules: The predicted work from analyze()
     """
-    # Calculate actual moving time (points where speed > 0.5 m/s)
-    moving_points = [tp for tp in trip_points if tp.speed is not None and tp.speed > 0.5]
-    actual_moving_time = len(moving_points)  # Each point is ~1 second
+    # Calculate actual moving time from timestamps (when speed > 0.5 m/s)
+    actual_moving_time = _calculate_moving_time(trip_points)
 
     # Check for power data and calculate actual work
     power_points = [tp.power for tp in trip_points if tp.power is not None]
@@ -89,7 +88,7 @@ def compare_route_with_trip(
 
     # Calculate distances
     route_distance = _calculate_route_distance(route_points)
-    trip_distance = trip_points[-1].distance if trip_points else 0.0
+    trip_distance = _calculate_trip_distance(trip_points)
 
     # Time error
     time_error_pct = ((predicted_time_seconds - actual_moving_time) / actual_moving_time * 100
@@ -113,13 +112,15 @@ def _build_grade_buckets(
     trip_points: list[TripPoint], params: RiderParams
 ) -> list[GradeBucket]:
     """Build gradient buckets from trip data."""
+    from geopy.distance import geodesic
+
     buckets: dict[int, GradeBucket] = {}
 
     for i in range(1, len(trip_points)):
         prev, curr = trip_points[i - 1], trip_points[i]
 
-        # Calculate gradient
-        dist_delta = curr.distance - prev.distance
+        # Calculate distance between points using geodesic
+        dist_delta = geodesic((prev.lat, prev.lon), (curr.lat, curr.lon)).meters
         if dist_delta < 1:  # Skip very short segments
             continue
 
@@ -172,6 +173,45 @@ def _calculate_route_distance(points: list[TrackPoint]) -> float:
         p1, p2 = points[i - 1], points[i]
         total += geodesic((p1.lat, p1.lon), (p2.lat, p2.lon)).meters
     return total
+
+
+def _calculate_trip_distance(points: list[TripPoint]) -> float:
+    """Calculate total trip distance from coordinates."""
+    from geopy.distance import geodesic
+
+    if not points:
+        return 0.0
+
+    total = 0.0
+    for i in range(1, len(points)):
+        p1, p2 = points[i - 1], points[i]
+        total += geodesic((p1.lat, p1.lon), (p2.lat, p2.lon)).meters
+    return total
+
+
+def _calculate_moving_time(points: list[TripPoint]) -> float:
+    """Calculate moving time from timestamps when speed > 0.5 m/s.
+
+    Returns total moving time in seconds.
+    """
+    if len(points) < 2:
+        return 0.0
+
+    moving_time = 0.0
+    for i in range(1, len(points)):
+        prev, curr = points[i - 1], points[i]
+
+        # Skip if timestamps missing
+        if prev.timestamp is None or curr.timestamp is None:
+            continue
+
+        # Only count time when moving (speed > 0.5 m/s at current point)
+        if curr.speed is not None and curr.speed > 0.5:
+            time_delta = curr.timestamp - prev.timestamp
+            # Cap individual gaps at 60 seconds to avoid counting long stops
+            moving_time += min(time_delta, 60)
+
+    return moving_time
 
 
 def format_comparison_report(result: ComparisonResult, params: RiderParams) -> str:
