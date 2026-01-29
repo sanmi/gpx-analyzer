@@ -2,11 +2,28 @@
   "description": "Training data for tuning GPX analyzer parameters",
   "routes": [
     {
-      "name": "Santa Cruz Mixed",
+      "name": "Loma Prieta Rd, Eureka Canyon Mixed",
       "route_url": "https://ridewithgps.com/routes/48889111",
       "trip_url": "https://ridewithgps.com/trips/233763291",
+      "avg_watts": 101,
       "tags": ["road", "gravel", "hilly", "california"],
       "notes": "Mixed surface route with significant climbing"
+    },
+    {
+      "name": "Col de La Croix de Fer",
+      "route_url": "https://ridewithgps.com/routes/53835626",
+      "trip_url": "https://ridewithgps.com/trips/291740708",
+      "avg_watts": 118,
+      "tags": ["road", "hilly", "france"],
+      "notes": "Road route with significant climbing"
+    },
+    {
+      "name": "Lexington, OSC, Loma Prieta",
+      "route_url": "https://ridewithgps.com/routes/53834800",
+      "trip_url": "https://ridewithgps.com/trips/362831000",
+      "avg_watts": 101,
+      "tags": ["road", "gravel","hilly", "california"],
+      "notes": "Road with some gravel with significant climbing"
     }
   ]
 }

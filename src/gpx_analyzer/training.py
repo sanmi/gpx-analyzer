@@ -25,6 +25,7 @@ class TrainingRoute:
     trip_url: str
     tags: list[str]
     notes: str = ""
+    avg_watts: float | None = None  # Override default power for this ride
 
 
 @dataclass
@@ -36,6 +37,7 @@ class TrainingResult:
     route_elevation_gain: float
     route_distance: float
     unpaved_pct: float
+    power_used: float  # The power value used for prediction
 
 
 @dataclass
@@ -70,6 +72,7 @@ def load_training_data(path: Path) -> list[TrainingRoute]:
                 trip_url=entry["trip_url"],
                 tags=entry.get("tags", []),
                 notes=entry.get("notes", ""),
+                avg_watts=entry.get("avg_watts"),
             )
         )
     return routes
@@ -90,6 +93,20 @@ def analyze_training_route(
         print(f"  Skipping {route.name}: invalid trip URL")
         return None
 
+    # Use per-route power if specified, otherwise use default
+    power_used = route.avg_watts if route.avg_watts is not None else params.assumed_avg_power
+    route_params = RiderParams(
+        total_mass=params.total_mass,
+        cda=params.cda,
+        crr=params.crr,
+        air_density=params.air_density,
+        assumed_avg_power=power_used,
+        coasting_grade_threshold=params.coasting_grade_threshold,
+        max_coasting_speed=params.max_coasting_speed,
+        max_coasting_speed_unpaved=params.max_coasting_speed_unpaved,
+        headwind=params.headwind,
+    )
+
     try:
         # Get route data
         route_points, route_metadata = get_route_with_surface(route.route_url, params.crr)
@@ -103,13 +120,13 @@ def analyze_training_route(
 
         # Smooth and analyze route
         smoothed = smooth_elevations(route_points, smoothing_radius, elevation_scale)
-        analysis = analyze(smoothed, params)
+        analysis = analyze(smoothed, route_params)
 
         # Compare with trip
         comparison = compare_route_with_trip(
             smoothed,
             trip_points,
-            params,
+            route_params,
             analysis.estimated_moving_time_at_power.total_seconds(),
             analysis.estimated_work,
         )
@@ -123,6 +140,7 @@ def analyze_training_route(
             route_elevation_gain=analysis.elevation_gain,
             route_distance=analysis.total_distance,
             unpaved_pct=unpaved_pct,
+            power_used=power_used,
         )
 
     except Exception as e:
@@ -249,9 +267,9 @@ def format_training_summary(
 
     # Per-route breakdown
     lines.append("PER-ROUTE BREAKDOWN:")
-    lines.append("-" * 50)
-    lines.append(f"{'Route':<25} {'Dist':>6} {'Elev':>6} {'Time%':>7} {'Work%':>7}")
-    lines.append("-" * 50)
+    lines.append("-" * 60)
+    lines.append(f"{'Route':<22} {'Pwr':>5} {'Dist':>6} {'Elev':>6} {'Time%':>7} {'Work%':>7}")
+    lines.append("-" * 60)
 
     for r in results:
         dist_km = r.route_distance / 1000
@@ -264,8 +282,8 @@ def format_training_summary(
         else:
             work_str = "n/a"
 
-        name = r.route.name[:24]
-        lines.append(f"{name:<25} {dist_km:>5.0f}k {elev_m:>5.0f}m {time_err:>+6.1f}% {work_str:>7}")
+        name = r.route.name[:21]
+        lines.append(f"{name:<22} {r.power_used:>4.0f}W {dist_km:>5.0f}k {elev_m:>5.0f}m {time_err:>+6.1f}% {work_str:>7}")
 
     lines.append("")
 

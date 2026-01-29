@@ -92,6 +92,27 @@ class TestLoadTrainingData:
         assert len(routes) == 1
         assert routes[0].tags == []
         assert routes[0].notes == ""
+        assert routes[0].avg_watts is None
+
+    def test_loads_avg_watts(self):
+        data = {
+            "routes": [
+                {
+                    "name": "Power Route",
+                    "route_url": "https://ridewithgps.com/routes/123",
+                    "trip_url": "https://ridewithgps.com/trips/456",
+                    "avg_watts": 150,
+                }
+            ]
+        }
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+            json.dump(data, f)
+            path = Path(f.name)
+
+        routes = load_training_data(path)
+        path.unlink()
+
+        assert routes[0].avg_watts == 150
 
     def test_empty_routes_array(self):
         data = {"routes": []}
@@ -203,6 +224,7 @@ class TestFormatTrainingSummary:
             route_elevation_gain=1000,
             route_distance=50000,
             unpaved_pct=0,
+            power_used=100.0,
         )
 
         summary = TrainingSummary(
@@ -248,6 +270,7 @@ class TestFormatTrainingSummary:
             route_elevation_gain=1500,
             route_distance=75000,
             unpaved_pct=0,
+            power_used=120.0,
         )
 
         summary = TrainingSummary(

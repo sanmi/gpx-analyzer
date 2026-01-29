@@ -97,12 +97,15 @@ Training data JSON format:
       "name": "Santa Cruz Mixed",
       "route_url": "https://ridewithgps.com/routes/48889111",
       "trip_url": "https://ridewithgps.com/trips/233763291",
+      "avg_watts": 101,
       "tags": ["road", "gravel", "hilly"],
       "notes": "Mixed surface route with significant climbing"
     }
   ]
 }
 ```
+
+The `avg_watts` field specifies the average power for that specific ride (from power meter data). This allows comparing rides at different intensities. If omitted, the default `--power` value is used.
 
 Output shows aggregate statistics across all routes, broken down by terrain type.
 
