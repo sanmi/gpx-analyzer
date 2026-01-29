@@ -80,7 +80,34 @@ gpx-analyzer https://ridewithgps.com/routes/48889111 \
   --compare-trip https://ridewithgps.com/trips/233763291
 ```
 
-This shows predicted vs actual speed by gradient, time/work prediction errors, and actual power data if available from a power meter.
+Output shows predicted vs actual metrics:
+
+```
+=== Route vs Trip Comparison ===
+
+Route distance: 72.2 km
+Trip distance:  73.2 km
+
+Predicted time @100W: 6.22 hours
+Actual moving time:        5.68 hours
+Difference: +33 minutes (+9.5%)
+
+Predicted work: 2240 kJ
+Actual work:    1889 kJ (+19%)
+
+Actual avg power: 101W (model assumes 100W)
+
+Speed by gradient (actual vs predicted):
+ Grade |   Actual |     Pred |    Error |    Pwr
+--------------------------------------------------
+  -12% |    16.5 |    52.0 |    +214% |     1W
+   -6% |    20.6 |    50.7 |    +146% |    13W
+   +0% |    13.5 |    21.4 |     +59% |    98W
+   +6% |    10.9 |     8.5 |     -22% |   145W
+  +12% |     6.5 |     4.2 |     -35% |   155W
+```
+
+The gradient breakdown shows how well the model predicts speed at different grades, with actual power data from the ride.
 
 ## Training Data for Parameter Tuning
 
@@ -109,7 +136,40 @@ Training data JSON format:
 
 The `avg_watts` field specifies the average power for that specific ride (from power meter data). This allows comparing rides at different intensities. If omitted, the default `--power` value is used.
 
-Output shows aggregate statistics across all routes, broken down by terrain type.
+Output shows aggregate statistics and per-route breakdown:
+
+```
+============================================================
+TRAINING DATA ANALYSIS SUMMARY
+============================================================
+
+Model params: mass=84.0kg cda=0.32 crr=0.012
+              power=100.0W max_coast=52km/h
+
+Routes analyzed: 5
+Total distance:  334 km
+Total elevation: 7001 m
+
+PREDICTION ERRORS (positive = predicted too slow/high)
+--------------------------------------------------
+  Avg time error:  +4.3%
+  Avg work error:  +12.8%
+
+BY TERRAIN TYPE:
+  Road (5 routes):   +4.3% time error
+  Gravel (4 routes): +8.6% time error
+  Hilly (5 routes):  +4.3% time error
+
+PER-ROUTE BREAKDOWN:
+----------------------------------------------------------------------
+Route                    Pwr   Dist   Elev  Elev%   Time%   Work%
+----------------------------------------------------------------------
+Loma Prieta Rd, Eurek   101W    72k  1802m   +12%   +8.6%    +19%
+Col de La Croix de Fe   118W    63k  1801m    -0%  -13.1%     +2%
+Lexington, OSC, Loma    101W    86k  1794m   +24%  +10.5%    +20%
+```
+
+The `Elev%` column shows the difference between route and actual trip elevation gain, helping identify routes with inaccurate elevation data.
 
 ## Configuration File
 
