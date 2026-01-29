@@ -47,6 +47,8 @@ class ComparisonResult:
     predicted_time: float  # seconds
     actual_moving_time: float  # seconds
     time_error_pct: float  # positive means predicted too slow
+    predicted_work: float  # joules
+    actual_work: float | None  # joules, if power data available
     grade_buckets: list[GradeBucket]
     has_power_data: bool
     actual_avg_power: float | None  # watts, if power data available
@@ -57,6 +59,7 @@ def compare_route_with_trip(
     trip_points: list[TripPoint],
     params: RiderParams,
     predicted_time_seconds: float,
+    predicted_work_joules: float,
 ) -> ComparisonResult:
     """Compare route predictions with actual trip data.
 
@@ -68,15 +71,18 @@ def compare_route_with_trip(
         trip_points: Actual ride data points
         params: Rider parameters used for prediction
         predicted_time_seconds: The predicted moving time from analyze()
+        predicted_work_joules: The predicted work from analyze()
     """
     # Calculate actual moving time (points where speed > 0.5 m/s)
     moving_points = [tp for tp in trip_points if tp.speed is not None and tp.speed > 0.5]
     actual_moving_time = len(moving_points)  # Each point is ~1 second
 
-    # Check for power data
+    # Check for power data and calculate actual work
     power_points = [tp.power for tp in trip_points if tp.power is not None]
     has_power_data = len(power_points) > len(trip_points) * 0.5  # >50% coverage
     actual_avg_power = sum(power_points) / len(power_points) if power_points else None
+    # Actual work = sum of power values (each point ~1 second, so power in watts = joules)
+    actual_work = sum(power_points) if power_points else None
 
     # Group trip points by gradient and calculate actual vs predicted speeds
     grade_buckets = _build_grade_buckets(trip_points, params)
@@ -95,6 +101,8 @@ def compare_route_with_trip(
         predicted_time=predicted_time_seconds,
         actual_moving_time=actual_moving_time,
         time_error_pct=time_error_pct,
+        predicted_work=predicted_work_joules,
+        actual_work=actual_work,
         grade_buckets=grade_buckets,
         has_power_data=has_power_data,
         actual_avg_power=actual_avg_power,
@@ -186,6 +194,16 @@ def format_comparison_report(result: ComparisonResult, params: RiderParams) -> s
     lines.append(f"Predicted time @{params.assumed_avg_power:.0f}W: {pred_hours:.2f} hours")
     lines.append(f"Actual moving time:        {actual_hours:.2f} hours")
     lines.append(f"Difference: {diff_minutes:+.0f} minutes ({result.time_error_pct:+.1f}%)")
+    lines.append("")
+
+    # Work comparison
+    pred_kj = result.predicted_work / 1000
+    lines.append(f"Predicted work: {pred_kj:.0f} kJ")
+    if result.actual_work is not None:
+        actual_kj = result.actual_work / 1000
+        work_diff_pct = ((result.predicted_work - result.actual_work) / result.actual_work * 100
+                         if result.actual_work > 0 else 0.0)
+        lines.append(f"Actual work:    {actual_kj:.0f} kJ ({work_diff_pct:+.0f}%)")
     lines.append("")
 
     # Power data

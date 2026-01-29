@@ -113,22 +113,28 @@ class TestCompareRouteWithTrip:
         return points
 
     def test_returns_comparison_result(self, route_points, trip_points, params):
-        result = compare_route_with_trip(route_points, trip_points, params, 120.0)
+        result = compare_route_with_trip(route_points, trip_points, params, 120.0, 50000.0)
         assert isinstance(result, ComparisonResult)
 
     def test_calculates_trip_distance(self, route_points, trip_points, params):
-        result = compare_route_with_trip(route_points, trip_points, params, 120.0)
+        result = compare_route_with_trip(route_points, trip_points, params, 120.0, 50000.0)
         assert result.trip_distance == 990.0  # 99 points * 10m each
 
     def test_calculates_moving_time(self, route_points, trip_points, params):
-        result = compare_route_with_trip(route_points, trip_points, params, 120.0)
+        result = compare_route_with_trip(route_points, trip_points, params, 120.0, 50000.0)
         # Points with speed > 0.5 m/s (all except first)
         assert result.actual_moving_time == 99
 
     def test_detects_power_data(self, route_points, trip_points, params):
-        result = compare_route_with_trip(route_points, trip_points, params, 120.0)
+        result = compare_route_with_trip(route_points, trip_points, params, 120.0, 50000.0)
         assert result.has_power_data is True
         assert result.actual_avg_power == pytest.approx(100.0)
+
+    def test_calculates_actual_work(self, route_points, trip_points, params):
+        result = compare_route_with_trip(route_points, trip_points, params, 120.0, 50000.0)
+        # 100 points * 100W = 10000 joules
+        assert result.actual_work == pytest.approx(10000.0)
+        assert result.predicted_work == 50000.0
 
     def test_no_power_data(self, route_points, params):
         trip_points = [
@@ -139,13 +145,14 @@ class TestCompareRouteWithTrip:
             )
             for i in range(100)
         ]
-        result = compare_route_with_trip(route_points, trip_points, params, 120.0)
+        result = compare_route_with_trip(route_points, trip_points, params, 120.0, 50000.0)
         assert result.has_power_data is False
         assert result.actual_avg_power is None
+        assert result.actual_work is None
 
     def test_time_error_positive_when_predicted_slower(self, route_points, trip_points, params):
         # Predicted 200s, actual moving time is 99s
-        result = compare_route_with_trip(route_points, trip_points, params, 200.0)
+        result = compare_route_with_trip(route_points, trip_points, params, 200.0, 50000.0)
         assert result.time_error_pct > 0
 
     def test_builds_grade_buckets(self, route_points, params):
@@ -165,7 +172,7 @@ class TestCompareRouteWithTrip:
                     cadence=70,
                 )
             )
-        result = compare_route_with_trip(route_points, trip_points, params, 120.0)
+        result = compare_route_with_trip(route_points, trip_points, params, 120.0, 50000.0)
         assert len(result.grade_buckets) > 0
         # Should have a positive grade bucket
         grades = [b.grade_pct for b in result.grade_buckets]
@@ -180,6 +187,8 @@ class TestFormatComparisonReport:
             predicted_time=3600.0,
             actual_moving_time=3500.0,
             time_error_pct=2.9,
+            predicted_work=500000.0,
+            actual_work=480000.0,
             grade_buckets=[],
             has_power_data=False,
             actual_avg_power=None,
@@ -196,6 +205,8 @@ class TestFormatComparisonReport:
             predicted_time=7200.0,
             actual_moving_time=6000.0,
             time_error_pct=20.0,
+            predicted_work=500000.0,
+            actual_work=400000.0,
             grade_buckets=[],
             has_power_data=False,
             actual_avg_power=None,
@@ -212,6 +223,8 @@ class TestFormatComparisonReport:
             predicted_time=3600.0,
             actual_moving_time=3600.0,
             time_error_pct=0.0,
+            predicted_work=400000.0,
+            actual_work=432000.0,
             grade_buckets=[],
             has_power_data=True,
             actual_avg_power=120.0,
@@ -220,6 +233,25 @@ class TestFormatComparisonReport:
         report = format_comparison_report(result, params)
         assert "120W" in report
         assert "100W" in report
+
+    def test_includes_work_comparison(self):
+        result = ComparisonResult(
+            route_distance=10000.0,
+            trip_distance=10000.0,
+            predicted_time=3600.0,
+            actual_moving_time=3600.0,
+            time_error_pct=0.0,
+            predicted_work=500000.0,  # 500 kJ
+            actual_work=400000.0,  # 400 kJ
+            grade_buckets=[],
+            has_power_data=True,
+            actual_avg_power=100.0,
+        )
+        params = RiderParams(assumed_avg_power=100.0)
+        report = format_comparison_report(result, params)
+        assert "500 kJ" in report
+        assert "400 kJ" in report
+        assert "+25%" in report  # (500-400)/400 = 25%
 
     def test_includes_grade_buckets(self):
         bucket = GradeBucket(
@@ -235,6 +267,8 @@ class TestFormatComparisonReport:
             predicted_time=3600.0,
             actual_moving_time=3600.0,
             time_error_pct=0.0,
+            predicted_work=500000.0,
+            actual_work=540000.0,
             grade_buckets=[bucket],
             has_power_data=True,
             actual_avg_power=150.0,

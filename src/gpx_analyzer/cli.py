@@ -265,5 +265,6 @@ def main(argv: list[str] | None = None) -> None:
             trip_points,
             params,
             result.estimated_moving_time_at_power.total_seconds(),
+            result.estimated_work,
         )
         print(format_comparison_report(comparison, params))
