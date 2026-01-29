@@ -9,6 +9,8 @@ from urllib.parse import parse_qs, urlparse
 
 import requests
 
+from gpx_analyzer.models import TrackPoint
+
 CONFIG_DIR = Path.home() / ".config" / "gpx-analyzer"
 CONFIG_PATH = CONFIG_DIR / "gpx-analyzer.json"
 CACHE_DIR = Path.home() / ".cache" / "gpx-analyzer"
@@ -209,3 +211,116 @@ def _enforce_lru_limit() -> None:
         del index[route_id_str]
 
     _save_cache_index(index)
+
+
+# Surface type to rolling resistance coefficient mapping
+# R values from RideWithGPS JSON route data
+SURFACE_CRR_MAP: dict[int, float] = {
+    3: 0.004,   # Paved (quality)
+    4: 0.005,   # Paved (standard)
+    5: 0.005,   # Paved
+    6: 0.005,   # Paved
+    15: 0.010,  # Gravel/unpaved
+    25: 0.012,  # Rough gravel
+}
+DEFAULT_CRR = 0.005  # Default for unknown surface types
+
+
+def _surface_type_to_crr(r_value: int | None) -> float:
+    """Convert RideWithGPS surface R value to rolling resistance coefficient."""
+    if r_value is None:
+        return DEFAULT_CRR
+    return SURFACE_CRR_MAP.get(r_value, DEFAULT_CRR)
+
+
+def _download_json(route_id: int, privacy_code: str | None = None) -> dict:
+    """Download route JSON data from RideWithGPS.
+
+    Raises:
+        requests.RequestException: If the download fails.
+    """
+    url = f"https://ridewithgps.com/routes/{route_id}.json"
+    if privacy_code:
+        url += f"?privacy_code={privacy_code}"
+
+    headers = _get_auth_headers()
+    response = requests.get(url, headers=headers, timeout=30)
+    response.raise_for_status()
+    return response.json()
+
+
+def parse_json_track_points(route_data: dict) -> list[TrackPoint]:
+    """Parse RideWithGPS JSON route data into TrackPoints with surface crr.
+
+    Extracts track points from the 'track_points' array. Surface data is read
+    from the 'R' field on each track point, representing the surface type.
+
+    The route_data can have track_points at the top level (API format) or
+    nested under 'route' key.
+    """
+    # Handle both top-level and nested route data
+    if "route" in route_data and "track_points" in route_data.get("route", {}):
+        track_points_data = route_data["route"]["track_points"]
+    else:
+        track_points_data = route_data.get("track_points", [])
+
+    if not track_points_data:
+        return []
+
+    points: list[TrackPoint] = []
+    for tp in track_points_data:
+        lat = tp.get("y")
+        lon = tp.get("x")
+        elevation = tp.get("e")
+
+        if lat is None or lon is None:
+            continue
+
+        # Get surface type R value directly from track point
+        r_value = tp.get("R")
+        crr = _surface_type_to_crr(r_value) if r_value is not None else None
+
+        points.append(
+            TrackPoint(
+                lat=lat,
+                lon=lon,
+                elevation=elevation,
+                time=None,
+                crr=crr,
+            )
+        )
+
+    return points
+
+
+def get_route_with_surface(url: str) -> tuple[list[TrackPoint], dict]:
+    """Get route track points with surface data from RideWithGPS JSON API.
+
+    Returns:
+        Tuple of (list of TrackPoints with crr, route metadata dict).
+
+    Raises:
+        ValueError: If the URL is not a valid RideWithGPS URL.
+        requests.RequestException: If the download fails.
+    """
+    route_id = extract_route_id(url)
+    privacy_code = extract_privacy_code(url)
+
+    route_data = _download_json(route_id, privacy_code)
+    points = parse_json_track_points(route_data)
+
+    # Extract useful metadata - handle both top-level and nested formats
+    if "route" in route_data:
+        route_info = route_data["route"]
+    else:
+        route_info = route_data
+
+    metadata = {
+        "name": route_info.get("name"),
+        "distance": route_info.get("distance"),  # meters
+        "elevation_gain": route_info.get("elevation_gain"),
+        "unpaved_pct": route_info.get("unpaved_pct"),
+        "surface": route_info.get("surface"),
+    }
+
+    return points, metadata

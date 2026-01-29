@@ -645,3 +645,178 @@ class TestDownloadGpx:
 
         with pytest.raises(requests.HTTPError):
             ridewithgps._download_gpx(99999)
+
+
+class TestSurfaceCrrMap:
+    def test_paved_quality(self):
+        assert ridewithgps._surface_type_to_crr(3) == 0.004
+
+    def test_paved_standard(self):
+        assert ridewithgps._surface_type_to_crr(4) == 0.005
+
+    def test_gravel(self):
+        assert ridewithgps._surface_type_to_crr(15) == 0.010
+
+    def test_rough_gravel(self):
+        assert ridewithgps._surface_type_to_crr(25) == 0.012
+
+    def test_unknown_returns_default(self):
+        assert ridewithgps._surface_type_to_crr(999) == ridewithgps.DEFAULT_CRR
+
+    def test_none_returns_default(self):
+        assert ridewithgps._surface_type_to_crr(None) == ridewithgps.DEFAULT_CRR
+
+
+class TestParseJsonTrackPoints:
+    def test_empty_route_data(self):
+        result = ridewithgps.parse_json_track_points({})
+        assert result == []
+
+    def test_empty_track_points(self):
+        result = ridewithgps.parse_json_track_points({"track_points": []})
+        assert result == []
+
+    def test_basic_track_points_no_surface(self):
+        """Track points without R value should have crr=None."""
+        route_data = {
+            "track_points": [
+                {"x": -122.4194, "y": 37.7749, "e": 10.0, "d": 0},
+                {"x": -122.4183, "y": 37.7758, "e": 15.0, "d": 100},
+            ],
+        }
+        result = ridewithgps.parse_json_track_points(route_data)
+        assert len(result) == 2
+        assert result[0].lat == 37.7749
+        assert result[0].lon == -122.4194
+        assert result[0].elevation == 10.0
+        assert result[0].crr is None  # No R value
+
+    def test_track_points_with_r_values(self):
+        """Track points with R values should have corresponding crr."""
+        route_data = {
+            "track_points": [
+                {"x": -122.4194, "y": 37.7749, "e": 10.0, "d": 0, "R": 4},
+                {"x": -122.4183, "y": 37.7758, "e": 15.0, "d": 100, "R": 4},
+                {"x": -122.4172, "y": 37.7767, "e": 20.0, "d": 200, "R": 15},
+            ],
+        }
+        result = ridewithgps.parse_json_track_points(route_data)
+        assert len(result) == 3
+        assert result[0].crr == 0.005  # R=4 paved
+        assert result[1].crr == 0.005  # R=4 paved
+        assert result[2].crr == 0.010  # R=15 gravel
+
+    def test_track_points_missing_lat_lon_skipped(self):
+        route_data = {
+            "track_points": [
+                {"x": -122.4194, "y": 37.7749, "e": 10.0, "d": 0, "R": 4},
+                {"x": None, "y": 37.7758, "e": 15.0, "d": 100, "R": 4},  # Missing lon
+                {"x": -122.4172, "e": 20.0, "d": 200, "R": 15},           # Missing lat
+            ],
+        }
+        result = ridewithgps.parse_json_track_points(route_data)
+        assert len(result) == 1
+        assert result[0].lat == 37.7749
+
+    def test_nested_route_format(self):
+        """Handle nested route format (for backwards compatibility)."""
+        route_data = {
+            "route": {
+                "track_points": [
+                    {"x": -122.4194, "y": 37.7749, "e": 10.0, "R": 4},
+                ],
+            }
+        }
+        result = ridewithgps.parse_json_track_points(route_data)
+        assert len(result) == 1
+        assert result[0].crr == 0.005
+
+
+class TestDownloadJson:
+    @pytest.fixture
+    def no_config(self, tmp_path, monkeypatch):
+        local_path = tmp_path / "nonexistent" / "gpx-analyzer.json"
+        monkeypatch.setattr(ridewithgps, "LOCAL_CONFIG_PATH", local_path)
+        global_path = tmp_path / "nonexistent" / "gpx-analyzer.json"
+        monkeypatch.setattr(ridewithgps, "CONFIG_PATH", global_path)
+        monkeypatch.delenv("RIDEWITHGPS_API_KEY", raising=False)
+        monkeypatch.delenv("RIDEWITHGPS_AUTH_TOKEN", raising=False)
+
+    @patch("gpx_analyzer.ridewithgps.requests.get")
+    def test_download_json_success(self, mock_get, no_config):
+        mock_response = MagicMock()
+        mock_response.json.return_value = {"route": {"name": "Test Route"}}
+        mock_get.return_value = mock_response
+
+        result = ridewithgps._download_json(12345)
+
+        mock_get.assert_called_once_with(
+            "https://ridewithgps.com/routes/12345.json",
+            headers={},
+            timeout=30,
+        )
+        assert result == {"route": {"name": "Test Route"}}
+
+    @patch("gpx_analyzer.ridewithgps.requests.get")
+    def test_download_json_with_privacy_code(self, mock_get, no_config):
+        mock_response = MagicMock()
+        mock_response.json.return_value = {"route": {"name": "Private Route"}}
+        mock_get.return_value = mock_response
+
+        result = ridewithgps._download_json(12345, "SECRET123")
+
+        mock_get.assert_called_once_with(
+            "https://ridewithgps.com/routes/12345.json?privacy_code=SECRET123",
+            headers={},
+            timeout=30,
+        )
+        assert result == {"route": {"name": "Private Route"}}
+
+
+class TestGetRouteWithSurface:
+    @pytest.fixture
+    def no_config(self, tmp_path, monkeypatch):
+        local_path = tmp_path / "nonexistent" / "gpx-analyzer.json"
+        monkeypatch.setattr(ridewithgps, "LOCAL_CONFIG_PATH", local_path)
+        global_path = tmp_path / "nonexistent" / "gpx-analyzer.json"
+        monkeypatch.setattr(ridewithgps, "CONFIG_PATH", global_path)
+        monkeypatch.delenv("RIDEWITHGPS_API_KEY", raising=False)
+        monkeypatch.delenv("RIDEWITHGPS_AUTH_TOKEN", raising=False)
+
+    @patch.object(ridewithgps, "_download_json")
+    def test_returns_points_and_metadata(self, mock_download, no_config):
+        mock_download.return_value = {
+            "name": "Test Route",
+            "distance": 10000,
+            "elevation_gain": 100,
+            "unpaved_pct": 15,
+            "track_points": [
+                {"x": -122.4194, "y": 37.7749, "e": 10.0, "d": 0, "R": 4},
+                {"x": -122.4183, "y": 37.7758, "e": 15.0, "d": 100, "R": 4},
+            ],
+            "surface": "mostly_paved",
+        }
+
+        points, metadata = ridewithgps.get_route_with_surface(
+            "https://ridewithgps.com/routes/12345"
+        )
+
+        assert len(points) == 2
+        assert points[0].lat == 37.7749
+        assert points[0].crr == 0.005
+        assert metadata["name"] == "Test Route"
+        assert metadata["unpaved_pct"] == 15
+
+    @patch.object(ridewithgps, "_download_json")
+    def test_extracts_privacy_code(self, mock_download, no_config):
+        mock_download.return_value = {
+            "track_points": [
+                {"x": -122.4194, "y": 37.7749, "e": 10.0, "d": 0, "R": 4},
+            ],
+        }
+
+        ridewithgps.get_route_with_surface(
+            "https://ridewithgps.com/routes/12345?privacy_code=SECRET"
+        )
+
+        mock_download.assert_called_once_with(12345, "SECRET")

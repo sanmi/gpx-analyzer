@@ -8,6 +8,7 @@ class TrackPoint:
     lon: float
     elevation: float | None  # meters
     time: datetime | None
+    crr: float | None = None  # per-segment rolling resistance coefficient
 
 
 @dataclass

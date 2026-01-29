@@ -192,6 +192,102 @@ class TestEstimateSpeedFromPower:
         assert speed_tailwind > speed_no_wind
 
 
+class TestSurfaceCrr:
+    """Tests for per-segment rolling resistance coefficient (crr)."""
+
+    def test_segment_crr_used_in_work_calculation(self, params):
+        """When point has crr, it should be used instead of params.crr."""
+        base = datetime(2024, 6, 15, 8, 0, 0, tzinfo=timezone.utc)
+        # Standard crr (params.crr = 0.005)
+        a_std = TrackPoint(lat=37.7749, lon=-122.4194, elevation=10.0, time=base)
+        b_std = TrackPoint(
+            lat=37.7758,
+            lon=-122.4183,
+            elevation=10.0,
+            time=base + timedelta(seconds=20),
+        )
+        # High crr segment (gravel)
+        a_gravel = TrackPoint(lat=37.7749, lon=-122.4194, elevation=10.0, time=base)
+        b_gravel = TrackPoint(
+            lat=37.7758,
+            lon=-122.4183,
+            elevation=10.0,
+            time=base + timedelta(seconds=20),
+            crr=0.010,
+        )
+        work_std, _, _ = calculate_segment_work(a_std, b_std, params)
+        work_gravel, _, _ = calculate_segment_work(a_gravel, b_gravel, params)
+        assert work_gravel > work_std
+
+    def test_none_crr_uses_params_default(self, params):
+        """When point.crr is None, params.crr should be used."""
+        base = datetime(2024, 6, 15, 8, 0, 0, tzinfo=timezone.utc)
+        a = TrackPoint(lat=37.7749, lon=-122.4194, elevation=10.0, time=base, crr=None)
+        b = TrackPoint(
+            lat=37.7758,
+            lon=-122.4183,
+            elevation=10.0,
+            time=base + timedelta(seconds=20),
+            crr=None,
+        )
+        work, _, _ = calculate_segment_work(a, b, params)
+        # Should be same as without crr field
+        a2 = TrackPoint(lat=37.7749, lon=-122.4194, elevation=10.0, time=base)
+        b2 = TrackPoint(
+            lat=37.7758,
+            lon=-122.4183,
+            elevation=10.0,
+            time=base + timedelta(seconds=20),
+        )
+        work2, _, _ = calculate_segment_work(a2, b2, params)
+        assert work == pytest.approx(work2)
+
+    def test_lower_crr_less_work(self, params):
+        """Lower crr (quality pavement) should result in less work."""
+        base = datetime(2024, 6, 15, 8, 0, 0, tzinfo=timezone.utc)
+        a = TrackPoint(lat=37.7749, lon=-122.4194, elevation=10.0, time=base)
+        b_quality = TrackPoint(
+            lat=37.7758,
+            lon=-122.4183,
+            elevation=10.0,
+            time=base + timedelta(seconds=20),
+            crr=0.004,
+        )
+        b_standard = TrackPoint(
+            lat=37.7758,
+            lon=-122.4183,
+            elevation=10.0,
+            time=base + timedelta(seconds=20),
+            crr=0.005,
+        )
+        work_quality, _, _ = calculate_segment_work(a, b_quality, params)
+        work_standard, _, _ = calculate_segment_work(a, b_standard, params)
+        assert work_quality < work_standard
+
+    def test_crr_used_in_speed_estimation(self):
+        """Per-segment crr should affect speed estimation when time is missing."""
+        params = RiderParams()
+        a = TrackPoint(lat=37.7749, lon=-122.4194, elevation=10.0, time=None)
+        b_paved = TrackPoint(
+            lat=37.7758,
+            lon=-122.4183,
+            elevation=10.0,
+            time=None,
+            crr=0.005,
+        )
+        b_gravel = TrackPoint(
+            lat=37.7758,
+            lon=-122.4183,
+            elevation=10.0,
+            time=None,
+            crr=0.010,
+        )
+        _, _, elapsed_paved = calculate_segment_work(a, b_paved, params)
+        _, _, elapsed_gravel = calculate_segment_work(a, b_gravel, params)
+        # Higher crr means slower speed, so longer elapsed time
+        assert elapsed_gravel > elapsed_paved
+
+
 class TestHeadwindWork:
     def test_headwind_increases_work(self):
         """Headwind should increase work due to higher aero drag."""
