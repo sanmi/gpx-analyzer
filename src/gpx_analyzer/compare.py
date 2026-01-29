@@ -77,11 +77,7 @@ def compare_route_with_trip(
     actual_moving_time = _calculate_moving_time(trip_points)
 
     # Check for power data and calculate actual work
-    power_points = [tp.power for tp in trip_points if tp.power is not None]
-    has_power_data = len(power_points) > len(trip_points) * 0.5  # >50% coverage
-    actual_avg_power = sum(power_points) / len(power_points) if power_points else None
-    # Actual work = sum of power values (each point ~1 second, so power in watts = joules)
-    actual_work = sum(power_points) if power_points else None
+    actual_work, actual_avg_power, has_power_data = _calculate_actual_work(trip_points)
 
     # Group trip points by gradient and calculate actual vs predicted speeds
     grade_buckets = _build_grade_buckets(trip_points, params)
@@ -212,6 +208,50 @@ def _calculate_moving_time(points: list[TripPoint]) -> float:
             moving_time += min(time_delta, 60)
 
     return moving_time
+
+
+def _calculate_actual_work(points: list[TripPoint]) -> tuple[float | None, float | None, bool]:
+    """Calculate actual work from power data and timestamps.
+
+    Returns (total_work_joules, avg_power_watts, has_power_data).
+    Work = sum of (power * time_delta) for each segment.
+    """
+    if len(points) < 2:
+        return None, None, False
+
+    total_work = 0.0
+    total_power_time = 0.0  # Time with power data (for averaging)
+    total_power_sum = 0.0   # Sum of power * time (for weighted average)
+
+    for i in range(1, len(points)):
+        prev, curr = points[i - 1], points[i]
+
+        # Skip if timestamps missing
+        if prev.timestamp is None or curr.timestamp is None:
+            continue
+
+        # Skip if no power data
+        if curr.power is None:
+            continue
+
+        time_delta = curr.timestamp - prev.timestamp
+        # Cap individual gaps at 60 seconds
+        time_delta = min(time_delta, 60)
+
+        # Work = power * time (watts * seconds = joules)
+        total_work += curr.power * time_delta
+        total_power_time += time_delta
+        total_power_sum += curr.power * time_delta
+
+    # Check if we have enough power data (>50% of points)
+    points_with_power = sum(1 for p in points if p.power is not None)
+    has_power_data = points_with_power > len(points) * 0.5
+
+    if total_power_time > 0:
+        avg_power = total_power_sum / total_power_time
+        return total_work, avg_power, has_power_data
+    else:
+        return None, None, False
 
 
 def format_comparison_report(result: ComparisonResult, params: RiderParams) -> str:

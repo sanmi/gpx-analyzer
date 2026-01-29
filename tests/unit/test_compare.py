@@ -133,8 +133,8 @@ class TestCompareRouteWithTrip:
 
     def test_calculates_actual_work(self, route_points, trip_points, params):
         result = compare_route_with_trip(route_points, trip_points, params, 120.0, 50000.0)
-        # 100 points * 100W = 10000 joules
-        assert result.actual_work == pytest.approx(10000.0)
+        # 99 segments * 1 second * 100W = 9900 joules
+        assert result.actual_work == pytest.approx(9900.0)
         assert result.predicted_work == 50000.0
 
     def test_no_power_data(self, route_points, params):
