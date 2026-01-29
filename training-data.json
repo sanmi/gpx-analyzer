@@ -24,6 +24,22 @@
       "avg_watts": 101,
       "tags": ["road", "gravel","hilly", "california"],
       "notes": "Road with some gravel with significant climbing"
+    },
+    {
+      "name": "Reynolds Pheasant",
+      "route_url": "https://ridewithgps.com/routes/49041362",
+      "trip_url": "https://ridewithgps.com/trips/363067855",
+      "avg_watts": 101,
+      "tags": ["road", "gravel","hilly", "california"],
+      "notes": "Road with some gravel with significant climbing"
+    },
+    {
+      "name": "Cañada Loop Mt Madonna",
+      "route_url": "https://ridewithgps.com/routes/49059599",
+      "trip_url": "https://ridewithgps.com/trips/238106693",
+      "avg_watts": 120,
+      "tags": ["road", "gravel","hilly", "california"],
+      "notes": "Road with some gravel with significant climbing"
     }
   ]
 }
