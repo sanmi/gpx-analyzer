@@ -5,9 +5,10 @@
     "power": 100.0,
     "cda": 0.32,
     "crr": 0.012,
-    "surface_crr_deltas": {"3": 0, "4": 0.001, "15": 0.006, "25": 0.008},
+    "surface_crr_deltas": {"3": 0, "4": 0.001, "15": 0.01, "25": 0.01},
+    "unpaved_crr_delta": 0.04,
     "coasting_grade": -4.0,
-    "max_coast_speed": 40.0,
+    "max_coast_speed": 52.0,
     "smoothing": 50.0,
     "elevation_scale": 1.0,
     "headwind": 0.0
