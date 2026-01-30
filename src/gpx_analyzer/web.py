@@ -405,6 +405,48 @@ HTML_TEMPLATE = """
             justify-content: center;
             gap: 20px;
         }
+        .url-input-wrapper {
+            position: relative;
+        }
+        .recent-urls-dropdown {
+            position: absolute;
+            top: 100%;
+            left: 0;
+            right: 0;
+            background: white;
+            border: 1px solid #ddd;
+            border-top: none;
+            border-radius: 0 0 6px 6px;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+            z-index: 100;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+        .recent-urls-dropdown.hidden {
+            display: none;
+        }
+        .recent-url-item {
+            padding: 10px 12px;
+            cursor: pointer;
+            font-size: 14px;
+            border-bottom: 1px solid #eee;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .recent-url-item:last-child {
+            border-bottom: none;
+        }
+        .recent-url-item:hover {
+            background: #f0f7ff;
+        }
+        .recent-urls-header {
+            padding: 8px 12px;
+            font-size: 12px;
+            color: #888;
+            background: #f9f9f9;
+            border-bottom: 1px solid #eee;
+        }
     </style>
 </head>
 <body>
@@ -428,9 +470,13 @@ HTML_TEMPLATE = """
             <label for="url" id="url-label">RideWithGPS URL</label>
             <button type="button" class="info-btn" onclick="showModal('urlModal')">?</button>
         </div>
-        <input type="text" id="url" name="url"
-               placeholder="{{ 'https://ridewithgps.com/routes/...' if mode == 'route' else 'https://ridewithgps.com/collections/...' }}"
-               value="{{ url or '' }}" required>
+        <div class="url-input-wrapper">
+            <input type="text" id="url" name="url"
+                   placeholder="{{ 'https://ridewithgps.com/routes/...' if mode == 'route' else 'https://ridewithgps.com/collections/...' }}"
+                   value="{{ url or '' }}" required
+                   autocomplete="off">
+            <div id="recentUrlsDropdown" class="recent-urls-dropdown hidden"></div>
+        </div>
 
         <div class="param-row">
             <div>
@@ -626,6 +672,86 @@ HTML_TEMPLATE = """
     </div>
 
     <script>
+        // Recent URLs management
+        var MAX_RECENT_URLS = 10;
+
+        function getRecentUrls() {
+            try {
+                return JSON.parse(localStorage.getItem('recentUrls') || '[]');
+            } catch (e) {
+                return [];
+            }
+        }
+
+        function saveRecentUrl(url) {
+            if (!url || !url.includes('ridewithgps.com')) return;
+            var urls = getRecentUrls();
+            // Remove if already exists (will re-add at top)
+            urls = urls.filter(function(u) { return u !== url; });
+            // Add to front
+            urls.unshift(url);
+            // Keep only last N
+            urls = urls.slice(0, MAX_RECENT_URLS);
+            localStorage.setItem('recentUrls', JSON.stringify(urls));
+            populateRecentUrls();
+        }
+
+        function populateRecentUrls() {
+            var dropdown = document.getElementById('recentUrlsDropdown');
+            var urls = getRecentUrls();
+            if (urls.length === 0) {
+                dropdown.innerHTML = '';
+                return;
+            }
+            var html = '<div class="recent-urls-header">Recent URLs</div>';
+            urls.forEach(function(url) {
+                html += '<div class="recent-url-item" data-url="' + url + '">' + url + '</div>';
+            });
+            dropdown.innerHTML = html;
+
+            // Add click handlers
+            dropdown.querySelectorAll('.recent-url-item').forEach(function(item) {
+                item.addEventListener('click', function() {
+                    document.getElementById('url').value = this.getAttribute('data-url');
+                    dropdown.classList.add('hidden');
+                });
+            });
+        }
+
+        function setupUrlDropdown() {
+            var urlInput = document.getElementById('url');
+            var dropdown = document.getElementById('recentUrlsDropdown');
+
+            urlInput.addEventListener('focus', function() {
+                if (getRecentUrls().length > 0) {
+                    populateRecentUrls();
+                    dropdown.classList.remove('hidden');
+                }
+            });
+
+            // Hide dropdown when clicking outside
+            document.addEventListener('click', function(e) {
+                if (!urlInput.contains(e.target) && !dropdown.contains(e.target)) {
+                    dropdown.classList.add('hidden');
+                }
+            });
+
+            // Hide dropdown on escape
+            urlInput.addEventListener('keydown', function(e) {
+                if (e.key === 'Escape') {
+                    dropdown.classList.add('hidden');
+                }
+            });
+        }
+
+        // Initialize on page load
+        document.addEventListener('DOMContentLoaded', function() {
+            setupUrlDropdown();
+        });
+        if (document.readyState !== 'loading') {
+            setupUrlDropdown();
+        }
+
         function showModal(id) {
             document.getElementById(id).classList.add('active');
         }
@@ -740,6 +866,9 @@ HTML_TEMPLATE = """
         }
 
         document.getElementById('analyzeForm').addEventListener('submit', function(e) {
+            var url = document.getElementById('url').value;
+            saveRecentUrl(url);
+
             var mode = document.getElementById('mode').value;
             if (mode !== 'collection') {
                 return; // Let form submit normally for single route
@@ -747,8 +876,6 @@ HTML_TEMPLATE = """
 
             e.preventDefault();
             hideAllResults();
-
-            var url = document.getElementById('url').value;
             var power = document.getElementById('power').value;
             var mass = document.getElementById('mass').value;
             var headwind = document.getElementById('headwind').value;
