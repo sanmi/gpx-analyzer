@@ -214,14 +214,14 @@ def _calculate_actual_work(points: list[TripPoint]) -> tuple[float | None, float
     """Calculate actual work from power data and timestamps.
 
     Returns (total_work_joules, avg_power_watts, has_power_data).
-    Work = sum of (power * time_delta) for each segment.
+    Work = sum of (power * time_delta) for each segment while moving.
+    Avg power is calculated over moving time only (speed > 0.5 m/s).
     """
     if len(points) < 2:
         return None, None, False
 
     total_work = 0.0
-    total_power_time = 0.0  # Time with power data (for averaging)
-    total_power_sum = 0.0   # Sum of power * time (for weighted average)
+    moving_power_time = 0.0  # Moving time with power data (for averaging)
 
     for i in range(1, len(points)):
         prev, curr = points[i - 1], points[i]
@@ -234,21 +234,24 @@ def _calculate_actual_work(points: list[TripPoint]) -> tuple[float | None, float
         if curr.power is None:
             continue
 
+        # Only count work while moving (consistent with moving time calculation)
+        if curr.speed is None or curr.speed <= 0.5:
+            continue
+
         time_delta = curr.timestamp - prev.timestamp
         # Cap individual gaps at 60 seconds
         time_delta = min(time_delta, 60)
 
         # Work = power * time (watts * seconds = joules)
         total_work += curr.power * time_delta
-        total_power_time += time_delta
-        total_power_sum += curr.power * time_delta
+        moving_power_time += time_delta
 
     # Check if we have enough power data (>50% of points)
     points_with_power = sum(1 for p in points if p.power is not None)
     has_power_data = points_with_power > len(points) * 0.5
 
-    if total_power_time > 0:
-        avg_power = total_power_sum / total_power_time
+    if moving_power_time > 0:
+        avg_power = total_work / moving_power_time
         return total_work, avg_power, has_power_data
     else:
         return None, None, False
