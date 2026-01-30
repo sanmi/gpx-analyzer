@@ -30,8 +30,6 @@ class TestCli:
         assert "Distance:" in output
         assert "Elevation Gain:" in output
         assert "Elevation Loss:" in output
-        assert "Duration:" in output
-        assert "Moving Time:" in output
         assert "Avg Speed:" in output
         assert "Max Speed:" in output
         assert "Est. Work:" in output
@@ -112,11 +110,9 @@ class TestCli:
             return int(match.group(1)) + int(match.group(2)) / 60 + int(match.group(3)) / 3600
 
         work_kj = parse_value("Est. Work:")
-        moving_hours = parse_duration_hours("Moving Time:")
         est_time_hours = parse_duration_hours("Est. Time @120W:")
 
         assert 1900 < work_kj < 2500, f"Expected work ~2100 kJ, got {work_kj}"
-        assert 4.5 < moving_hours < 6.0, f"Expected moving time ~5.5h, got {moving_hours:.2f}h"
         assert 4.5 < est_time_hours < 6.0, f"Expected est. time ~5.5h at 120W, got {est_time_hours:.2f}h"
 
     def test_col_de_la_croix_de_fer_ride(self):
@@ -148,11 +144,11 @@ class TestCli:
 
         elevation_gain = parse_value("Elevation Gain:")
         work_kj = parse_value("Est. Work:")
-        moving_hours = parse_duration_hours("Moving Time:")
+        est_time_hours = parse_duration_hours("Est. Time @120W:")
 
         assert 1760 < elevation_gain < 1840, f"Expected elevation gain ~1800m, got {elevation_gain}"
         assert 1950 < work_kj < 2250, f"Expected work ~2100 kJ, got {work_kj}"
-        assert 4.6 < moving_hours < 5.2, f"Expected moving time ~4:50h, got {moving_hours:.2f}h"
+        assert 4.6 < est_time_hours < 5.2, f"Expected est. time ~4:50h at 120W, got {est_time_hours:.2f}h"
 
     def test_loma_prieta_elevation_gain_with_smoothing(self):
         """Default smoothing (50m radius) should yield ~1420m elevation gain."""

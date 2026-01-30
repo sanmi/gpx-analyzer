@@ -340,8 +340,6 @@ def main(argv: list[str] | None = None) -> None:
     print(f"Elevation Gain: {result.elevation_gain:.0f} m ({gain_ft:.0f} ft)")
     loss_ft = result.elevation_loss * 3.28084
     print(f"Elevation Loss: {result.elevation_loss:.0f} m ({loss_ft:.0f} ft)")
-    print(f"Duration:       {format_duration(result.duration)}")
-    print(f"Moving Time:    {format_duration(result.moving_time)}")
     avg_kmh = result.avg_speed * 3.6
     avg_mph = avg_kmh * 0.621371
     print(f"Avg Speed:      {avg_kmh:.1f} km/h ({avg_mph:.1f} mph)")
