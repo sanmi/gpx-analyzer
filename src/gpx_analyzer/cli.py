@@ -324,6 +324,8 @@ def main(argv: list[str] | None = None) -> None:
     result = analyze(points, params)
 
     print("=== GPX Route Analysis ===")
+    if route_metadata and route_metadata.get("name"):
+        print(f"Route: {route_metadata['name']}")
     headwind_mph = args.headwind * 0.621371
     print(
         f"Config: mass={args.mass}kg cda={args.cda} crr={args.crr} power={args.power}W "
@@ -381,6 +383,8 @@ def main(argv: list[str] | None = None) -> None:
             sys.exit(1)
 
         print("")
+        if trip_metadata.get("name"):
+            print(f"Trip: {trip_metadata['name']}")
         comparison = compare_route_with_trip(
             points,
             trip_points,
