@@ -228,6 +228,16 @@ HTML_TEMPLATE = """
             margin: 0;
             line-height: 1.4;
         }
+        .how-link {
+            display: inline-block;
+            margin-top: 8px;
+            color: #007aff;
+            font-size: 0.9em;
+            text-decoration: none;
+        }
+        .how-link:hover {
+            text-decoration: underline;
+        }
         /* Info button styles */
         .label-row {
             display: flex;
@@ -280,6 +290,39 @@ HTML_TEMPLATE = """
             padding: 24px;
             box-shadow: 0 4px 20px rgba(0,0,0,0.15);
         }
+        .modal.modal-large {
+            max-width: 600px;
+            max-height: 80vh;
+            overflow-y: auto;
+        }
+        .modal h4 {
+            margin: 16px 0 8px 0;
+            font-size: 1em;
+            color: #444;
+        }
+        .modal h4:first-of-type {
+            margin-top: 0;
+        }
+        .modal .param-list {
+            margin: 0 0 12px 0;
+            padding-left: 0;
+            list-style: none;
+        }
+        .modal .param-list li {
+            margin-bottom: 8px;
+            padding-left: 16px;
+            position: relative;
+        }
+        .modal .param-list li::before {
+            content: "•";
+            position: absolute;
+            left: 0;
+            color: #007aff;
+        }
+        .modal .param-name {
+            font-weight: 600;
+            color: #333;
+        }
         .modal h3 {
             margin: 0 0 12px 0;
             font-size: 1.1em;
@@ -331,6 +374,7 @@ HTML_TEMPLATE = """
     <div class="header-section">
         <h1>Route Estimator</h1>
         <p class="tagline">Uses a physics model to estimate cycling time and energy expenditure based on elevation, surface type, and rider parameters.</p>
+        <a href="#" class="how-link" onclick="showModal('physicsModal'); return false;">How does it work?</a>
     </div>
 
     <form method="POST" id="analyzeForm">
@@ -456,6 +500,51 @@ HTML_TEMPLATE = """
             <p>• Headwind (into wind): positive values<br>• Tailwind (wind behind): negative values<br>• No wind: 0</p>
             <p>Even a modest 10-15 km/h headwind significantly increases effort on flat terrain.</p>
             <button class="modal-close" onclick="hideModal('headwindModal')">Got it</button>
+        </div>
+    </div>
+
+    <div id="physicsModal" class="modal-overlay" onclick="hideModal('physicsModal')">
+        <div class="modal modal-large" onclick="event.stopPropagation()">
+            <h3>Physics Model</h3>
+            <p>Speed is calculated by solving the power balance equation: your power output equals the sum of resistive forces times velocity. All parameters below are tunable and have been calibrated against a training set of planned routes compared with actual ride data.</p>
+
+            <h4>Primary Parameters (Biggest Impact)</h4>
+            <ul class="param-list">
+                <li><span class="param-name">Power (W)</span> — Your sustained power output. This is the most important input; doubling power roughly doubles your speed on flat ground.</li>
+                <li><span class="param-name">Mass (kg)</span> — Total weight of rider + bike + gear. Dominates climbing speed since you're lifting this weight against gravity.</li>
+                <li><span class="param-name">CdA (m²)</span> — Aerodynamic drag coefficient × frontal area. Controls air resistance, which grows with the cube of speed. Typical values: 0.25 (racing tuck) to 0.45 (upright touring).</li>
+                <li><span class="param-name">Crr</span> — Rolling resistance coefficient. Energy lost to tire deformation and surface friction. Road tires ~0.004, gravel ~0.008-0.012.</li>
+            </ul>
+
+            <h4>Environmental Factors</h4>
+            <ul class="param-list">
+                <li><span class="param-name">Headwind (km/h)</span> — Wind adds to or subtracts from your effective air speed. A 15 km/h headwind at 25 km/h means you experience drag as if riding 40 km/h.</li>
+                <li><span class="param-name">Air density (kg/m³)</span> — Affects aerodynamic drag. Lower at altitude (1.225 at sea level, ~1.0 at 2000m).</li>
+            </ul>
+
+            <h4>Climbing Model</h4>
+            <ul class="param-list">
+                <li><span class="param-name">Climb power factor</span> — Multiplier for power on steep climbs (e.g., 1.5 = 50% more power when climbing hard). Models the tendency to push harder uphill.</li>
+                <li><span class="param-name">Climb threshold grade</span> — Grade (in degrees) where full climb power factor kicks in. Below this, power scales linearly.</li>
+            </ul>
+
+            <h4>Descent Model</h4>
+            <ul class="param-list">
+                <li><span class="param-name">Max coasting speed</span> — Speed limit when coasting downhill on paved roads. Models braking for safety/comfort.</li>
+                <li><span class="param-name">Max coasting speed unpaved</span> — Lower speed limit for gravel/dirt descents.</li>
+                <li><span class="param-name">Steep descent speed</span> — Even slower limit for very steep descents (technical terrain).</li>
+                <li><span class="param-name">Steep descent grade</span> — Grade threshold where steep descent speed applies.</li>
+                <li><span class="param-name">Coasting grade threshold</span> — Grade where you stop pedaling entirely and coast.</li>
+            </ul>
+
+            <h4>Data Processing</h4>
+            <ul class="param-list">
+                <li><span class="param-name">Smoothing radius (m)</span> — Gaussian smoothing applied to elevation data to reduce GPS noise.</li>
+                <li><span class="param-name">Elevation scale</span> — Multiplier for elevation changes. Auto-calculated from RideWithGPS API data when available.</li>
+                <li><span class="param-name">Surface Crr deltas</span> — Per-surface-type rolling resistance adjustments based on RideWithGPS surface data.</li>
+            </ul>
+
+            <button class="modal-close" onclick="hideModal('physicsModal')">Got it</button>
         </div>
     </div>
 

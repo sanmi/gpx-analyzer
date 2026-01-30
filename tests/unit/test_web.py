@@ -407,6 +407,14 @@ class TestInfoModals:
         assert 'id="headwindModal"' in html
         assert "Headwind" in html
 
+    def test_physics_modal_exists(self, client):
+        response = client.get("/")
+        html = response.data.decode()
+        assert 'id="physicsModal"' in html
+        assert "Physics Model" in html
+        assert "CdA" in html
+        assert "Rolling resistance" in html
+
 
 class TestElevationScaling:
     @pytest.fixture
