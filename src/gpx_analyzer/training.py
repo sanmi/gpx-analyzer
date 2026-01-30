@@ -380,8 +380,7 @@ def format_training_summary(
                 direction = "inflated" if pct_off < 0 else "understated"
                 lines.append(f"    - {r.route.name}: scale={r.elevation_scale_used:.2f} (route elevation {direction} by {abs(pct_off):.0f}%)")
             lines.append("")
-            lines.append("  TIP: Routes with inaccurate elevation may benefit from DEM elevation data.")
-            lines.append("       Use --use-dem or --compare-dem flags to fetch SRTM elevation.")
+            lines.append("  TIP: Route elevation is auto-scaled using RideWithGPS API data in single-route mode.")
         else:
             lines.append("  All routes have consistent elevation data (<15% discrepancy)")
 
