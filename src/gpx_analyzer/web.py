@@ -849,6 +849,9 @@ HTML_TEMPLATE = """
             document.getElementById('progressContainer').classList.add('hidden');
             document.getElementById('errorContainer').classList.add('hidden');
             document.getElementById('collectionResults').classList.add('hidden');
+            // Hide server-rendered single route results
+            var singleResults = document.getElementById('singleRouteResults');
+            if (singleResults) singleResults.style.display = 'none';
             // Hide server-rendered errors
             var serverErrors = document.querySelectorAll('.server-error');
             serverErrors.forEach(function(el) { el.style.display = 'none'; });
@@ -1060,7 +1063,7 @@ HTML_TEMPLATE = """
     {% endif %}
 
     {% if result %}
-    <div class="results">
+    <div class="results" id="singleRouteResults">
         <h2>{{ result.name or 'Route Analysis' }}</h2>
 
         <div class="primary-results">
