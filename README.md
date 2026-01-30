@@ -10,6 +10,19 @@ Supports RideWithGPS route URLs with automatic surface type detection for mixed 
 pip install -e ".[dev]"
 ```
 
+### RideWithGPS API Credentials (Optional)
+
+To access private routes or get surface type data, add your RideWithGPS credentials to `~/.config/gpx-analyzer/gpx-analyzer.json`:
+
+```json
+{
+    "ridewithgps_api_key": "your-api-key",
+    "ridewithgps_auth_token": "your-auth-token"
+}
+```
+
+You can find your API credentials in your [RideWithGPS account settings](https://ridewithgps.com/api).
+
 ## Usage
 
 ### Command Line

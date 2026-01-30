@@ -62,8 +62,26 @@
       "route_url": "https://ridewithgps.com/routes/50532002",
       "trip_url": "https://ridewithgps.com/trips/276204729",
       "avg_watts": 91,
-      "tags": ["road", "gravel","flat", "spain"],
+      "tags": ["road", "gravel","flat", "france"],
       "notes": "Road with some gravel with little climbing"
+    },
+    {
+      "name": "Del Puerto Canyon",
+      "route_url": "https://ridewithgps.com/routes/32159645",
+      "trip_url": "https://ridewithgps.com/trips/50720949",
+      "avg_watts": 116,
+      "headwind": -10,
+      "tags": ["road", "gravel","hilly", "california"],
+      "notes": "Road with climbing"
+    },
+    {
+      "name": "Annonay to Yssingeaux",
+      "route_url": "https://ridewithgps.com/routes/50387623",
+      "trip_url": "https://ridewithgps.com/trips/276589889",
+      "avg_watts": 100,
+      "headwind": -10,
+      "tags": ["road", "gravel","hilly", "france"],
+      "notes": "Road with climbing"
     }
   ]
 }
