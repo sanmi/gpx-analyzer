@@ -29,10 +29,16 @@ HTML_TEMPLATE = """
         * { box-sizing: border-box; }
         body {
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-            max-width: 700px;
+            max-width: 960px;
             margin: 0 auto;
             padding: 20px;
             background: #f5f5f5;
+        }
+        @media (min-width: 1200px) {
+            body { max-width: 1100px; }
+        }
+        @media (max-width: 480px) {
+            body { padding: 12px; }
         }
         h1 { color: #333; font-size: 1.5em; }
         form {
@@ -180,15 +186,23 @@ HTML_TEMPLATE = """
             border-top: 2px solid #ddd;
         }
         .route-name {
-            max-width: 180px;
+            max-width: 280px;
             overflow: hidden;
             text-overflow: ellipsis;
             white-space: nowrap;
+        }
+        @media (min-width: 1200px) {
+            .route-name { max-width: 400px; }
+            .collection-table { font-size: 0.95em; }
+        }
+        @media (max-width: 768px) {
+            .route-name { max-width: 180px; }
         }
         @media (max-width: 600px) {
             .collection-table { font-size: 0.8em; }
             .collection-table th, .collection-table td { padding: 8px 4px; }
             .route-name { max-width: 120px; }
+            .param-row { flex-direction: column; gap: 0; }
         }
         .hidden { display: none; }
     </style>
