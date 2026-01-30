@@ -24,7 +24,7 @@ HTML_TEMPLATE = """
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>GPX Analyzer</title>
+    <title>Route Estimator</title>
     <style>
         * { box-sizing: border-box; }
         body {
@@ -185,6 +185,16 @@ HTML_TEMPLATE = """
         .totals-row td {
             border-top: 2px solid #ddd;
         }
+        .collection-table .primary {
+            background: #f0f7ff;
+            font-weight: 600;
+        }
+        .collection-table th.primary {
+            background: #e3effa;
+        }
+        .collection-table .separator {
+            border-right: 2px solid #ccc;
+        }
         .route-name {
             max-width: 280px;
             overflow: hidden;
@@ -205,10 +215,103 @@ HTML_TEMPLATE = """
             .param-row { flex-direction: column; gap: 0; }
         }
         .hidden { display: none; }
+        /* Header styles */
+        .header-section {
+            margin-bottom: 20px;
+        }
+        .header-section h1 {
+            margin-bottom: 8px;
+        }
+        .tagline {
+            color: #666;
+            font-size: 0.95em;
+            margin: 0;
+            line-height: 1.4;
+        }
+        /* Info button styles */
+        .label-row {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .info-btn {
+            width: 18px;
+            height: 18px;
+            border-radius: 50%;
+            border: 1.5px solid #007aff;
+            background: white;
+            color: #007aff;
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            padding: 0;
+            line-height: 1;
+            flex-shrink: 0;
+        }
+        .info-btn:hover {
+            background: #007aff;
+            color: white;
+        }
+        /* Modal styles */
+        .modal-overlay {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0,0,0,0.5);
+            z-index: 1000;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+        .modal-overlay.active {
+            display: flex;
+        }
+        .modal {
+            background: white;
+            border-radius: 12px;
+            max-width: 400px;
+            width: 100%;
+            padding: 24px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.15);
+        }
+        .modal h3 {
+            margin: 0 0 12px 0;
+            font-size: 1.1em;
+            color: #333;
+        }
+        .modal p {
+            margin: 0 0 16px 0;
+            color: #555;
+            font-size: 0.95em;
+            line-height: 1.5;
+        }
+        .modal-close {
+            width: 100%;
+            padding: 12px;
+            background: #f0f0f0;
+            border: none;
+            border-radius: 8px;
+            font-size: 1em;
+            font-weight: 500;
+            cursor: pointer;
+            color: #333;
+        }
+        .modal-close:hover {
+            background: #e0e0e0;
+        }
     </style>
 </head>
 <body>
-    <h1>GPX Route Analyzer</h1>
+    <div class="header-section">
+        <h1>Route Estimator</h1>
+        <p class="tagline">Uses a physics model to estimate cycling time and energy expenditure based on elevation, surface type, and rider parameters.</p>
+    </div>
 
     <form method="POST" id="analyzeForm">
         <label for="mode">Mode</label>
@@ -224,15 +327,24 @@ HTML_TEMPLATE = """
 
         <div class="param-row">
             <div>
-                <label for="power">Power (W)</label>
+                <div class="label-row">
+                    <label for="power">Power (W)</label>
+                    <button type="button" class="info-btn" onclick="showModal('powerModal')">?</button>
+                </div>
                 <input type="number" id="power" name="power" value="{{ power }}" step="1">
             </div>
             <div>
-                <label for="mass">Mass (kg)</label>
+                <div class="label-row">
+                    <label for="mass">Mass (kg)</label>
+                    <button type="button" class="info-btn" onclick="showModal('massModal')">?</button>
+                </div>
                 <input type="number" id="mass" name="mass" value="{{ mass }}" step="0.1">
             </div>
             <div>
-                <label for="headwind">Headwind (km/h)</label>
+                <div class="label-row">
+                    <label for="headwind">Headwind (km/h)</label>
+                    <button type="button" class="info-btn" onclick="showModal('headwindModal')">?</button>
+                </div>
                 <input type="number" id="headwind" name="headwind" value="{{ headwind }}" step="0.1">
             </div>
         </div>
@@ -276,10 +388,10 @@ HTML_TEMPLATE = """
             <thead>
                 <tr>
                     <th>Route</th>
+                    <th class="num primary">Time</th>
+                    <th class="num primary separator">Work</th>
                     <th class="num">Dist</th>
                     <th class="num">Elev</th>
-                    <th class="num">Time</th>
-                    <th class="num">Work</th>
                     <th class="num">Speed</th>
                     <th class="num">Unpvd</th>
                     <th class="num">EScl</th>
@@ -290,7 +402,45 @@ HTML_TEMPLATE = """
         </table>
     </div>
 
+    <!-- Info Modals -->
+    <div id="powerModal" class="modal-overlay" onclick="hideModal('powerModal')">
+        <div class="modal" onclick="event.stopPropagation()">
+            <h3>Average Power</h3>
+            <p>Your expected average power output in watts. This is the sustained power you can maintain over the ride duration. For reference:</p>
+            <p>• Casual riding: 80-120W<br>• Moderate effort: 120-180W<br>• Strong rider: 180-250W</p>
+            <p>If you have a power meter, use your typical average from similar rides.</p>
+            <button class="modal-close" onclick="hideModal('powerModal')">Got it</button>
+        </div>
+    </div>
+
+    <div id="massModal" class="modal-overlay" onclick="hideModal('massModal')">
+        <div class="modal" onclick="event.stopPropagation()">
+            <h3>Total Mass</h3>
+            <p>Combined weight of rider, bike, gear, and any cargo in kilograms. This significantly affects climbing speed and energy requirements.</p>
+            <p>• Rider weight + bike (~8-12kg) + gear/bags</p>
+            <button class="modal-close" onclick="hideModal('massModal')">Got it</button>
+        </div>
+    </div>
+
+    <div id="headwindModal" class="modal-overlay" onclick="hideModal('headwindModal')">
+        <div class="modal" onclick="event.stopPropagation()">
+            <h3>Headwind</h3>
+            <p>Average wind speed you expect to ride against, in km/h. Use negative values for tailwind.</p>
+            <p>• Headwind (into wind): positive values<br>• Tailwind (wind behind): negative values<br>• No wind: 0</p>
+            <p>Even a modest 10-15 km/h headwind significantly increases effort on flat terrain.</p>
+            <button class="modal-close" onclick="hideModal('headwindModal')">Got it</button>
+        </div>
+    </div>
+
     <script>
+        function showModal(id) {
+            document.getElementById(id).classList.add('active');
+        }
+
+        function hideModal(id) {
+            document.getElementById(id).classList.remove('active');
+        }
+
         function toggleUrlPlaceholder() {
             var mode = document.getElementById('mode').value;
             var urlInput = document.getElementById('url');
@@ -348,10 +498,10 @@ HTML_TEMPLATE = """
             var totalsRow = document.createElement('tr');
             totalsRow.className = 'totals-row';
             totalsRow.innerHTML = '<td>Total</td>' +
+                '<td class="num primary">' + formatDuration(totalTime) + '</td>' +
+                '<td class="num primary separator">' + Math.round(totalWork) + 'kJ</td>' +
                 '<td class="num">' + Math.round(totalDist) + 'km</td>' +
                 '<td class="num">' + Math.round(totalElev) + 'm</td>' +
-                '<td class="num">' + formatDuration(totalTime) + '</td>' +
-                '<td class="num">' + Math.round(totalWork) + 'kJ</td>' +
                 '<td class="num"></td><td class="num"></td><td class="num"></td>';
             tbody.appendChild(totalsRow);
         }
@@ -414,10 +564,10 @@ HTML_TEMPLATE = """
 
                     var row = document.createElement('tr');
                     row.innerHTML = '<td class="route-name" title="' + r.name + '">' + r.name + '</td>' +
+                        '<td class="num primary">' + r.time_str + '</td>' +
+                        '<td class="num primary separator">' + Math.round(r.work_kj) + 'kJ</td>' +
                         '<td class="num">' + Math.round(r.distance_km) + 'km</td>' +
                         '<td class="num">' + Math.round(r.elevation_m) + 'm</td>' +
-                        '<td class="num">' + r.time_str + '</td>' +
-                        '<td class="num">' + Math.round(r.work_kj) + 'kJ</td>' +
                         '<td class="num">' + r.avg_speed_kmh.toFixed(1) + '</td>' +
                         '<td class="num">' + Math.round(r.unpaved_pct || 0) + '%</td>' +
                         '<td class="num">' + r.elevation_scale.toFixed(2) + '</td>';
