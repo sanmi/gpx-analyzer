@@ -316,10 +316,10 @@ def format_training_summary(
 
     # Per-route breakdown
     lines.append("PER-ROUTE BREAKDOWN:")
-    lines.append("-" * 108)
-    lines.append(f"{'':22} {'------- Estimated -------':>27} {'-------- Actual --------':>27} {'------ Diff ------':>24}")
-    lines.append(f"{'Route':<22} {'Dist':>7} {'Elev':>6} {'Time':>6} {'Work':>6} {'Dist':>7} {'Elev':>6} {'Time':>6} {'Work':>6} {'Time':>7} {'Work':>7} {'ElevScl':>8}")
-    lines.append("-" * 108)
+    lines.append("-" * 114)
+    lines.append(f"{'':28} {'------- Estimated -------':>27} {'-------- Actual --------':>27} {'------ Diff ------':>24}")
+    lines.append(f"{'Route':<22} {'Unpvd':>5} {'Dist':>7} {'Elev':>6} {'Time':>6} {'Work':>6} {'Dist':>7} {'Elev':>6} {'Time':>6} {'Work':>6} {'Time':>7} {'Work':>7} {'ElevScl':>8}")
+    lines.append("-" * 114)
 
     for r in results:
         # Estimated values
@@ -341,7 +341,7 @@ def format_training_summary(
 
         name = r.route.name[:21]
         lines.append(
-            f"{name:<22} "
+            f"{name:<22} {r.unpaved_pct:>4.0f}% "
             f"{est_dist:>6.0f}k {est_elev:>5.0f}m {est_time:>5.1f}h {est_work:>5.0f}k "
             f"{act_dist:>6.0f}k {act_elev:>5.0f}m {act_time:>5.1f}h {act_work:>5.0f}k "
             f"{time_diff:>+6.1f}% {work_diff:>+6.1f}% {r.elevation_scale_used:>7.2f}"
