@@ -447,6 +447,16 @@ HTML_TEMPLATE = """
             background: #f9f9f9;
             border-bottom: 1px solid #eee;
         }
+        .recent-url-name {
+            font-weight: 500;
+            color: #333;
+        }
+        .recent-url-path {
+            font-size: 12px;
+            color: #888;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
     </style>
 </head>
 <body>
@@ -677,19 +687,25 @@ HTML_TEMPLATE = """
 
         function getRecentUrls() {
             try {
-                return JSON.parse(localStorage.getItem('recentUrls') || '[]');
+                var data = JSON.parse(localStorage.getItem('recentUrls') || '[]');
+                // Handle migration from old format (array of strings) to new format (array of objects)
+                if (data.length > 0 && typeof data[0] === 'string') {
+                    data = data.map(function(url) { return {url: url, name: null}; });
+                    localStorage.setItem('recentUrls', JSON.stringify(data));
+                }
+                return data;
             } catch (e) {
                 return [];
             }
         }
 
-        function saveRecentUrl(url) {
+        function saveRecentUrl(url, name) {
             if (!url || !url.includes('ridewithgps.com')) return;
             var urls = getRecentUrls();
             // Remove if already exists (will re-add at top)
-            urls = urls.filter(function(u) { return u !== url; });
+            urls = urls.filter(function(u) { return u.url !== url; });
             // Add to front
-            urls.unshift(url);
+            urls.unshift({url: url, name: name || null});
             // Keep only last N
             urls = urls.slice(0, MAX_RECENT_URLS);
             localStorage.setItem('recentUrls', JSON.stringify(urls));
@@ -703,9 +719,20 @@ HTML_TEMPLATE = """
                 dropdown.innerHTML = '';
                 return;
             }
-            var html = '<div class="recent-urls-header">Recent URLs</div>';
-            urls.forEach(function(url) {
-                html += '<div class="recent-url-item" data-url="' + url + '">' + url + '</div>';
+            var html = '<div class="recent-urls-header">Recent</div>';
+            urls.forEach(function(item) {
+                var displayName = item.name || item.url;
+                var urlPreview = item.url.replace('https://ridewithgps.com/', '');
+                if (item.name) {
+                    html += '<div class="recent-url-item" data-url="' + item.url + '">' +
+                            '<div class="recent-url-name">' + item.name + '</div>' +
+                            '<div class="recent-url-path">' + urlPreview + '</div>' +
+                            '</div>';
+                } else {
+                    html += '<div class="recent-url-item" data-url="' + item.url + '">' +
+                            '<div class="recent-url-path">' + urlPreview + '</div>' +
+                            '</div>';
+                }
             });
             dropdown.innerHTML = html;
 
@@ -866,16 +893,16 @@ HTML_TEMPLATE = """
         }
 
         document.getElementById('analyzeForm').addEventListener('submit', function(e) {
-            var url = document.getElementById('url').value;
-            saveRecentUrl(url);
-
             var mode = document.getElementById('mode').value;
             if (mode !== 'collection') {
-                return; // Let form submit normally for single route
+                // For single routes, URL will be saved after results load (with name)
+                return;
             }
 
             e.preventDefault();
             hideAllResults();
+
+            var url = document.getElementById('url').value;
             var power = document.getElementById('power').value;
             var mass = document.getElementById('mass').value;
             var headwind = document.getElementById('headwind').value;
@@ -909,6 +936,8 @@ HTML_TEMPLATE = """
                     document.getElementById('collectionName').textContent = data.name || 'Collection Analysis';
                     document.getElementById('progressText').textContent =
                         'Analyzing route 0 of ' + data.total + '...';
+                    // Save URL with collection name
+                    saveRecentUrl(url, data.name);
                 } else if (data.type === 'progress') {
                     document.getElementById('progressText').textContent =
                         'Analyzing route ' + data.current + ' of ' + data.total + '...';
@@ -1051,6 +1080,10 @@ HTML_TEMPLATE = """
         </div>
         {% endif %}
     </div>
+    <script>
+        // Save URL with route name for recent URLs dropdown
+        saveRecentUrl('{{ url }}', '{{ result.name|e if result.name else '' }}');
+    </script>
     {% endif %}
 
     <div class="footer">
