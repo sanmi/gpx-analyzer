@@ -386,14 +386,18 @@ HTML_TEMPLATE = """
                     document.getElementById('progressText').textContent =
                         'Analyzing route 0 of ' + data.total + '...';
                 } else if (data.type === 'progress') {
-                    var pct = (data.current / data.total * 100).toFixed(0);
-                    document.getElementById('progressFill').style.width = pct + '%';
                     document.getElementById('progressText').textContent =
                         'Analyzing route ' + data.current + ' of ' + data.total + '...';
-                    document.getElementById('progressRoute').textContent = data.name || '';
+                    document.getElementById('progressRoute').textContent = '';
                 } else if (data.type === 'route') {
                     routes.push(data.route);
                     var r = data.route;
+
+                    // Update progress bar to show completed route
+                    var pct = (routes.length / data.total * 100).toFixed(0);
+                    document.getElementById('progressFill').style.width = pct + '%';
+                    document.getElementById('progressRoute').textContent = r.name || '';
+
                     var row = document.createElement('tr');
                     row.innerHTML = '<td class="route-name" title="' + r.name + '">' + r.name + '</td>' +
                         '<td class="num">' + Math.round(r.distance_km) + 'km</td>' +
@@ -611,13 +615,13 @@ def analyze_collection_stream():
                 route_url = f"https://ridewithgps.com/routes/{route_id}"
 
                 # Send progress update
-                yield f"data: {json.dumps({'type': 'progress', 'current': i + 1, 'total': len(route_ids), 'name': f'Route {route_id}'})}\n\n"
+                yield f"data: {json.dumps({'type': 'progress', 'current': i + 1, 'total': len(route_ids)})}\n\n"
 
                 try:
                     route_result = analyze_single_route(route_url, params)
                     route_result["time_str"] = format_duration(route_result["time_seconds"])
 
-                    yield f"data: {json.dumps({'type': 'route', 'route': route_result})}\n\n"
+                    yield f"data: {json.dumps({'type': 'route', 'route': route_result, 'total': len(route_ids)})}\n\n"
                 except Exception as e:
                     # Skip failed routes but continue
                     print(f"Error analyzing route {route_id}: {e}")
