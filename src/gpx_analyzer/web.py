@@ -279,7 +279,10 @@ HTML_TEMPLATE = """
                     <th class="num">Dist</th>
                     <th class="num">Elev</th>
                     <th class="num">Time</th>
+                    <th class="num">Work</th>
+                    <th class="num">Speed</th>
                     <th class="num">Unpvd</th>
+                    <th class="num">EScl</th>
                 </tr>
             </thead>
             <tbody>
@@ -289,7 +292,10 @@ HTML_TEMPLATE = """
                     <td class="num">{{ "%.0f"|format(route.distance_km) }}km</td>
                     <td class="num">{{ "%.0f"|format(route.elevation_m) }}m</td>
                     <td class="num">{{ route.time_str }}</td>
+                    <td class="num">{{ "%.0f"|format(route.work_kj) }}kJ</td>
+                    <td class="num">{{ "%.1f"|format(route.avg_speed_kmh) }}</td>
                     <td class="num">{{ "%.0f"|format(route.unpaved_pct or 0) }}%</td>
+                    <td class="num">{{ "%.2f"|format(route.elevation_scale) }}</td>
                 </tr>
                 {% endfor %}
                 <tr class="totals-row">
@@ -297,6 +303,9 @@ HTML_TEMPLATE = """
                     <td class="num">{{ "%.0f"|format(collection_result.total_distance_km) }}km</td>
                     <td class="num">{{ "%.0f"|format(collection_result.total_elevation_m) }}m</td>
                     <td class="num">{{ collection_result.total_time_str }}</td>
+                    <td class="num">{{ "%.0f"|format(collection_result.total_work_kj) }}kJ</td>
+                    <td class="num"></td>
+                    <td class="num"></td>
                     <td class="num"></td>
                 </tr>
             </tbody>
