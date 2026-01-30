@@ -17,6 +17,7 @@ from gpx_analyzer.ridewithgps import (
     is_ridewithgps_url,
 )
 from gpx_analyzer.smoothing import smooth_elevations
+from gpx_analyzer.elevation_api import apply_dem_elevation, compare_elevation_sources
 from gpx_analyzer.training import (
     format_training_summary,
     load_training_data,
@@ -156,6 +157,23 @@ def build_parser(config: dict | None = None) -> argparse.ArgumentParser:
         default=None,
         help="RideWithGPS trip URL to compare predictions against actual ride data.",
     )
+    parser.add_argument(
+        "--use-dem",
+        action="store_true",
+        help="Fetch elevation from DEM API instead of using route elevation data.",
+    )
+    parser.add_argument(
+        "--compare-dem",
+        action="store_true",
+        help="Compare route elevation with DEM elevation data.",
+    )
+    parser.add_argument(
+        "--dem-api",
+        type=str,
+        default="open-elevation",
+        choices=["open-elevation", "opentopodata"],
+        help="Which DEM API to use (default: open-elevation).",
+    )
     return parser
 
 
@@ -274,6 +292,30 @@ def main(argv: list[str] | None = None) -> None:
     if len(points) < 2:
         print("Error: GPX file contains fewer than 2 track points.", file=sys.stderr)
         sys.exit(1)
+
+    # DEM elevation comparison or replacement
+    if args.compare_dem or args.use_dem:
+        print(f"Fetching DEM elevation from {args.dem_api}...")
+        try:
+            if args.compare_dem:
+                comparison = compare_elevation_sources(points, api=args.dem_api)
+                print("")
+                print("=== Elevation Source Comparison ===")
+                print(f"Route elevation gain: {comparison['original_gain']:.0f} m")
+                print(f"DEM elevation gain:   {comparison['dem_gain']:.0f} m")
+                print(f"Difference:           {comparison['gain_difference']:+.0f} m ({comparison['gain_difference_pct']:+.1f}%)")
+                print("")
+
+            if args.use_dem:
+                dem_result = apply_dem_elevation(points, api=args.dem_api)
+                print(f"Replaced route elevation with DEM data")
+                print(f"  Route gain: {dem_result.original_elevation_gain:.0f} m -> DEM gain: {dem_result.dem_elevation_gain:.0f} m")
+                print("")
+                points = dem_result.points
+        except Exception as e:
+            print(f"Warning: Failed to fetch DEM elevation: {e}", file=sys.stderr)
+            if args.use_dem:
+                print("Continuing with route elevation data...", file=sys.stderr)
 
     smoothing_radius = 0.0 if args.no_smoothing else args.smoothing
     if smoothing_radius > 0 or args.elevation_scale != 1.0:
