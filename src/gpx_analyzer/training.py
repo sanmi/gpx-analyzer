@@ -317,7 +317,7 @@ def format_training_summary(
     # Per-route breakdown
     lines.append("PER-ROUTE BREAKDOWN:")
     lines.append("-" * 92)
-    lines.append(f"{'Route':<22} {'Pwr':>5} {'Dist':>6} {'Elev':>6} {'Work':>6} {'Est':>5} {'Scale':>6} {'Time%':>7} {'Work%':>7}")
+    lines.append(f"{'Route':<22} {'Pwr':>5} {'Dist':>6} {'Elev':>6} {'ActWork':>7} {'EstTime':>7} {'Scale':>6} {'Err%':>7}")
     lines.append("-" * 92)
 
     for r in results:
@@ -343,7 +343,7 @@ def format_training_summary(
         scale_str = f"{r.elevation_scale_used:.2f}"
 
         name = r.route.name[:21]
-        lines.append(f"{name:<22} {r.power_used:>4.0f}W {dist_km:>5.0f}k {elev_m:>5.0f}m {work_str:>6} {est_str:>5} {scale_str:>6} {time_err:>+6.1f}% {work_err_str:>7}")
+        lines.append(f"{name:<22} {r.power_used:>4.0f}W {dist_km:>5.0f}k {elev_m:>5.0f}m {work_str:>7} {est_str:>7} {scale_str:>6} {time_err:>+6.1f}%")
 
     lines.append("")
 
