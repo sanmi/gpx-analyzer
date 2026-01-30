@@ -305,6 +305,26 @@ HTML_TEMPLATE = """
         .modal-close:hover {
             background: #e0e0e0;
         }
+        /* Units toggle */
+        .units-row {
+            margin-top: 20px;
+            padding-top: 15px;
+            border-top: 1px solid #eee;
+        }
+        .toggle-label {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            cursor: pointer;
+            font-weight: normal;
+            color: #555;
+            margin: 0;
+        }
+        .toggle-label input[type="checkbox"] {
+            width: 18px;
+            height: 18px;
+            cursor: pointer;
+        }
     </style>
 </head>
 <body>
@@ -347,6 +367,13 @@ HTML_TEMPLATE = """
                 </div>
                 <input type="number" id="headwind" name="headwind" value="{{ headwind }}" step="0.1">
             </div>
+        </div>
+
+        <div class="units-row">
+            <label class="toggle-label">
+                <input type="checkbox" id="imperial" name="imperial" {{ 'checked' if imperial else '' }}>
+                <span>Imperial units (mi, ft)</span>
+            </label>
         </div>
 
         <button type="submit" id="submitBtn">Analyze</button>
@@ -473,6 +500,45 @@ HTML_TEMPLATE = """
             errorEl.classList.remove('hidden');
         }
 
+        function isImperial() {
+            return document.getElementById('imperial').checked;
+        }
+
+        function formatDist(km) {
+            if (isImperial()) {
+                return Math.round(km * 0.621371) + 'mi';
+            }
+            return Math.round(km) + 'km';
+        }
+
+        function formatElev(m) {
+            if (isImperial()) {
+                return Math.round(m * 3.28084) + "'";
+            }
+            return Math.round(m) + 'm';
+        }
+
+        function formatSpeed(kmh) {
+            if (isImperial()) {
+                return (kmh * 0.621371).toFixed(1);
+            }
+            return kmh.toFixed(1);
+        }
+
+        function formatDistFull(km) {
+            if (isImperial()) {
+                return Math.round(km * 0.621371) + ' mi';
+            }
+            return Math.round(km) + ' km';
+        }
+
+        function formatElevFull(m) {
+            if (isImperial()) {
+                return Math.round(m * 3.28084) + ' ft';
+            }
+            return Math.round(m) + ' m';
+        }
+
         function updateTotals(routes) {
             var totalDist = 0, totalElev = 0, totalTime = 0, totalWork = 0;
             routes.forEach(function(r) {
@@ -482,10 +548,8 @@ HTML_TEMPLATE = """
                 totalWork += r.work_kj;
             });
             document.getElementById('totalRoutes').textContent = routes.length;
-            document.getElementById('totalDistance').textContent =
-                Math.round(totalDist) + ' km (' + Math.round(totalDist * 0.621371) + ' mi)';
-            document.getElementById('totalElevation').textContent =
-                Math.round(totalElev) + ' m (' + Math.round(totalElev * 3.28084) + ' ft)';
+            document.getElementById('totalDistance').textContent = formatDistFull(totalDist);
+            document.getElementById('totalElevation').textContent = formatElevFull(totalElev);
             document.getElementById('totalTime').textContent = formatDuration(totalTime);
             document.getElementById('totalWork').textContent = Math.round(totalWork) + ' kJ';
 
@@ -500,8 +564,8 @@ HTML_TEMPLATE = """
             totalsRow.innerHTML = '<td>Total</td>' +
                 '<td class="num primary">' + formatDuration(totalTime) + '</td>' +
                 '<td class="num primary separator">' + Math.round(totalWork) + 'kJ</td>' +
-                '<td class="num">' + Math.round(totalDist) + 'km</td>' +
-                '<td class="num">' + Math.round(totalElev) + 'm</td>' +
+                '<td class="num">' + formatDist(totalDist) + '</td>' +
+                '<td class="num">' + formatElev(totalElev) + '</td>' +
                 '<td class="num"></td><td class="num"></td><td class="num"></td>';
             tbody.appendChild(totalsRow);
         }
@@ -566,9 +630,9 @@ HTML_TEMPLATE = """
                     row.innerHTML = '<td class="route-name" title="' + r.name + '">' + r.name + '</td>' +
                         '<td class="num primary">' + r.time_str + '</td>' +
                         '<td class="num primary separator">' + Math.round(r.work_kj) + 'kJ</td>' +
-                        '<td class="num">' + Math.round(r.distance_km) + 'km</td>' +
-                        '<td class="num">' + Math.round(r.elevation_m) + 'm</td>' +
-                        '<td class="num">' + r.avg_speed_kmh.toFixed(1) + '</td>' +
+                        '<td class="num">' + formatDist(r.distance_km) + '</td>' +
+                        '<td class="num">' + formatElev(r.elevation_m) + '</td>' +
+                        '<td class="num">' + formatSpeed(r.avg_speed_kmh) + '</td>' +
                         '<td class="num">' + Math.round(r.unpaved_pct || 0) + '%</td>' +
                         '<td class="num">' + r.elevation_scale.toFixed(2) + '</td>';
                     document.getElementById('routesTableBody').appendChild(row);
@@ -608,15 +672,27 @@ HTML_TEMPLATE = """
 
         <div class="result-row">
             <span class="result-label">Distance</span>
-            <span class="result-value">{{ "%.1f"|format(result.distance_km) }} km ({{ "%.1f"|format(result.distance_mi) }} mi)</span>
+            {% if imperial %}
+            <span class="result-value">{{ "%.1f"|format(result.distance_mi) }} mi</span>
+            {% else %}
+            <span class="result-value">{{ "%.1f"|format(result.distance_km) }} km</span>
+            {% endif %}
         </div>
         <div class="result-row">
             <span class="result-label">Elevation Gain</span>
-            <span class="result-value">{{ "%.0f"|format(result.elevation_m) }} m ({{ "%.0f"|format(result.elevation_ft) }} ft)</span>
+            {% if imperial %}
+            <span class="result-value">{{ "%.0f"|format(result.elevation_ft) }} ft</span>
+            {% else %}
+            <span class="result-value">{{ "%.0f"|format(result.elevation_m) }} m</span>
+            {% endif %}
         </div>
         <div class="result-row">
             <span class="result-label">Elevation Loss</span>
-            <span class="result-value">{{ "%.0f"|format(result.elevation_loss_m) }} m ({{ "%.0f"|format(result.elevation_loss_ft) }} ft)</span>
+            {% if imperial %}
+            <span class="result-value">{{ "%.0f"|format(result.elevation_loss_ft) }} ft</span>
+            {% else %}
+            <span class="result-value">{{ "%.0f"|format(result.elevation_loss_m) }} m</span>
+            {% endif %}
         </div>
         <div class="result-row">
             <span class="result-label">Estimated Time</span>
@@ -624,7 +700,11 @@ HTML_TEMPLATE = """
         </div>
         <div class="result-row">
             <span class="result-label">Avg Speed</span>
-            <span class="result-value">{{ "%.1f"|format(result.avg_speed_kmh) }} km/h ({{ "%.1f"|format(result.avg_speed_mph) }} mph)</span>
+            {% if imperial %}
+            <span class="result-value">{{ "%.1f"|format(result.avg_speed_mph) }} mph</span>
+            {% else %}
+            <span class="result-value">{{ "%.1f"|format(result.avg_speed_kmh) }} km/h</span>
+            {% endif %}
         </div>
         <div class="result-row">
             <span class="result-label">Estimated Work</span>
@@ -806,6 +886,7 @@ def index():
     result = None
     url = None
     mode = "route"
+    imperial = False
 
     power = defaults["power"]
     mass = defaults["mass"]
@@ -814,6 +895,7 @@ def index():
     if request.method == "POST":
         url = request.form.get("url", "").strip()
         mode = request.form.get("mode", "route")
+        imperial = request.form.get("imperial") == "on"
 
         try:
             power = float(request.form.get("power", defaults["power"]))
@@ -843,6 +925,7 @@ def index():
         power=power,
         mass=mass,
         headwind=headwind,
+        imperial=imperial,
         error=error,
         result=result,
     )
