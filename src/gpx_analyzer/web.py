@@ -372,7 +372,7 @@ HTML_TEMPLATE = """
 </head>
 <body>
     <div class="header-section">
-        <h1>Route Estimator</h1>
+        <h1>Cycle Route Difficulty Estimator</h1>
         <p class="tagline">Uses a physics model to estimate cycling time and energy expenditure based on elevation, surface type, and rider parameters.</p>
         <a href="#" class="how-link" onclick="showModal('physicsModal'); return false;">How does it work?</a>
     </div>
