@@ -316,34 +316,36 @@ def format_training_summary(
 
     # Per-route breakdown
     lines.append("PER-ROUTE BREAKDOWN:")
-    lines.append("-" * 92)
-    lines.append(f"{'Route':<22} {'Pwr':>5} {'Dist':>6} {'Elev':>6} {'ActWork':>7} {'EstTime':>7} {'Scale':>6} {'Err%':>7}")
-    lines.append("-" * 92)
+    lines.append("-" * 100)
+    lines.append(f"{'':22} {'------- Estimated -------':>27} {'-------- Actual --------':>27} {'--- Diff ---':>18}")
+    lines.append(f"{'Route':<22} {'Dist':>7} {'Elev':>6} {'Time':>6} {'Work':>6} {'Dist':>7} {'Elev':>6} {'Time':>6} {'Work':>6} {'Time':>7} {'Work':>7}")
+    lines.append("-" * 100)
 
     for r in results:
-        dist_km = r.route_distance / 1000
-        elev_m = r.route_elevation_gain
-        time_err = r.comparison.time_error_pct
+        # Estimated values
+        est_dist = r.route_distance / 1000
+        est_elev = r.route_elevation_gain
+        est_time = r.comparison.predicted_time / 3600
+        est_work = r.comparison.predicted_work / 1000
 
-        # Show actual work in kJ
-        if r.comparison.actual_work and r.comparison.actual_work > 0:
-            work_kj = r.comparison.actual_work / 1000
-            work_str = f"{work_kj:.0f}kJ"
-            work_err = (r.comparison.predicted_work - r.comparison.actual_work) / r.comparison.actual_work * 100
-            work_err_str = f"{work_err:+.0f}%"
-        else:
-            work_str = "n/a"
-            work_err_str = "n/a"
+        # Actual values
+        act_dist = r.comparison.trip_distance / 1000
+        act_elev = r.trip_elevation_gain if r.trip_elevation_gain else 0
+        act_time = r.comparison.actual_moving_time / 3600
+        act_work = r.comparison.actual_work / 1000 if r.comparison.actual_work else 0
 
-        # Show estimated time in hours
-        est_time_h = r.comparison.predicted_time / 3600
-        est_str = f"{est_time_h:.1f}h"
-
-        # Show elevation scale factor used (1.0 = no correction needed)
-        scale_str = f"{r.elevation_scale_used:.2f}"
+        # Differences
+        time_diff = r.comparison.time_error_pct
+        work_diff = ((r.comparison.predicted_work - r.comparison.actual_work) / r.comparison.actual_work * 100
+                     if r.comparison.actual_work and r.comparison.actual_work > 0 else 0)
 
         name = r.route.name[:21]
-        lines.append(f"{name:<22} {r.power_used:>4.0f}W {dist_km:>5.0f}k {elev_m:>5.0f}m {work_str:>7} {est_str:>7} {scale_str:>6} {time_err:>+6.1f}%")
+        lines.append(
+            f"{name:<22} "
+            f"{est_dist:>6.0f}k {est_elev:>5.0f}m {est_time:>5.1f}h {est_work:>5.0f}k "
+            f"{act_dist:>6.0f}k {act_elev:>5.0f}m {act_time:>5.1f}h {act_work:>5.0f}k "
+            f"{time_diff:>+6.1f}% {work_diff:>+6.1f}%"
+        )
 
     lines.append("")
 
