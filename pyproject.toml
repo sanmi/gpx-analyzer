@@ -11,6 +11,7 @@ dependencies = [
     "gpxpy>=1.6",
     "geopy>=2.4",
     "requests>=2.31",
+    "flask>=3.0",
 ]
 
 [project.optional-dependencies]
@@ -20,6 +21,7 @@ dev = [
 
 [project.scripts]
 gpx-analyzer = "gpx_analyzer.cli:main"
+gpx-analyzer-web = "gpx_analyzer.web:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
