@@ -549,7 +549,7 @@ def extract_collection_id(url: str) -> int:
 
 
 def get_collection_route_ids(url: str) -> tuple[list[int], str | None]:
-    """Get route IDs from a RideWithGPS collection by scraping the HTML page.
+    """Get route IDs from a RideWithGPS collection via the API.
 
     Args:
         url: The RideWithGPS collection URL
@@ -562,32 +562,27 @@ def get_collection_route_ids(url: str) -> tuple[list[int], str | None]:
         requests.RequestException: If the download fails.
     """
     collection_id = extract_collection_id(url)
+    privacy_code = extract_privacy_code(url)
 
     headers = _get_auth_headers()
-    headers["Accept"] = "text/html"
+
+    params = {}
+    if privacy_code:
+        params["privacy_code"] = privacy_code
 
     resp = requests.get(
-        f"https://ridewithgps.com/collections/{collection_id}",
+        f"https://ridewithgps.com/api/v1/collections/{collection_id}.json",
         headers=headers,
+        params=params,
         timeout=30,
     )
     resp.raise_for_status()
 
-    html = resp.text
+    data = resp.json()
+    collection = data.get("collection", {})
 
-    # Extract route IDs from links
-    route_matches = re.findall(r'/routes/(\d+)', html)
-    unique_route_ids = list(dict.fromkeys(int(rid) for rid in route_matches))
+    collection_name = collection.get("name")
+    routes = collection.get("routes", [])
+    route_ids = [r["id"] for r in routes if "id" in r]
 
-    # Try to extract collection name from title tag
-    name_match = re.search(r'<title>([^<]+)</title>', html)
-    collection_name = None
-    if name_match:
-        title = name_match.group(1)
-        # Remove common suffixes like " | Ride with GPS"
-        if " | " in title:
-            collection_name = title.split(" | ")[0].strip()
-        else:
-            collection_name = title.strip()
-
-    return unique_route_ids, collection_name
+    return route_ids, collection_name
