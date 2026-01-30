@@ -102,6 +102,17 @@ HTML_TEMPLATE = """
         .result-row:last-child { border-bottom: none; }
         .result-label { color: #666; }
         .result-value { font-weight: 600; color: #333; }
+        .result-row.primary {
+            background: #f0f7ff;
+        }
+        .result-row.primary .result-value {
+            font-weight: 700;
+        }
+        .primary-results {
+            margin-bottom: 12px;
+            padding-bottom: 8px;
+            border-bottom: 2px solid #ccc;
+        }
         .error {
             background: #fee;
             color: #c00;
@@ -265,6 +276,12 @@ HTML_TEMPLATE = """
             background: #007aff;
             color: white;
         }
+        .info-btn-small {
+            width: 14px;
+            height: 14px;
+            font-size: 10px;
+            vertical-align: middle;
+        }
         /* Modal styles */
         .modal-overlay {
             display: none;
@@ -398,13 +415,19 @@ HTML_TEMPLATE = """
     </div>
 
     <form method="POST" id="analyzeForm">
-        <label for="mode">Mode</label>
+        <div class="label-row">
+            <label for="mode">Mode</label>
+            <button type="button" class="info-btn" onclick="showModal('modeModal')">?</button>
+        </div>
         <select id="mode" name="mode" onchange="toggleUrlPlaceholder()">
             <option value="route" {{ 'selected' if mode == 'route' else '' }}>Single Route</option>
             <option value="collection" {{ 'selected' if mode == 'collection' else '' }}>Collection</option>
         </select>
 
-        <label for="url" id="url-label">RideWithGPS URL</label>
+        <div class="label-row">
+            <label for="url" id="url-label">RideWithGPS URL</label>
+            <button type="button" class="info-btn" onclick="showModal('urlModal')">?</button>
+        </div>
         <input type="text" id="url" name="url"
                placeholder="{{ 'https://ridewithgps.com/routes/...' if mode == 'route' else 'https://ridewithgps.com/collections/...' }}"
                value="{{ url or '' }}" required>
@@ -485,7 +508,7 @@ HTML_TEMPLATE = """
                     <th class="num">Elev</th>
                     <th class="num">Speed</th>
                     <th class="num">Unpvd</th>
-                    <th class="num">EScl</th>
+                    <th class="num">EScl <button type="button" class="info-btn info-btn-small" onclick="showModal('esclModal')">?</button></th>
                 </tr>
             </thead>
             <tbody id="routesTableBody">
@@ -494,6 +517,28 @@ HTML_TEMPLATE = """
     </div>
 
     <!-- Info Modals -->
+    <div id="modeModal" class="modal-overlay" onclick="hideModal('modeModal')">
+        <div class="modal" onclick="event.stopPropagation()">
+            <h3>Mode</h3>
+            <p><strong>Single Route</strong> — Analyze one route at a time. Enter a RideWithGPS route URL to get time and energy estimates.</p>
+            <p><strong>Collection</strong> — Analyze all routes in a RideWithGPS collection at once. Great for multi-day tours or comparing route options.</p>
+            <button class="modal-close" onclick="hideModal('modeModal')">Got it</button>
+        </div>
+    </div>
+
+    <div id="urlModal" class="modal-overlay" onclick="hideModal('urlModal')">
+        <div class="modal" onclick="event.stopPropagation()">
+            <h3>RideWithGPS URL</h3>
+            <p>Paste the URL of a route or collection from <a href="https://ridewithgps.com" target="_blank">ridewithgps.com</a>.</p>
+            <p><strong>Route URL format:</strong><br>
+            <code>https://ridewithgps.com/routes/12345678</code></p>
+            <p><strong>Collection URL format:</strong><br>
+            <code>https://ridewithgps.com/collections/12345</code></p>
+            <p>The route must be public, or you must be logged into RideWithGPS with access to private routes.</p>
+            <button class="modal-close" onclick="hideModal('urlModal')">Got it</button>
+        </div>
+    </div>
+
     <div id="powerModal" class="modal-overlay" onclick="hideModal('powerModal')">
         <div class="modal" onclick="event.stopPropagation()">
             <h3>Average Power</h3>
@@ -565,6 +610,18 @@ HTML_TEMPLATE = """
             </ul>
 
             <button class="modal-close" onclick="hideModal('physicsModal')">Got it</button>
+        </div>
+    </div>
+
+    <div id="esclModal" class="modal-overlay" onclick="hideModal('esclModal')">
+        <div class="modal" onclick="event.stopPropagation()">
+            <h3>Elevation Scale (EScl)</h3>
+            <p>A correction factor applied to the route's elevation data. GPS elevation is often inaccurate, so this scales it to match RideWithGPS's corrected elevation from their API.</p>
+            <p><strong>1.00</strong> = no correction needed<br>
+            <strong>&gt;1.00</strong> = route elevation was understated<br>
+            <strong>&lt;1.00</strong> = route elevation was overstated</p>
+            <p>Values far from 1.0 may indicate poor GPS data quality for that route.</p>
+            <button class="modal-close" onclick="hideModal('esclModal')">Got it</button>
         </div>
     </div>
 
@@ -811,6 +868,17 @@ HTML_TEMPLATE = """
     <div class="results">
         <h2>{{ result.name or 'Route Analysis' }}</h2>
 
+        <div class="primary-results">
+            <div class="result-row primary">
+                <span class="result-label">Estimated Time</span>
+                <span class="result-value">{{ result.time_str }}</span>
+            </div>
+            <div class="result-row primary">
+                <span class="result-label">Estimated Work</span>
+                <span class="result-value">{{ "%.0f"|format(result.work_kj) }} kJ</span>
+            </div>
+        </div>
+
         <div class="result-row">
             <span class="result-label">Distance</span>
             {% if imperial %}
@@ -836,20 +904,12 @@ HTML_TEMPLATE = """
             {% endif %}
         </div>
         <div class="result-row">
-            <span class="result-label">Estimated Time</span>
-            <span class="result-value">{{ result.time_str }}</span>
-        </div>
-        <div class="result-row">
             <span class="result-label">Avg Speed</span>
             {% if imperial %}
             <span class="result-value">{{ "%.1f"|format(result.avg_speed_mph) }} mph</span>
             {% else %}
             <span class="result-value">{{ "%.1f"|format(result.avg_speed_kmh) }} km/h</span>
             {% endif %}
-        </div>
-        <div class="result-row">
-            <span class="result-label">Estimated Work</span>
-            <span class="result-value">{{ "%.0f"|format(result.work_kj) }} kJ</span>
         </div>
         {% if result.unpaved_pct is not none %}
         <div class="result-row">

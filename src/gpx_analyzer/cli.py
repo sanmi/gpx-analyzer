@@ -539,6 +539,13 @@ def main(argv: list[str] | None = None) -> None:
         f"smoothing={smoothing_radius}m elevation_scale={args.elevation_scale} "
         f"headwind={headwind_display:.1f}{speed_unit}"
     )
+    # Primary results (most important)
+    print("=" * 40)
+    print(f"  Est. Time @{params.assumed_avg_power:.0f}W: {format_duration(result.estimated_moving_time_at_power)}")
+    print(f"  Est. Work:       {result.estimated_work / 1000:.1f} kJ")
+    print("=" * 40)
+
+    # Route details
     dist = result.total_distance / 1000 * dist_factor
     print(f"Distance:       {dist:.2f} {dist_unit}")
     gain = result.elevation_gain * elev_factor
@@ -553,9 +560,7 @@ def main(argv: list[str] | None = None) -> None:
     print(f"Avg Speed:      {avg_speed:.1f} {speed_unit}")
     max_speed = result.max_speed * 3.6 * speed_factor
     print(f"Max Speed:      {max_speed:.1f} {speed_unit}")
-    print(f"Est. Work:      {result.estimated_work / 1000:.1f} kJ")
     print(f"Est. Avg Power: {result.estimated_avg_power:.0f} W")
-    print(f"Est. Time @{params.assumed_avg_power:.0f}W: {format_duration(result.estimated_moving_time_at_power)}")
 
     # Surface breakdown if available
     surface_breakdown = calculate_surface_breakdown(points)
