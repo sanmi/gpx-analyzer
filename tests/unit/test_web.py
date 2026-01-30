@@ -46,12 +46,12 @@ class TestIndexGet:
         html = response.data.decode()
         assert "Cycle Route Difficulty Estimator" in html
 
-    def test_contains_mode_selector(self, client):
+    def test_contains_mode_indicator(self, client):
         response = client.get("/")
         html = response.data.decode()
-        assert 'name="mode"' in html
-        assert "Single Route" in html
-        assert "Collection" in html
+        assert 'name="mode"' in html  # Hidden input for mode
+        assert 'class="mode-indicator"' in html
+        assert "route or collection" in html
 
     def test_contains_imperial_toggle(self, client):
         response = client.get("/")

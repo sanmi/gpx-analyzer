@@ -457,6 +457,20 @@ HTML_TEMPLATE = """
             overflow: hidden;
             text-overflow: ellipsis;
         }
+        .mode-indicator {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            margin-top: 8px;
+            font-size: 0.85em;
+            color: #666;
+        }
+        .mode-indicator.route {
+            color: #007aff;
+        }
+        .mode-indicator.collection {
+            color: #34a853;
+        }
     </style>
 </head>
 <body>
@@ -468,25 +482,21 @@ HTML_TEMPLATE = """
 
     <form method="POST" id="analyzeForm">
         <div class="label-row">
-            <label for="mode">Mode</label>
-            <button type="button" class="info-btn" onclick="showModal('modeModal')">?</button>
-        </div>
-        <select id="mode" name="mode" onchange="toggleUrlPlaceholder()">
-            <option value="route" {{ 'selected' if mode == 'route' else '' }}>Single Route</option>
-            <option value="collection" {{ 'selected' if mode == 'collection' else '' }}>Collection</option>
-        </select>
-
-        <div class="label-row">
-            <label for="url" id="url-label">RideWithGPS URL</label>
+            <label for="url">RideWithGPS URL (route or collection)</label>
             <button type="button" class="info-btn" onclick="showModal('urlModal')">?</button>
         </div>
         <div class="url-input-wrapper">
             <input type="text" id="url" name="url"
-                   placeholder="{{ 'https://ridewithgps.com/routes/...' if mode == 'route' else 'https://ridewithgps.com/collections/...' }}"
+                   placeholder="https://ridewithgps.com/routes/... or .../collections/..."
                    value="{{ url or '' }}" required
                    autocomplete="off">
             <div id="recentUrlsDropdown" class="recent-urls-dropdown hidden"></div>
         </div>
+        <div class="mode-indicator">
+            <span id="modeText">Enter a route or collection URL</span>
+            <button type="button" class="info-btn info-btn-small" onclick="showModal('modeModal')">?</button>
+        </div>
+        <input type="hidden" id="mode" name="mode" value="route">
 
         <div class="param-row">
             <div>
@@ -741,6 +751,7 @@ HTML_TEMPLATE = """
                 item.addEventListener('click', function() {
                     document.getElementById('url').value = this.getAttribute('data-url');
                     dropdown.classList.add('hidden');
+                    updateModeIndicator();
                 });
             });
         }
@@ -756,6 +767,9 @@ HTML_TEMPLATE = """
                 }
             });
 
+            // Update mode indicator when URL changes
+            urlInput.addEventListener('input', updateModeIndicator);
+
             // Hide dropdown when clicking outside
             document.addEventListener('click', function(e) {
                 if (!urlInput.contains(e.target) && !dropdown.contains(e.target)) {
@@ -769,6 +783,9 @@ HTML_TEMPLATE = """
                     dropdown.classList.add('hidden');
                 }
             });
+
+            // Initialize mode indicator
+            updateModeIndicator();
         }
 
         // Initialize on page load
@@ -787,13 +804,35 @@ HTML_TEMPLATE = """
             document.getElementById(id).classList.remove('active');
         }
 
-        function toggleUrlPlaceholder() {
-            var mode = document.getElementById('mode').value;
-            var urlInput = document.getElementById('url');
-            if (mode === 'route') {
-                urlInput.placeholder = 'https://ridewithgps.com/routes/...';
+        function detectModeFromUrl(url) {
+            if (url.includes('/collections/')) {
+                return 'collection';
+            } else if (url.includes('/routes/')) {
+                return 'route';
+            }
+            return null;
+        }
+
+        function updateModeIndicator() {
+            var url = document.getElementById('url').value;
+            var mode = detectModeFromUrl(url);
+            var indicator = document.querySelector('.mode-indicator');
+            var modeText = document.getElementById('modeText');
+            var modeInput = document.getElementById('mode');
+
+            indicator.classList.remove('route', 'collection');
+
+            if (mode === 'collection') {
+                modeText.textContent = 'Collection detected — will analyze all routes';
+                indicator.classList.add('collection');
+                modeInput.value = 'collection';
+            } else if (mode === 'route') {
+                modeText.textContent = 'Single route detected';
+                indicator.classList.add('route');
+                modeInput.value = 'route';
             } else {
-                urlInput.placeholder = 'https://ridewithgps.com/collections/...';
+                modeText.textContent = 'Enter a route or collection URL';
+                modeInput.value = 'route';
             }
         }
 
