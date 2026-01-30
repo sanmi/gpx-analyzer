@@ -1,6 +1,8 @@
 """Simple web interface for GPX analyzer."""
 
-from flask import Flask, render_template_string, request
+import json
+
+from flask import Flask, render_template_string, request, Response
 
 from gpx_analyzer.analyzer import analyze
 from gpx_analyzer.cli import calculate_elevation_gain, calculate_surface_breakdown, DEFAULTS
@@ -76,7 +78,7 @@ HTML_TEMPLATE = """
             cursor: pointer;
         }
         button:hover { background: #0056b3; }
-        button:disabled { background: #ccc; }
+        button:disabled { background: #999; cursor: not-allowed; }
         .results {
             background: white;
             padding: 20px;
@@ -108,6 +110,41 @@ HTML_TEMPLATE = """
             padding: 10px;
             background: #f9f9f9;
             border-radius: 4px;
+        }
+        /* Progress bar styles */
+        .progress-container {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            margin-top: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .progress-bar {
+            width: 100%;
+            height: 24px;
+            background: #e0e0e0;
+            border-radius: 12px;
+            overflow: hidden;
+            margin-bottom: 10px;
+        }
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #007aff, #00c6ff);
+            border-radius: 12px;
+            transition: width 0.3s ease;
+            width: 0%;
+        }
+        .progress-text {
+            font-size: 0.9em;
+            color: #666;
+        }
+        .progress-route {
+            font-size: 0.85em;
+            color: #888;
+            margin-top: 5px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
         }
         /* Collection table styles */
         .collection-table {
@@ -153,12 +190,13 @@ HTML_TEMPLATE = """
             .collection-table th, .collection-table td { padding: 8px 4px; }
             .route-name { max-width: 120px; }
         }
+        .hidden { display: none; }
     </style>
 </head>
 <body>
     <h1>GPX Route Analyzer</h1>
 
-    <form method="POST">
+    <form method="POST" id="analyzeForm">
         <label for="mode">Mode</label>
         <select id="mode" name="mode" onchange="toggleUrlPlaceholder()">
             <option value="route" {{ 'selected' if mode == 'route' else '' }}>Single Route</option>
@@ -185,8 +223,58 @@ HTML_TEMPLATE = """
             </div>
         </div>
 
-        <button type="submit">Analyze</button>
+        <button type="submit" id="submitBtn">Analyze</button>
     </form>
+
+    <div id="progressContainer" class="progress-container hidden">
+        <div class="progress-bar">
+            <div class="progress-fill" id="progressFill"></div>
+        </div>
+        <div class="progress-text" id="progressText">Analyzing routes...</div>
+        <div class="progress-route" id="progressRoute"></div>
+    </div>
+
+    <div id="errorContainer" class="error hidden"></div>
+
+    <div id="collectionResults" class="results hidden">
+        <h2 id="collectionName">Collection Analysis</h2>
+        <div class="result-row">
+            <span class="result-label">Routes</span>
+            <span class="result-value" id="totalRoutes">-</span>
+        </div>
+        <div class="result-row">
+            <span class="result-label">Total Distance</span>
+            <span class="result-value" id="totalDistance">-</span>
+        </div>
+        <div class="result-row">
+            <span class="result-label">Total Elevation</span>
+            <span class="result-value" id="totalElevation">-</span>
+        </div>
+        <div class="result-row">
+            <span class="result-label">Total Time</span>
+            <span class="result-value" id="totalTime">-</span>
+        </div>
+        <div class="result-row">
+            <span class="result-label">Total Work</span>
+            <span class="result-value" id="totalWork">-</span>
+        </div>
+        <table class="collection-table">
+            <thead>
+                <tr>
+                    <th>Route</th>
+                    <th class="num">Dist</th>
+                    <th class="num">Elev</th>
+                    <th class="num">Time</th>
+                    <th class="num">Work</th>
+                    <th class="num">Speed</th>
+                    <th class="num">Unpvd</th>
+                    <th class="num">EScl</th>
+                </tr>
+            </thead>
+            <tbody id="routesTableBody">
+            </tbody>
+        </table>
+    </div>
 
     <script>
         function toggleUrlPlaceholder() {
@@ -198,6 +286,148 @@ HTML_TEMPLATE = """
                 urlInput.placeholder = 'https://ridewithgps.com/collections/...';
             }
         }
+
+        function formatDuration(seconds) {
+            var hours = Math.floor(seconds / 3600);
+            var minutes = Math.floor((seconds % 3600) / 60);
+            if (hours > 0) {
+                return hours + 'h ' + String(minutes).padStart(2, '0') + 'm';
+            }
+            return minutes + 'm';
+        }
+
+        function hideAllResults() {
+            document.getElementById('progressContainer').classList.add('hidden');
+            document.getElementById('errorContainer').classList.add('hidden');
+            document.getElementById('collectionResults').classList.add('hidden');
+        }
+
+        function showError(message) {
+            hideAllResults();
+            var errorEl = document.getElementById('errorContainer');
+            errorEl.textContent = message;
+            errorEl.classList.remove('hidden');
+        }
+
+        function updateTotals(routes) {
+            var totalDist = 0, totalElev = 0, totalTime = 0, totalWork = 0;
+            routes.forEach(function(r) {
+                totalDist += r.distance_km;
+                totalElev += r.elevation_m;
+                totalTime += r.time_seconds;
+                totalWork += r.work_kj;
+            });
+            document.getElementById('totalRoutes').textContent = routes.length;
+            document.getElementById('totalDistance').textContent =
+                Math.round(totalDist) + ' km (' + Math.round(totalDist * 0.621371) + ' mi)';
+            document.getElementById('totalElevation').textContent =
+                Math.round(totalElev) + ' m (' + Math.round(totalElev * 3.28084) + ' ft)';
+            document.getElementById('totalTime').textContent = formatDuration(totalTime);
+            document.getElementById('totalWork').textContent = Math.round(totalWork) + ' kJ';
+
+            // Update totals row
+            var tbody = document.getElementById('routesTableBody');
+            var existingTotals = tbody.querySelector('.totals-row');
+            if (existingTotals) {
+                existingTotals.remove();
+            }
+            var totalsRow = document.createElement('tr');
+            totalsRow.className = 'totals-row';
+            totalsRow.innerHTML = '<td>Total</td>' +
+                '<td class="num">' + Math.round(totalDist) + 'km</td>' +
+                '<td class="num">' + Math.round(totalElev) + 'm</td>' +
+                '<td class="num">' + formatDuration(totalTime) + '</td>' +
+                '<td class="num">' + Math.round(totalWork) + 'kJ</td>' +
+                '<td class="num"></td><td class="num"></td><td class="num"></td>';
+            tbody.appendChild(totalsRow);
+        }
+
+        document.getElementById('analyzeForm').addEventListener('submit', function(e) {
+            var mode = document.getElementById('mode').value;
+            if (mode !== 'collection') {
+                return; // Let form submit normally for single route
+            }
+
+            e.preventDefault();
+            hideAllResults();
+
+            var url = document.getElementById('url').value;
+            var power = document.getElementById('power').value;
+            var mass = document.getElementById('mass').value;
+            var headwind = document.getElementById('headwind').value;
+
+            var submitBtn = document.getElementById('submitBtn');
+            submitBtn.disabled = true;
+            submitBtn.textContent = 'Analyzing...';
+
+            document.getElementById('progressContainer').classList.remove('hidden');
+            document.getElementById('progressFill').style.width = '0%';
+            document.getElementById('progressText').textContent = 'Connecting...';
+            document.getElementById('progressRoute').textContent = '';
+
+            // Clear previous results
+            document.getElementById('routesTableBody').innerHTML = '';
+            var routes = [];
+
+            var params = new URLSearchParams({
+                url: url,
+                power: power,
+                mass: mass,
+                headwind: headwind
+            });
+
+            var eventSource = new EventSource('/analyze-collection-stream?' + params.toString());
+
+            eventSource.onmessage = function(event) {
+                var data = JSON.parse(event.data);
+
+                if (data.type === 'start') {
+                    document.getElementById('collectionName').textContent = data.name || 'Collection Analysis';
+                    document.getElementById('progressText').textContent =
+                        'Analyzing route 0 of ' + data.total + '...';
+                } else if (data.type === 'progress') {
+                    var pct = (data.current / data.total * 100).toFixed(0);
+                    document.getElementById('progressFill').style.width = pct + '%';
+                    document.getElementById('progressText').textContent =
+                        'Analyzing route ' + data.current + ' of ' + data.total + '...';
+                    document.getElementById('progressRoute').textContent = data.name || '';
+                } else if (data.type === 'route') {
+                    routes.push(data.route);
+                    var r = data.route;
+                    var row = document.createElement('tr');
+                    row.innerHTML = '<td class="route-name" title="' + r.name + '">' + r.name + '</td>' +
+                        '<td class="num">' + Math.round(r.distance_km) + 'km</td>' +
+                        '<td class="num">' + Math.round(r.elevation_m) + 'm</td>' +
+                        '<td class="num">' + r.time_str + '</td>' +
+                        '<td class="num">' + Math.round(r.work_kj) + 'kJ</td>' +
+                        '<td class="num">' + r.avg_speed_kmh.toFixed(1) + '</td>' +
+                        '<td class="num">' + Math.round(r.unpaved_pct || 0) + '%</td>' +
+                        '<td class="num">' + r.elevation_scale.toFixed(2) + '</td>';
+                    document.getElementById('routesTableBody').appendChild(row);
+
+                    // Show results container and update totals
+                    document.getElementById('collectionResults').classList.remove('hidden');
+                    updateTotals(routes);
+                } else if (data.type === 'complete') {
+                    eventSource.close();
+                    document.getElementById('progressContainer').classList.add('hidden');
+                    submitBtn.disabled = false;
+                    submitBtn.textContent = 'Analyze';
+                } else if (data.type === 'error') {
+                    eventSource.close();
+                    showError(data.message);
+                    submitBtn.disabled = false;
+                    submitBtn.textContent = 'Analyze';
+                }
+            };
+
+            eventSource.onerror = function() {
+                eventSource.close();
+                showError('Connection lost. Please try again.');
+                submitBtn.disabled = false;
+                submitBtn.textContent = 'Analyze';
+            };
+        });
     </script>
 
     {% if error %}
@@ -244,72 +474,6 @@ HTML_TEMPLATE = """
             Elevation scaled {{ "%.2f"|format(result.elevation_scale) }}x to match RideWithGPS API data.
         </div>
         {% endif %}
-    </div>
-    {% endif %}
-
-    {% if collection_result %}
-    <div class="results">
-        <h2>{{ collection_result.name or 'Collection Analysis' }}</h2>
-
-        <div class="result-row">
-            <span class="result-label">Routes</span>
-            <span class="result-value">{{ collection_result.routes | length }}</span>
-        </div>
-        <div class="result-row">
-            <span class="result-label">Total Distance</span>
-            <span class="result-value">{{ "%.0f"|format(collection_result.total_distance_km) }} km ({{ "%.0f"|format(collection_result.total_distance_mi) }} mi)</span>
-        </div>
-        <div class="result-row">
-            <span class="result-label">Total Elevation</span>
-            <span class="result-value">{{ "%.0f"|format(collection_result.total_elevation_m) }} m ({{ "%.0f"|format(collection_result.total_elevation_ft) }} ft)</span>
-        </div>
-        <div class="result-row">
-            <span class="result-label">Total Time</span>
-            <span class="result-value">{{ collection_result.total_time_str }}</span>
-        </div>
-        <div class="result-row">
-            <span class="result-label">Total Work</span>
-            <span class="result-value">{{ "%.0f"|format(collection_result.total_work_kj) }} kJ</span>
-        </div>
-
-        <table class="collection-table">
-            <thead>
-                <tr>
-                    <th>Route</th>
-                    <th class="num">Dist</th>
-                    <th class="num">Elev</th>
-                    <th class="num">Time</th>
-                    <th class="num">Work</th>
-                    <th class="num">Speed</th>
-                    <th class="num">Unpvd</th>
-                    <th class="num">EScl</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for route in collection_result.routes %}
-                <tr>
-                    <td class="route-name" title="{{ route.name }}">{{ route.name }}</td>
-                    <td class="num">{{ "%.0f"|format(route.distance_km) }}km</td>
-                    <td class="num">{{ "%.0f"|format(route.elevation_m) }}m</td>
-                    <td class="num">{{ route.time_str }}</td>
-                    <td class="num">{{ "%.0f"|format(route.work_kj) }}kJ</td>
-                    <td class="num">{{ "%.1f"|format(route.avg_speed_kmh) }}</td>
-                    <td class="num">{{ "%.0f"|format(route.unpaved_pct or 0) }}%</td>
-                    <td class="num">{{ "%.2f"|format(route.elevation_scale) }}</td>
-                </tr>
-                {% endfor %}
-                <tr class="totals-row">
-                    <td>Total</td>
-                    <td class="num">{{ "%.0f"|format(collection_result.total_distance_km) }}km</td>
-                    <td class="num">{{ "%.0f"|format(collection_result.total_elevation_m) }}m</td>
-                    <td class="num">{{ collection_result.total_time_str }}</td>
-                    <td class="num">{{ "%.0f"|format(collection_result.total_work_kj) }}kJ</td>
-                    <td class="num"></td>
-                    <td class="num"></td>
-                    <td class="num"></td>
-                </tr>
-            </tbody>
-        </table>
     </div>
     {% endif %}
 </body>
@@ -413,43 +577,58 @@ def analyze_single_route(url: str, params: RiderParams) -> dict:
     }
 
 
-def analyze_collection(url: str, params: RiderParams) -> dict:
-    """Analyze all routes in a collection and return results dict."""
-    route_ids, collection_name = get_collection_route_ids(url)
+@app.route("/analyze-collection-stream")
+def analyze_collection_stream():
+    """SSE endpoint for streaming collection analysis progress."""
+    url = request.args.get("url", "")
+    try:
+        power = float(request.args.get("power", 100))
+        mass = float(request.args.get("mass", 85))
+        headwind = float(request.args.get("headwind", 0))
+    except ValueError:
+        def error_gen():
+            yield f"data: {json.dumps({'type': 'error', 'message': 'Invalid parameters'})}\n\n"
+        return Response(error_gen(), mimetype="text/event-stream")
 
-    if not route_ids:
-        raise ValueError("No routes found in collection")
+    if not is_ridewithgps_collection_url(url):
+        def error_gen():
+            yield f"data: {json.dumps({'type': 'error', 'message': 'Invalid collection URL'})}\n\n"
+        return Response(error_gen(), mimetype="text/event-stream")
 
-    routes = []
-    for route_id in route_ids:
-        route_url = f"https://ridewithgps.com/routes/{route_id}"
+    def generate():
         try:
-            route_result = analyze_single_route(route_url, params)
-            route_result["time_str"] = format_duration(route_result["time_seconds"])
-            routes.append(route_result)
+            route_ids, collection_name = get_collection_route_ids(url)
+
+            if not route_ids:
+                yield f"data: {json.dumps({'type': 'error', 'message': 'No routes found in collection'})}\n\n"
+                return
+
+            yield f"data: {json.dumps({'type': 'start', 'name': collection_name, 'total': len(route_ids)})}\n\n"
+
+            params = build_params(power, mass, headwind)
+
+            for i, route_id in enumerate(route_ids):
+                route_url = f"https://ridewithgps.com/routes/{route_id}"
+
+                # Send progress update
+                yield f"data: {json.dumps({'type': 'progress', 'current': i + 1, 'total': len(route_ids), 'name': f'Route {route_id}'})}\n\n"
+
+                try:
+                    route_result = analyze_single_route(route_url, params)
+                    route_result["time_str"] = format_duration(route_result["time_seconds"])
+
+                    yield f"data: {json.dumps({'type': 'route', 'route': route_result})}\n\n"
+                except Exception as e:
+                    # Skip failed routes but continue
+                    print(f"Error analyzing route {route_id}: {e}")
+                    continue
+
+            yield f"data: {json.dumps({'type': 'complete'})}\n\n"
+
         except Exception as e:
-            # Skip failed routes but continue with others
-            print(f"Error analyzing route {route_id}: {e}")
-            continue
+            yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
 
-    if not routes:
-        raise ValueError("Failed to analyze any routes in the collection")
-
-    total_distance_km = sum(r["distance_km"] for r in routes)
-    total_elevation_m = sum(r["elevation_m"] for r in routes)
-    total_time_seconds = sum(r["time_seconds"] for r in routes)
-    total_work_kj = sum(r["work_kj"] for r in routes)
-
-    return {
-        "name": collection_name,
-        "routes": routes,
-        "total_distance_km": total_distance_km,
-        "total_distance_mi": total_distance_km * 0.621371,
-        "total_elevation_m": total_elevation_m,
-        "total_elevation_ft": total_elevation_m * 3.28084,
-        "total_time_str": format_duration(total_time_seconds),
-        "total_work_kj": total_work_kj,
-    }
+    return Response(generate(), mimetype="text/event-stream")
 
 
 @app.route("/", methods=["GET", "POST"])
@@ -457,7 +636,6 @@ def index():
     defaults = get_defaults()
     error = None
     result = None
-    collection_result = None
     url = None
     mode = "route"
 
@@ -488,15 +666,7 @@ def index():
                         result = analyze_single_route(url, params)
                     except Exception as e:
                         error = f"Error analyzing route: {e}"
-            elif mode == "collection":
-                if not is_ridewithgps_collection_url(url):
-                    error = "Invalid RideWithGPS collection URL. Expected format: https://ridewithgps.com/collections/XXXXX"
-                else:
-                    try:
-                        params = build_params(power, mass, headwind)
-                        collection_result = analyze_collection(url, params)
-                    except Exception as e:
-                        error = f"Error analyzing collection: {e}"
+            # Collection mode is handled by JavaScript + SSE
 
     return render_template_string(
         HTML_TEMPLATE,
@@ -507,7 +677,6 @@ def index():
         headwind=headwind,
         error=error,
         result=result,
-        collection_result=collection_result,
     )
 
 
