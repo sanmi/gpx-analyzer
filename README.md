@@ -12,6 +12,8 @@ pip install -e ".[dev]"
 
 ## Usage
 
+### Command Line
+
 ```bash
 gpx-analyzer <path-to-gpx-file-or-url>
 ```
@@ -22,6 +24,20 @@ Or run as a module:
 python -m gpx_analyzer <path-to-gpx-file-or-url>
 ```
 
+### Web Interface
+
+Start the web server for mobile-friendly access:
+
+```bash
+gpx-analyzer-web
+```
+
+Then open http://localhost:5050 in your browser. The web interface supports:
+- Single route analysis
+- Collection analysis with real-time progress
+- Imperial/metric unit toggle
+- Customizable power, mass, and headwind parameters
+
 ### RideWithGPS Integration
 
 Analyze routes directly from RideWithGPS URLs:
@@ -31,6 +47,29 @@ gpx-analyzer https://ridewithgps.com/routes/48889111
 ```
 
 This fetches route data including surface type information (road vs gravel) for more accurate rolling resistance estimation.
+
+### Analyzing Collections
+
+Analyze all routes in a RideWithGPS collection:
+
+```bash
+gpx-analyzer --collection https://ridewithgps.com/collections/12345
+```
+
+Output shows per-route breakdown with totals:
+
+```
+============================================================
+Collection: Summer Tour 2024
+============================================================
+Route                         Time    Work   Dist  Elev  Speed Unpvd  EScl
+--------------------------------------------------------------------------------
+Day 1: Coast to Mountains   4h 32m  1250kJ   85km  950m  18.7    5%  1.02
+Day 2: Mountain Pass        6h 15m  1820kJ   72km 1800m  11.5    0%  0.98
+Day 3: Valley Route         3h 45m   980kJ   92km  450m  24.5   12%  1.05
+--------------------------------------------------------------------------------
+Total                      14h 32m  4050kJ  249km 3200m
+```
 
 ### Options
 
@@ -52,6 +91,8 @@ This fetches route data including surface type information (road vs gravel) for 
 | `--headwind` | Headwind speed (km/h, negative = tailwind) | 0 |
 | `--compare-trip` | RideWithGPS trip URL to compare against | - |
 | `--training` | Training data JSON file for batch analysis | - |
+| `--collection` | RideWithGPS collection URL to analyze all routes | - |
+| `--imperial` | Display output in imperial units (mi, ft, mph) | false |
 
 ### Example
 
