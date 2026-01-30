@@ -4,6 +4,41 @@ Analyze GPX bike routes with physics-based power estimation. Calculates distance
 
 Supports RideWithGPS route URLs with automatic surface type detection for mixed road/gravel routes.
 
+## How It Works
+
+Speed is calculated by solving the power balance equation: your power output equals the sum of resistive forces times velocity. All parameters are tunable and have been calibrated against a training set of planned routes compared with actual ride data.
+
+### Primary Parameters (Biggest Impact)
+
+- **Power (W)** — Your sustained power output. This is the most important input; doubling power roughly doubles your speed on flat ground.
+- **Mass (kg)** — Total weight of rider + bike + gear. Dominates climbing speed since you're lifting this weight against gravity.
+- **CdA (m²)** — Aerodynamic drag coefficient × frontal area. Controls air resistance, which grows with the cube of speed. Typical values: 0.25 (racing tuck) to 0.45 (upright touring).
+- **Crr** — Rolling resistance coefficient. Energy lost to tire deformation and surface friction. Road tires ~0.004, gravel ~0.008-0.012.
+
+### Environmental Factors
+
+- **Headwind (km/h)** — Wind adds to or subtracts from your effective air speed. A 15 km/h headwind at 25 km/h means you experience drag as if riding 40 km/h.
+- **Air density (kg/m³)** — Affects aerodynamic drag. Lower at altitude (1.225 at sea level, ~1.0 at 2000m).
+
+### Climbing Model
+
+- **Climb power factor** — Multiplier for power on steep climbs (e.g., 1.5 = 50% more power when climbing hard). Models the tendency to push harder uphill.
+- **Climb threshold grade** — Grade (in degrees) where full climb power factor kicks in. Below this, power scales linearly.
+
+### Descent Model
+
+- **Max coasting speed** — Speed limit when coasting downhill on paved roads. Models braking for safety/comfort.
+- **Max coasting speed unpaved** — Lower speed limit for gravel/dirt descents.
+- **Steep descent speed** — Even slower limit for very steep descents (technical terrain).
+- **Steep descent grade** — Grade threshold where steep descent speed applies.
+- **Coasting grade threshold** — Grade where you stop pedaling entirely and coast.
+
+### Data Processing
+
+- **Smoothing radius (m)** — Gaussian smoothing applied to elevation data to reduce GPS noise.
+- **Elevation scale** — Multiplier for elevation changes. Auto-calculated from RideWithGPS API data when available.
+- **Surface Crr deltas** — Per-surface-type rolling resistance adjustments based on RideWithGPS surface data.
+
 ## Installation
 
 ```bash
@@ -167,7 +202,8 @@ The gradient breakdown shows how well the model predicts speed at different grad
 
 ## Training Data for Parameter Tuning
 
-Run batch analysis on multiple route/trip pairs to tune model parameters:
+The physics model parameters (CdA, Crr, coasting speeds, climb power factors, etc.) have been calibrated against a training set of planned routes compared with actual ride data. You can run the same analysis on your own routes to tune parameters for your riding style:
+
 
 ```bash
 gpx-analyzer --training training-data.json
