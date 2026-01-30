@@ -184,6 +184,20 @@ def format_duration(td) -> str:
     return f"{hours}h {minutes:02d}m {seconds:02d}s"
 
 
+def calculate_elevation_gain(points: list[TrackPoint]) -> float:
+    """Calculate total elevation gain from a list of points."""
+    if len(points) < 2:
+        return 0.0
+    gain = 0.0
+    for i in range(1, len(points)):
+        elev_a = points[i - 1].elevation or 0.0
+        elev_b = points[i].elevation or 0.0
+        delta = elev_b - elev_a
+        if delta > 0:
+            gain += delta
+    return gain
+
+
 def calculate_surface_breakdown(points: list[TrackPoint]) -> tuple[float, float] | None:
     """Calculate distance on paved vs unpaved surfaces.
 
@@ -317,6 +331,9 @@ def main(argv: list[str] | None = None) -> None:
             if args.use_dem:
                 print("Continuing with route elevation data...", file=sys.stderr)
 
+    # Calculate raw elevation gain before smoothing for quality check
+    raw_elevation_gain = calculate_elevation_gain(points)
+
     smoothing_radius = 0.0 if args.no_smoothing else args.smoothing
     if smoothing_radius > 0 or args.elevation_scale != 1.0:
         points = smooth_elevations(points, smoothing_radius, args.elevation_scale)
@@ -349,6 +366,14 @@ def main(argv: list[str] | None = None) -> None:
     print(f"Est. Work:      {result.estimated_work / 1000:.1f} kJ")
     print(f"Est. Avg Power: {result.estimated_avg_power:.0f} W")
     print(f"Est. Time @{params.assumed_avg_power:.0f}W: {format_duration(result.estimated_moving_time_at_power)}")
+
+    # Elevation quality warning (>18% reduction from smoothing suggests noisy GPS data)
+    if raw_elevation_gain > 0 and result.elevation_gain > 0:
+        reduction_pct = (raw_elevation_gain - result.elevation_gain) / raw_elevation_gain * 100
+        if reduction_pct > 18:
+            print("")
+            print(f"WARNING: Elevation data may be inaccurate (raw {raw_elevation_gain:.0f}m reduced {reduction_pct:.0f}% by smoothing).")
+            print(f"  Consider using --use-dem to fetch DEM elevation data.")
 
     # Surface breakdown if available
     surface_breakdown = calculate_surface_breakdown(points)
