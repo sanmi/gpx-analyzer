@@ -123,8 +123,9 @@ class TestCompareRouteWithTrip:
 
     def test_calculates_moving_time(self, route_points, trip_points, params):
         result = compare_route_with_trip(route_points, trip_points, params, 120.0, 50000.0)
-        # Points with speed > 0.5 m/s (all except first)
-        assert result.actual_moving_time == 99
+        # 98 segments where BOTH prev and curr have speed > 0.5 m/s
+        # (segment 0-1 excluded since point 0 has speed=0)
+        assert result.actual_moving_time == 98
 
     def test_detects_power_data(self, route_points, trip_points, params):
         result = compare_route_with_trip(route_points, trip_points, params, 120.0, 50000.0)
@@ -133,8 +134,9 @@ class TestCompareRouteWithTrip:
 
     def test_calculates_actual_work(self, route_points, trip_points, params):
         result = compare_route_with_trip(route_points, trip_points, params, 120.0, 50000.0)
-        # 99 segments * 1 second * 100W = 9900 joules
-        assert result.actual_work == pytest.approx(9900.0)
+        # 98 segments where BOTH prev and curr have speed > 0.5 * 1 second * 100W = 9800 joules
+        # (segment 0-1 excluded since point 0 has speed=0)
+        assert result.actual_work == pytest.approx(9800.0)
         assert result.predicted_work == 50000.0
 
     def test_no_power_data(self, route_points, params):

@@ -201,8 +201,11 @@ def _calculate_moving_time(points: list[TripPoint]) -> float:
         if prev.timestamp is None or curr.timestamp is None:
             continue
 
-        # Only count time when moving (speed > 0.5 m/s at current point)
-        if curr.speed is not None and curr.speed > 0.5:
+        # Require BOTH points to be moving to count the time between them
+        # This avoids counting stop time when transitioning from stopped to moving
+        prev_speed = prev.speed if prev.speed is not None else 0
+        curr_speed = curr.speed if curr.speed is not None else 0
+        if prev_speed > 0.5 and curr_speed > 0.5:
             time_delta = curr.timestamp - prev.timestamp
             # Cap individual gaps at 60 seconds to avoid counting long stops
             moving_time += min(time_delta, 60)
@@ -234,8 +237,10 @@ def _calculate_actual_work(points: list[TripPoint]) -> tuple[float | None, float
         if curr.power is None:
             continue
 
-        # Only count work while moving (consistent with moving time calculation)
-        if curr.speed is None or curr.speed <= 0.5:
+        # Require BOTH points to be moving (consistent with moving time calculation)
+        prev_speed = prev.speed if prev.speed is not None else 0
+        curr_speed = curr.speed if curr.speed is not None else 0
+        if prev_speed <= 0.5 or curr_speed <= 0.5:
             continue
 
         time_delta = curr.timestamp - prev.timestamp
