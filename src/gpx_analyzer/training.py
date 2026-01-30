@@ -314,26 +314,30 @@ def format_training_summary(
 
     # Per-route breakdown
     lines.append("PER-ROUTE BREAKDOWN:")
-    lines.append("-" * 78)
-    lines.append(f"{'Route':<22} {'Pwr':>5} {'Dist':>6} {'Elev':>6} {'Scale':>6} {'Time%':>7} {'Work%':>7}")
-    lines.append("-" * 78)
+    lines.append("-" * 86)
+    lines.append(f"{'Route':<22} {'Pwr':>5} {'Dist':>6} {'Elev':>6} {'Work':>6} {'Scale':>6} {'Time%':>7} {'Work%':>7}")
+    lines.append("-" * 86)
 
     for r in results:
         dist_km = r.route_distance / 1000
         elev_m = r.route_elevation_gain
         time_err = r.comparison.time_error_pct
 
+        # Show actual work in kJ
+        if r.comparison.actual_work and r.comparison.actual_work > 0:
+            work_kj = r.comparison.actual_work / 1000
+            work_str = f"{work_kj:.0f}kJ"
+            work_err = (r.comparison.predicted_work - r.comparison.actual_work) / r.comparison.actual_work * 100
+            work_err_str = f"{work_err:+.0f}%"
+        else:
+            work_str = "n/a"
+            work_err_str = "n/a"
+
         # Show elevation scale factor used (1.0 = no correction needed)
         scale_str = f"{r.elevation_scale_used:.2f}"
 
-        if r.comparison.actual_work and r.comparison.actual_work > 0:
-            work_err = (r.comparison.predicted_work - r.comparison.actual_work) / r.comparison.actual_work * 100
-            work_str = f"{work_err:+.0f}%"
-        else:
-            work_str = "n/a"
-
         name = r.route.name[:21]
-        lines.append(f"{name:<22} {r.power_used:>4.0f}W {dist_km:>5.0f}k {elev_m:>5.0f}m {scale_str:>6} {time_err:>+6.1f}% {work_str:>7}")
+        lines.append(f"{name:<22} {r.power_used:>4.0f}W {dist_km:>5.0f}k {elev_m:>5.0f}m {work_str:>6} {scale_str:>6} {time_err:>+6.1f}% {work_err_str:>7}")
 
     lines.append("")
 
