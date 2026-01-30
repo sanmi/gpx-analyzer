@@ -13,7 +13,7 @@
       "name": "Col de La Croix de Fer",
       "route_url": "https://ridewithgps.com/routes/53835626",
       "trip_url": "https://ridewithgps.com/trips/291740708",
-      "avg_watts": 118,
+      "avg_watts": 116,
       "tags": ["road", "hilly", "france"],
       "notes": "Road route with significant climbing"
     },
@@ -37,6 +37,14 @@
       "name": "Cañada Loop Mt Madonna",
       "route_url": "https://ridewithgps.com/routes/49059599",
       "trip_url": "https://ridewithgps.com/trips/238106693",
+      "avg_watts": 120,
+      "tags": ["road", "gravel","hilly", "california"],
+      "notes": "Road with some gravel with significant climbing"
+    },
+    {
+      "name": "Shelter Cove, Sinkyone Bear Harbor",
+      "route_url": "https://ridewithgps.com/routes/51865658",
+      "trip_url": "https://ridewithgps.com/trips/314588305",
       "avg_watts": 120,
       "tags": ["road", "gravel","hilly", "california"],
       "notes": "Road with some gravel with significant climbing"
