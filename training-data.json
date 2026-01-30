@@ -48,6 +48,22 @@
       "avg_watts": 120,
       "tags": ["road", "gravel","hilly", "california"],
       "notes": "Road with some gravel with significant climbing"
+    },
+    {
+      "name": "Roses to Banyuls sur Mer",
+      "route_url": "https://ridewithgps.com/routes/50410710",
+      "trip_url": "https://ridewithgps.com/trips/284165812",
+      "avg_watts": 110,
+      "tags": ["road", "gravel","hilly", "spain"],
+      "notes": "Road with some gravel with significant climbing"
+    },
+    {
+      "name": "Lyon to Annonay",
+      "route_url": "https://ridewithgps.com/routes/50532002",
+      "trip_url": "https://ridewithgps.com/trips/276204729",
+      "avg_watts": 91,
+      "tags": ["road", "gravel","flat", "spain"],
+      "notes": "Road with some gravel with little climbing"
     }
   ]
 }
