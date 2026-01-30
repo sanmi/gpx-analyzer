@@ -368,6 +368,26 @@ HTML_TEMPLATE = """
             height: 18px;
             cursor: pointer;
         }
+        .footer {
+            margin-top: 30px;
+            padding-top: 20px;
+            border-top: 1px solid #ddd;
+            text-align: center;
+            font-size: 0.85em;
+            color: #888;
+        }
+        .footer a {
+            color: #007aff;
+            text-decoration: none;
+        }
+        .footer a:hover {
+            text-decoration: underline;
+        }
+        .footer-links {
+            display: flex;
+            justify-content: center;
+            gap: 20px;
+        }
     </style>
 </head>
 <body>
@@ -845,6 +865,13 @@ HTML_TEMPLATE = """
         {% endif %}
     </div>
     {% endif %}
+
+    <div class="footer">
+        <div class="footer-links">
+            <a href="https://github.com/sanmi/gpx-analyzer" target="_blank">Source Code</a>
+            <a href="https://github.com/sanmi/gpx-analyzer/issues" target="_blank">Report a Bug</a>
+        </div>
+    </div>
 </body>
 </html>
 """
