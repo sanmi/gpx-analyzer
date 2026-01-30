@@ -26,6 +26,7 @@ class TrainingRoute:
     tags: list[str]
     notes: str = ""
     avg_watts: float | None = None  # Override default power for this ride
+    headwind: float | None = None  # Override headwind in km/h (negative = tailwind)
 
 
 @dataclass
@@ -89,6 +90,7 @@ def load_training_data(path: Path) -> list[TrainingRoute]:
                 tags=entry.get("tags", []),
                 notes=entry.get("notes", ""),
                 avg_watts=entry.get("avg_watts"),
+                headwind=entry.get("headwind"),
             )
         )
     return routes
@@ -118,8 +120,9 @@ def analyze_training_route(
         print(f"  Skipping {route.name}: invalid trip URL")
         return None
 
-    # Use per-route power if specified, otherwise use default
+    # Use per-route power and headwind if specified, otherwise use defaults
     power_used = route.avg_watts if route.avg_watts is not None else params.assumed_avg_power
+    headwind_used = route.headwind / 3.6 if route.headwind is not None else params.headwind
     route_params = RiderParams(
         total_mass=params.total_mass,
         cda=params.cda,
@@ -129,7 +132,7 @@ def analyze_training_route(
         coasting_grade_threshold=params.coasting_grade_threshold,
         max_coasting_speed=params.max_coasting_speed,
         max_coasting_speed_unpaved=params.max_coasting_speed_unpaved,
-        headwind=params.headwind,
+        headwind=headwind_used,
         climb_power_factor=params.climb_power_factor,
         climb_threshold_grade=params.climb_threshold_grade,
         steep_descent_speed=params.steep_descent_speed,
