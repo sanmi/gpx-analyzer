@@ -387,5 +387,7 @@ def main(argv: list[str] | None = None) -> None:
             params,
             result.estimated_moving_time_at_power.total_seconds(),
             result.estimated_work,
+            route_elevation_gain=result.elevation_gain,
+            trip_elevation_gain=trip_metadata.get("elevation_gain"),
         )
         print(format_comparison_report(comparison, params))

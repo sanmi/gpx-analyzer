@@ -174,6 +174,8 @@ def analyze_training_route(
             route_params,
             analysis.estimated_moving_time_at_power.total_seconds(),
             analysis.estimated_work,
+            route_elevation_gain=analysis.elevation_gain,
+            trip_elevation_gain=trip_elevation_gain,
         )
 
         # Calculate unpaved percentage

@@ -52,6 +52,8 @@ class ComparisonResult:
     grade_buckets: list[GradeBucket]
     has_power_data: bool
     actual_avg_power: float | None  # watts, if power data available
+    route_elevation_gain: float | None = None  # meters
+    trip_elevation_gain: float | None = None  # meters
 
 
 def compare_route_with_trip(
@@ -60,6 +62,8 @@ def compare_route_with_trip(
     params: RiderParams,
     predicted_time_seconds: float,
     predicted_work_joules: float,
+    route_elevation_gain: float | None = None,
+    trip_elevation_gain: float | None = None,
 ) -> ComparisonResult:
     """Compare route predictions with actual trip data.
 
@@ -72,6 +76,8 @@ def compare_route_with_trip(
         params: Rider parameters used for prediction
         predicted_time_seconds: The predicted moving time from analyze()
         predicted_work_joules: The predicted work from analyze()
+        route_elevation_gain: Elevation gain from route analysis (meters)
+        trip_elevation_gain: Elevation gain from trip metadata (meters)
     """
     # Calculate actual moving time from timestamps (when speed > 0.5 m/s)
     actual_moving_time = _calculate_moving_time(trip_points)
@@ -101,6 +107,8 @@ def compare_route_with_trip(
         grade_buckets=grade_buckets,
         has_power_data=has_power_data,
         actual_avg_power=actual_avg_power,
+        route_elevation_gain=route_elevation_gain,
+        trip_elevation_gain=trip_elevation_gain,
     )
 
 
@@ -272,6 +280,13 @@ def format_comparison_report(result: ComparisonResult, params: RiderParams) -> s
     # Distance comparison
     lines.append(f"Route distance: {result.route_distance/1000:.1f} km")
     lines.append(f"Trip distance:  {result.trip_distance/1000:.1f} km")
+
+    # Elevation comparison
+    if result.route_elevation_gain is not None and result.trip_elevation_gain is not None:
+        elev_diff_pct = ((result.route_elevation_gain - result.trip_elevation_gain)
+                         / result.trip_elevation_gain * 100 if result.trip_elevation_gain > 0 else 0.0)
+        lines.append(f"Route elevation: {result.route_elevation_gain:.0f} m")
+        lines.append(f"Trip elevation:  {result.trip_elevation_gain:.0f} m ({elev_diff_pct:+.1f}%)")
     lines.append("")
 
     # Time comparison
