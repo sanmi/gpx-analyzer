@@ -79,23 +79,27 @@ LOCAL_CONFIG_PATH = Path("gpx-analyzer.json")
 
 
 def _load_config() -> dict:
-    """Load configuration from config file.
+    """Load configuration from config files.
 
-    Checks for config files in order:
-    1. ./gpx-analyzer.json (project root)
-    2. ~/.config/gpx-analyzer/gpx-analyzer.json (global)
+    Merges config from global and local files:
+    1. ~/.config/gpx-analyzer/gpx-analyzer.json (global, loaded first)
+    2. ./gpx-analyzer.json (local, overrides global)
+
+    This allows credentials in global config with project-specific settings in local.
 
     Returns:
-        Dict with config values, empty dict if no file exists or is invalid.
+        Dict with merged config values, empty dict if no files exist.
     """
-    for config_path in [LOCAL_CONFIG_PATH, CONFIG_PATH]:
+    config = {}
+    # Load global first, then local overrides
+    for config_path in [CONFIG_PATH, LOCAL_CONFIG_PATH]:
         if config_path.exists():
             try:
                 with config_path.open() as f:
-                    return json.load(f)
+                    config.update(json.load(f))
             except (json.JSONDecodeError, OSError):
                 continue
-    return {}
+    return config
 
 
 def _get_auth_headers() -> dict[str, str]:
