@@ -359,7 +359,7 @@ def format_collection_summary(
     lines.append("-" * 80)
     dist_hdr = "Dist" + dist_unit[0]
     elev_hdr = "Elev"
-    lines.append(f"{'Route':<30} {dist_hdr:>7} {elev_hdr:>6} {'Time':>6} {'Work':>6} {'Speed':>6} {'Unpvd':>5} {'EScl':>5}")
+    lines.append(f"{'Route':<30} {'Time':>6} {'Work':>6} {dist_hdr:>7} {elev_hdr:>6} {'Speed':>6} {'Unpvd':>5} {'EScl':>5}")
     lines.append("-" * 80)
 
     for r in results:
@@ -370,7 +370,8 @@ def format_collection_summary(
         elev_suffix = "'" if imperial else "m"
         lines.append(
             f"{name:<30} "
-            f"{dist:>6.0f}{dist_unit[0]} {elev:>5.0f}{elev_suffix} {r.estimated_time_hours:>5.1f}h {r.estimated_work_kj:>5.0f}k "
+            f"{r.estimated_time_hours:>5.1f}h {r.estimated_work_kj:>5.0f}k "
+            f"{dist:>6.0f}{dist_unit[0]} {elev:>5.0f}{elev_suffix} "
             f"{speed:>5.1f} {r.unpaved_pct:>4.0f}% {r.elevation_scale:>5.2f}"
         )
 
@@ -378,7 +379,8 @@ def format_collection_summary(
     elev_short = "'" if imperial else "m"
     lines.append(
         f"{'TOTAL':<30} "
-        f"{total_distance:>6.0f}{dist_unit[0]} {total_elevation:>5.0f}{elev_short} {total_time:>5.1f}h {total_work:>5.0f}k"
+        f"{total_time:>5.1f}h {total_work:>5.0f}k "
+        f"{total_distance:>6.0f}{dist_unit[0]} {total_elevation:>5.0f}{elev_short}"
     )
 
     return "\n".join(lines)

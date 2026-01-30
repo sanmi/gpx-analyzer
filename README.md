@@ -107,16 +107,28 @@ gpx-analyzer --collection https://ridewithgps.com/collections/12345
 Output shows per-route breakdown with totals:
 
 ```
-============================================================
-Collection: Summer Tour 2024
-============================================================
-Route                         Time    Work   Dist  Elev  Speed Unpvd  EScl
+================================================================================
+COLLECTION ANALYSIS: Summer Tour 2024
+================================================================================
+
+Model params: mass=85kg cda=0.35 crr=0.005
+              power=150W max_coast=48km/h
+
+Routes analyzed: 3
+Total distance:  249 km
+Total elevation: 3200 m
+Total time:      14.5 hours
+Total work:      4050 kJ
+
+PER-ROUTE BREAKDOWN:
 --------------------------------------------------------------------------------
-Day 1: Coast to Mountains   4h 32m  1250kJ   85km  950m  18.7    5%  1.02
-Day 2: Mountain Pass        6h 15m  1820kJ   72km 1800m  11.5    0%  0.98
-Day 3: Valley Route         3h 45m   980kJ   92km  450m  24.5   12%  1.05
+Route                          Time   Work   Distk   Elev  Speed Unpvd  EScl
 --------------------------------------------------------------------------------
-Total                      14h 32m  4050kJ  249km 3200m
+Day 1: Coast to Mountains      4.5h  1250k     85k   950m  18.7    5%  1.02
+Day 2: Mountain Pass           6.3h  1820k     72k  1800m  11.5    0%  0.98
+Day 3: Valley Route            3.8h   980k     92k   450m  24.5   12%  1.05
+--------------------------------------------------------------------------------
+TOTAL                         14.5h  4050k    249k  3200m
 ```
 
 ### Options
@@ -152,13 +164,17 @@ Output:
 
 ```
 === GPX Route Analysis ===
-Distance:       72.23 km (44.88 mi)
-Elevation Gain: 1802 m (5913 ft)
-Elevation Loss: 1799 m (5901 ft)
-Moving Time:    6h 23m 44s
-Est. Work:      2281.4 kJ
+Config: mass=75kg cda=0.30 crr=0.005 power=120W ...
+========================================
+  Est. Time @120W: 5h 18m 22s
+  Est. Work:       1901.4 kJ
+========================================
+Distance:       72.23 km
+Elevation Gain: 1802 m
+Elevation Loss: 1799 m
+Avg Speed:      13.6 km/h
+Max Speed:      52.0 km/h
 Est. Avg Power: 99 W
-Est. Time @100W: 6h 20m 14s
 Surface:        58.0 km paved, 14.2 km unpaved (20%)
 ```
 
