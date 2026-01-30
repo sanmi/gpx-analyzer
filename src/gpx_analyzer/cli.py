@@ -1,5 +1,6 @@
 import argparse
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 
 from geopy.distance import geodesic
@@ -10,9 +11,11 @@ from gpx_analyzer.parser import parse_gpx
 from gpx_analyzer.compare import compare_route_with_trip, format_comparison_report
 from gpx_analyzer.ridewithgps import (
     _load_config,
+    get_collection_route_ids,
     get_gpx,
     get_route_with_surface,
     get_trip_data,
+    is_ridewithgps_collection_url,
     is_ridewithgps_trip_url,
     is_ridewithgps_url,
 )
@@ -60,6 +63,13 @@ def build_parser(config: dict | None = None) -> argparse.ArgumentParser:
         default=None,
         metavar="FILE",
         help="Run batch analysis on training data JSON file instead of single route.",
+    )
+    parser.add_argument(
+        "--collection",
+        type=str,
+        default=None,
+        metavar="URL",
+        help="Analyze all routes in a RideWithGPS collection.",
     )
     parser.add_argument(
         "--mass",
@@ -218,6 +228,141 @@ def calculate_surface_breakdown(points: list[TrackPoint]) -> tuple[float, float]
     return paved_dist, unpaved_dist
 
 
+@dataclass
+class CollectionRouteResult:
+    """Result of analyzing a single route in a collection."""
+    name: str
+    route_id: int
+    distance: float  # meters
+    elevation_gain: float  # meters
+    elevation_scale: float
+    unpaved_pct: float
+    estimated_time_hours: float
+    estimated_work_kj: float
+    avg_speed_kmh: float
+
+
+def analyze_collection(
+    route_ids: list[int],
+    params: RiderParams,
+    smoothing_radius: float,
+    elevation_scale: float,
+) -> list[CollectionRouteResult]:
+    """Analyze all routes in a collection."""
+    results = []
+
+    for route_id in route_ids:
+        route_url = f"https://ridewithgps.com/routes/{route_id}"
+        print(f"Analyzing route {route_id}...", end=" ", flush=True)
+
+        try:
+            points, route_metadata = get_route_with_surface(route_url, params.crr)
+
+            if len(points) < 2:
+                print("skipped (too few points)")
+                continue
+
+            # Calculate API-based elevation scale factor
+            api_elevation_scale = 1.0
+            api_elevation_gain = route_metadata.get("elevation_gain") if route_metadata else None
+            if api_elevation_gain and api_elevation_gain > 0:
+                smoothed_test = smooth_elevations(points, smoothing_radius, 1.0)
+                smoothed_gain = calculate_elevation_gain(smoothed_test)
+                if smoothed_gain > 0:
+                    api_elevation_scale = api_elevation_gain / smoothed_gain
+
+            # Apply smoothing with combined scale factor
+            effective_scale = elevation_scale * api_elevation_scale
+            if smoothing_radius > 0 or effective_scale != 1.0:
+                points = smooth_elevations(points, smoothing_radius, effective_scale)
+
+            analysis = analyze(points, params)
+
+            # Calculate unpaved percentage
+            surface_breakdown = calculate_surface_breakdown(points)
+            if surface_breakdown:
+                total_dist = surface_breakdown[0] + surface_breakdown[1]
+                unpaved_pct = (surface_breakdown[1] / total_dist * 100) if total_dist > 0 else 0
+            else:
+                unpaved_pct = 0
+
+            route_name = route_metadata.get("name", f"Route {route_id}") if route_metadata else f"Route {route_id}"
+
+            results.append(CollectionRouteResult(
+                name=route_name,
+                route_id=route_id,
+                distance=analysis.total_distance,
+                elevation_gain=analysis.elevation_gain,
+                elevation_scale=api_elevation_scale,
+                unpaved_pct=unpaved_pct,
+                estimated_time_hours=analysis.estimated_moving_time_at_power.total_seconds() / 3600,
+                estimated_work_kj=analysis.estimated_work / 1000,
+                avg_speed_kmh=analysis.avg_speed * 3.6,
+            ))
+            print("done")
+
+        except Exception as e:
+            print(f"error: {e}")
+            continue
+
+    return results
+
+
+def format_collection_summary(
+    results: list[CollectionRouteResult],
+    collection_name: str | None,
+    params: RiderParams,
+) -> str:
+    """Format collection analysis results as a human-readable report."""
+    lines = []
+
+    lines.append("=" * 80)
+    lines.append(f"COLLECTION ANALYSIS: {collection_name or 'Unnamed'}")
+    lines.append("=" * 80)
+    lines.append("")
+
+    # Config
+    lines.append(f"Model params: mass={params.total_mass}kg cda={params.cda} crr={params.crr}")
+    lines.append(f"              power={params.assumed_avg_power}W max_coast={params.max_coasting_speed*3.6:.0f}km/h")
+    lines.append("")
+
+    # Totals
+    total_distance = sum(r.distance for r in results) / 1000
+    total_elevation = sum(r.elevation_gain for r in results)
+    total_time = sum(r.estimated_time_hours for r in results)
+    total_work = sum(r.estimated_work_kj for r in results)
+
+    lines.append(f"Routes analyzed: {len(results)}")
+    lines.append(f"Total distance:  {total_distance:.0f} km ({total_distance * 0.621371:.0f} mi)")
+    lines.append(f"Total elevation: {total_elevation:.0f} m ({total_elevation * 3.28084:.0f} ft)")
+    lines.append(f"Total time:      {total_time:.1f} hours")
+    lines.append(f"Total work:      {total_work:.0f} kJ")
+    lines.append("")
+
+    # Per-route breakdown
+    lines.append("PER-ROUTE BREAKDOWN:")
+    lines.append("-" * 80)
+    lines.append(f"{'Route':<30} {'Dist':>7} {'Elev':>6} {'Time':>6} {'Work':>6} {'Speed':>6} {'Unpvd':>5} {'EScl':>5}")
+    lines.append("-" * 80)
+
+    for r in results:
+        name = r.name[:29]
+        dist_km = r.distance / 1000
+        lines.append(
+            f"{name:<30} "
+            f"{dist_km:>6.0f}k {r.elevation_gain:>5.0f}m {r.estimated_time_hours:>5.1f}h {r.estimated_work_kj:>5.0f}k "
+            f"{r.avg_speed_kmh:>5.1f} {r.unpaved_pct:>4.0f}% {r.elevation_scale:>5.2f}"
+        )
+
+    lines.append("-" * 80)
+    lines.append(
+        f"{'TOTAL':<30} "
+        f"{total_distance:>6.0f}k {total_elevation:>5.0f}m {total_time:>5.1f}h {total_work:>5.0f}k"
+    )
+
+    return "\n".join(lines)
+
+
 def main(argv: list[str] | None = None) -> None:
     config = _load_config()
     parser = build_parser(config)
@@ -267,9 +412,35 @@ def main(argv: list[str] | None = None) -> None:
         print(format_training_summary(results, summary, params))
         return
 
+    # Collection mode
+    if args.collection:
+        if not is_ridewithgps_collection_url(args.collection):
+            print(f"Error: Invalid RideWithGPS collection URL: {args.collection}", file=sys.stderr)
+            sys.exit(1)
+
+        try:
+            route_ids, collection_name = get_collection_route_ids(args.collection)
+        except Exception as e:
+            print(f"Error fetching collection: {e}", file=sys.stderr)
+            sys.exit(1)
+
+        if not route_ids:
+            print("Error: No routes found in collection.", file=sys.stderr)
+            sys.exit(1)
+
+        print(f"Analyzing {len(route_ids)} routes from collection: {collection_name or 'Unnamed'}")
+        print("")
+
+        smoothing_radius = 0.0 if args.no_smoothing else args.smoothing
+        collection_results = analyze_collection(route_ids, params, smoothing_radius, args.elevation_scale)
+
+        print("")
+        print(format_collection_summary(collection_results, collection_name, params))
+        return
+
     # Single route mode - require gpx_file
     if not args.gpx_file:
-        print("Error: gpx_file is required (or use --training for batch mode)", file=sys.stderr)
+        print("Error: gpx_file is required (or use --training/--collection for batch mode)", file=sys.stderr)
         sys.exit(1)
 
     route_metadata = None

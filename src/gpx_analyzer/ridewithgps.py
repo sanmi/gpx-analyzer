@@ -21,6 +21,7 @@ MAX_CACHED_ROUTES = 10
 
 RIDEWITHGPS_PATTERN = re.compile(r"^https?://(?:www\.)?ridewithgps\.com/routes/(\d+)")
 RIDEWITHGPS_TRIP_PATTERN = re.compile(r"^https?://(?:www\.)?ridewithgps\.com/trips/(\d+)")
+RIDEWITHGPS_COLLECTION_PATTERN = re.compile(r"^https?://(?:www\.)?ridewithgps\.com/collections/(\d+)")
 
 
 def is_ridewithgps_url(path: str) -> bool:
@@ -528,3 +529,65 @@ def get_trip_data(url: str) -> tuple[list[TripPoint], dict]:
     }
 
     return points, metadata
+
+
+def is_ridewithgps_collection_url(path: str) -> bool:
+    """Check if the given path is a RideWithGPS collection URL."""
+    return bool(RIDEWITHGPS_COLLECTION_PATTERN.match(path))
+
+
+def extract_collection_id(url: str) -> int:
+    """Extract the collection ID from a RideWithGPS collection URL.
+
+    Raises:
+        ValueError: If the URL is not a valid RideWithGPS collection URL.
+    """
+    match = RIDEWITHGPS_COLLECTION_PATTERN.match(url)
+    if not match:
+        raise ValueError(f"Invalid RideWithGPS collection URL: {url}")
+    return int(match.group(1))
+
+
+def get_collection_route_ids(url: str) -> tuple[list[int], str | None]:
+    """Get route IDs from a RideWithGPS collection by scraping the HTML page.
+
+    Args:
+        url: The RideWithGPS collection URL
+
+    Returns:
+        Tuple of (list of route IDs, collection name or None).
+
+    Raises:
+        ValueError: If the URL is not a valid RideWithGPS collection URL.
+        requests.RequestException: If the download fails.
+    """
+    collection_id = extract_collection_id(url)
+
+    headers = _get_auth_headers()
+    headers["Accept"] = "text/html"
+
+    resp = requests.get(
+        f"https://ridewithgps.com/collections/{collection_id}",
+        headers=headers,
+        timeout=30,
+    )
+    resp.raise_for_status()
+
+    html = resp.text
+
+    # Extract route IDs from links
+    route_matches = re.findall(r'/routes/(\d+)', html)
+    unique_route_ids = list(dict.fromkeys(int(rid) for rid in route_matches))
+
+    # Try to extract collection name from title tag
+    name_match = re.search(r'<title>([^<]+)</title>', html)
+    collection_name = None
+    if name_match:
+        title = name_match.group(1)
+        # Remove common suffixes like " | Ride with GPS"
+        if " | " in title:
+            collection_name = title.split(" | ")[0].strip()
+        else:
+            collection_name = title.strip()
+
+    return unique_route_ids, collection_name
