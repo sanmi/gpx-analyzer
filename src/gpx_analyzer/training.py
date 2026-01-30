@@ -273,10 +273,19 @@ def run_training_analysis(
 
 
 def format_training_summary(
-    results: list[TrainingResult], summary: TrainingSummary, params: RiderParams
+    results: list[TrainingResult], summary: TrainingSummary, params: RiderParams,
+    imperial: bool = False,
 ) -> str:
     """Format training analysis results as a human-readable report."""
     lines = []
+
+    # Unit conversion factors
+    dist_factor = 0.621371 if imperial else 1.0
+    dist_unit = "mi" if imperial else "km"
+    elev_factor = 3.28084 if imperial else 1.0
+    elev_unit = "ft" if imperial else "m"
+    speed_factor = 0.621371 if imperial else 1.0
+    speed_unit = "mph" if imperial else "km/h"
 
     lines.append("=" * 60)
     lines.append("TRAINING DATA ANALYSIS SUMMARY")
@@ -284,14 +293,17 @@ def format_training_summary(
     lines.append("")
 
     # Config
+    coast_speed = params.max_coasting_speed * 3.6 * speed_factor
     lines.append(f"Model params: mass={params.total_mass}kg cda={params.cda} crr={params.crr}")
-    lines.append(f"              power={params.assumed_avg_power}W max_coast={params.max_coasting_speed*3.6:.0f}km/h")
+    lines.append(f"              power={params.assumed_avg_power}W max_coast={coast_speed:.0f}{speed_unit}")
     lines.append("")
 
     # Overall stats
+    total_dist = summary.total_distance_km * dist_factor
+    total_elev = summary.total_elevation_m * elev_factor
     lines.append(f"Routes analyzed: {summary.total_routes}")
-    lines.append(f"Total distance:  {summary.total_distance_km:.0f} km")
-    lines.append(f"Total elevation: {summary.total_elevation_m:.0f} m")
+    lines.append(f"Total distance:  {total_dist:.0f} {dist_unit}")
+    lines.append(f"Total elevation: {total_elev:.0f} {elev_unit}")
     lines.append("")
 
     # Error summary
@@ -318,6 +330,8 @@ def format_training_summary(
     lines.append("")
 
     # Per-route breakdown
+    dist_suffix = "m" if imperial else "k"  # miles or km
+    elev_suffix = "'" if imperial else "m"  # feet or meters
     lines.append("PER-ROUTE BREAKDOWN:")
     lines.append("-" * 114)
     lines.append(f"{'':28} {'------- Estimated -------':>27} {'-------- Actual --------':>27} {'------ Diff ------':>24}")
@@ -326,14 +340,14 @@ def format_training_summary(
 
     for r in results:
         # Estimated values
-        est_dist = r.route_distance / 1000
-        est_elev = r.route_elevation_gain
+        est_dist = r.route_distance / 1000 * dist_factor
+        est_elev = r.route_elevation_gain * elev_factor
         est_time = r.comparison.predicted_time / 3600
         est_work = r.comparison.predicted_work / 1000
 
         # Actual values
-        act_dist = r.comparison.trip_distance / 1000
-        act_elev = r.trip_elevation_gain if r.trip_elevation_gain else 0
+        act_dist = r.comparison.trip_distance / 1000 * dist_factor
+        act_elev = (r.trip_elevation_gain if r.trip_elevation_gain else 0) * elev_factor
         act_time = r.comparison.actual_moving_time / 3600
         act_work = r.comparison.actual_work / 1000 if r.comparison.actual_work else 0
 
@@ -345,8 +359,8 @@ def format_training_summary(
         name = r.route.name[:21]
         lines.append(
             f"{name:<22} {r.unpaved_pct:>4.0f}% "
-            f"{est_dist:>6.0f}k {est_elev:>5.0f}m {est_time:>5.1f}h {est_work:>5.0f}k "
-            f"{act_dist:>6.0f}k {act_elev:>5.0f}m {act_time:>5.1f}h {act_work:>5.0f}k "
+            f"{est_dist:>6.0f}{dist_suffix} {est_elev:>5.0f}{elev_suffix} {est_time:>5.1f}h {est_work:>5.0f}k "
+            f"{act_dist:>6.0f}{dist_suffix} {act_elev:>5.0f}{elev_suffix} {act_time:>5.1f}h {act_work:>5.0f}k "
             f"{time_diff:>+6.1f}% {work_diff:>+6.1f}% {r.elevation_scale_used:>7.2f}"
         )
 

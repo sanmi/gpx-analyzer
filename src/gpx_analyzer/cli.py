@@ -72,6 +72,11 @@ def build_parser(config: dict | None = None) -> argparse.ArgumentParser:
         help="Analyze all routes in a RideWithGPS collection.",
     )
     parser.add_argument(
+        "--imperial",
+        action="store_true",
+        help="Display output in imperial units (miles, feet) instead of metric.",
+    )
+    parser.add_argument(
         "--mass",
         type=float,
         default=get_default("mass"),
@@ -312,9 +317,18 @@ def format_collection_summary(
     results: list[CollectionRouteResult],
     collection_name: str | None,
     params: RiderParams,
+    imperial: bool = False,
 ) -> str:
     """Format collection analysis results as a human-readable report."""
     lines = []
+
+    # Unit conversion factors
+    dist_factor = 0.621371 if imperial else 1.0
+    dist_unit = "mi" if imperial else "km"
+    elev_factor = 3.28084 if imperial else 1.0
+    elev_unit = "ft" if imperial else "m"
+    speed_factor = 0.621371 if imperial else 1.0
+    speed_unit = "mph" if imperial else "km/h"
 
     lines.append("=" * 80)
     lines.append(f"COLLECTION ANALYSIS: {collection_name or 'Unnamed'}")
@@ -322,19 +336,20 @@ def format_collection_summary(
     lines.append("")
 
     # Config
+    coast_speed = params.max_coasting_speed * 3.6 * speed_factor
     lines.append(f"Model params: mass={params.total_mass}kg cda={params.cda} crr={params.crr}")
-    lines.append(f"              power={params.assumed_avg_power}W max_coast={params.max_coasting_speed*3.6:.0f}km/h")
+    lines.append(f"              power={params.assumed_avg_power}W max_coast={coast_speed:.0f}{speed_unit}")
     lines.append("")
 
     # Totals
-    total_distance = sum(r.distance for r in results) / 1000
-    total_elevation = sum(r.elevation_gain for r in results)
+    total_distance = sum(r.distance for r in results) / 1000 * dist_factor
+    total_elevation = sum(r.elevation_gain for r in results) * elev_factor
     total_time = sum(r.estimated_time_hours for r in results)
     total_work = sum(r.estimated_work_kj for r in results)
 
     lines.append(f"Routes analyzed: {len(results)}")
-    lines.append(f"Total distance:  {total_distance:.0f} km ({total_distance * 0.621371:.0f} mi)")
-    lines.append(f"Total elevation: {total_elevation:.0f} m ({total_elevation * 3.28084:.0f} ft)")
+    lines.append(f"Total distance:  {total_distance:.0f} {dist_unit}")
+    lines.append(f"Total elevation: {total_elevation:.0f} {elev_unit}")
     lines.append(f"Total time:      {total_time:.1f} hours")
     lines.append(f"Total work:      {total_work:.0f} kJ")
     lines.append("")
@@ -342,22 +357,28 @@ def format_collection_summary(
     # Per-route breakdown
     lines.append("PER-ROUTE BREAKDOWN:")
     lines.append("-" * 80)
-    lines.append(f"{'Route':<30} {'Dist':>7} {'Elev':>6} {'Time':>6} {'Work':>6} {'Speed':>6} {'Unpvd':>5} {'EScl':>5}")
+    dist_hdr = "Dist" + dist_unit[0]
+    elev_hdr = "Elev"
+    lines.append(f"{'Route':<30} {dist_hdr:>7} {elev_hdr:>6} {'Time':>6} {'Work':>6} {'Speed':>6} {'Unpvd':>5} {'EScl':>5}")
     lines.append("-" * 80)
 
     for r in results:
         name = r.name[:29]
-        dist_km = r.distance / 1000
+        dist = r.distance / 1000 * dist_factor
+        elev = r.elevation_gain * elev_factor
+        speed = r.avg_speed_kmh * speed_factor
+        elev_suffix = "'" if imperial else "m"
         lines.append(
             f"{name:<30} "
-            f"{dist_km:>6.0f}k {r.elevation_gain:>5.0f}m {r.estimated_time_hours:>5.1f}h {r.estimated_work_kj:>5.0f}k "
-            f"{r.avg_speed_kmh:>5.1f} {r.unpaved_pct:>4.0f}% {r.elevation_scale:>5.2f}"
+            f"{dist:>6.0f}{dist_unit[0]} {elev:>5.0f}{elev_suffix} {r.estimated_time_hours:>5.1f}h {r.estimated_work_kj:>5.0f}k "
+            f"{speed:>5.1f} {r.unpaved_pct:>4.0f}% {r.elevation_scale:>5.2f}"
         )
 
     lines.append("-" * 80)
+    elev_short = "'" if imperial else "m"
     lines.append(
         f"{'TOTAL':<30} "
-        f"{total_distance:>6.0f}k {total_elevation:>5.0f}m {total_time:>5.1f}h {total_work:>5.0f}k"
+        f"{total_distance:>6.0f}{dist_unit[0]} {total_elevation:>5.0f}{elev_short} {total_time:>5.1f}h {total_work:>5.0f}k"
     )
 
     return "\n".join(lines)
@@ -409,7 +430,7 @@ def main(argv: list[str] | None = None) -> None:
         )
 
         print("")
-        print(format_training_summary(results, summary, params))
+        print(format_training_summary(results, summary, params, args.imperial))
         return
 
     # Collection mode
@@ -435,7 +456,7 @@ def main(argv: list[str] | None = None) -> None:
         collection_results = analyze_collection(route_ids, params, smoothing_radius, args.elevation_scale)
 
         print("")
-        print(format_collection_summary(collection_results, collection_name, params))
+        print(format_collection_summary(collection_results, collection_name, params, args.imperial))
         return
 
     # Single route mode - require gpx_file
@@ -491,33 +512,47 @@ def main(argv: list[str] | None = None) -> None:
 
     result = analyze(points, params)
 
+    # Unit conversion factors
+    if args.imperial:
+        dist_factor = 0.621371
+        dist_unit = "mi"
+        elev_factor = 3.28084
+        elev_unit = "ft"
+        speed_factor = 0.621371
+        speed_unit = "mph"
+    else:
+        dist_factor = 1.0
+        dist_unit = "km"
+        elev_factor = 1.0
+        elev_unit = "m"
+        speed_factor = 1.0
+        speed_unit = "km/h"
+
     print("=== GPX Route Analysis ===")
     if route_metadata and route_metadata.get("name"):
         print(f"Route: {route_metadata['name']}")
-    headwind_mph = args.headwind * 0.621371
+    headwind_display = args.headwind * speed_factor
+    max_coast_display = args.max_coast_speed * speed_factor
     print(
         f"Config: mass={args.mass}kg cda={args.cda} crr={args.crr} power={args.power}W "
-        f"coasting_grade={args.coasting_grade}° max_coast_speed={args.max_coast_speed}km/h "
+        f"coasting_grade={args.coasting_grade}° max_coast_speed={max_coast_display:.0f}{speed_unit} "
         f"smoothing={smoothing_radius}m elevation_scale={args.elevation_scale} "
-        f"headwind={args.headwind}km/h ({headwind_mph:.1f}mph)"
+        f"headwind={headwind_display:.1f}{speed_unit}"
     )
-    dist_km = result.total_distance / 1000
-    dist_mi = dist_km * 0.621371
-    print(f"Distance:       {dist_km:.2f} km ({dist_mi:.2f} mi)")
-    gain_ft = result.elevation_gain * 3.28084
+    dist = result.total_distance / 1000 * dist_factor
+    print(f"Distance:       {dist:.2f} {dist_unit}")
+    gain = result.elevation_gain * elev_factor
     # Only show scale factor if it's a significant adjustment (>5%)
     if abs(api_elevation_scale - 1.0) > 0.05:
-        print(f"Elevation Gain: {result.elevation_gain:.0f} m ({gain_ft:.0f} ft) [scaled {api_elevation_scale:.2f}x]")
+        print(f"Elevation Gain: {gain:.0f} {elev_unit} [scaled {api_elevation_scale:.2f}x]")
     else:
-        print(f"Elevation Gain: {result.elevation_gain:.0f} m ({gain_ft:.0f} ft)")
-    loss_ft = result.elevation_loss * 3.28084
-    print(f"Elevation Loss: {result.elevation_loss:.0f} m ({loss_ft:.0f} ft)")
-    avg_kmh = result.avg_speed * 3.6
-    avg_mph = avg_kmh * 0.621371
-    print(f"Avg Speed:      {avg_kmh:.1f} km/h ({avg_mph:.1f} mph)")
-    max_kmh = result.max_speed * 3.6
-    max_mph = max_kmh * 0.621371
-    print(f"Max Speed:      {max_kmh:.1f} km/h ({max_mph:.1f} mph)")
+        print(f"Elevation Gain: {gain:.0f} {elev_unit}")
+    loss = result.elevation_loss * elev_factor
+    print(f"Elevation Loss: {loss:.0f} {elev_unit}")
+    avg_speed = result.avg_speed * 3.6 * speed_factor
+    print(f"Avg Speed:      {avg_speed:.1f} {speed_unit}")
+    max_speed = result.max_speed * 3.6 * speed_factor
+    print(f"Max Speed:      {max_speed:.1f} {speed_unit}")
     print(f"Est. Work:      {result.estimated_work / 1000:.1f} kJ")
     print(f"Est. Avg Power: {result.estimated_avg_power:.0f} W")
     print(f"Est. Time @{params.assumed_avg_power:.0f}W: {format_duration(result.estimated_moving_time_at_power)}")
@@ -525,15 +560,14 @@ def main(argv: list[str] | None = None) -> None:
     # Surface breakdown if available
     surface_breakdown = calculate_surface_breakdown(points)
     if surface_breakdown:
-        paved_km, unpaved_km = surface_breakdown[0] / 1000, surface_breakdown[1] / 1000
-        total_km = paved_km + unpaved_km
-        if total_km > 0:
-            unpaved_pct = (unpaved_km / total_km) * 100
-            paved_mi = paved_km * 0.621371
-            unpaved_mi = unpaved_km * 0.621371
+        paved_dist = surface_breakdown[0] / 1000 * dist_factor
+        unpaved_dist = surface_breakdown[1] / 1000 * dist_factor
+        total_dist = paved_dist + unpaved_dist
+        if total_dist > 0:
+            unpaved_pct = (unpaved_dist / total_dist) * 100
             print(
-                f"Surface:        {paved_km:.1f} km ({paved_mi:.1f} mi) paved, "
-                f"{unpaved_km:.1f} km ({unpaved_mi:.1f} mi) unpaved ({unpaved_pct:.0f}%)"
+                f"Surface:        {paved_dist:.1f} {dist_unit} paved, "
+                f"{unpaved_dist:.1f} {dist_unit} unpaved ({unpaved_pct:.0f}%)"
             )
 
     # Show elevation scaling note if significant API scaling was used (>5% adjustment)
