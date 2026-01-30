@@ -47,13 +47,13 @@ HTML_TEMPLATE = """
             border-radius: 8px;
             box-shadow: 0 2px 4px rgba(0,0,0,0.1);
         }
-        label {
+        label:not(.toggle-label) {
             display: block;
             margin-top: 15px;
             font-weight: 600;
             color: #555;
         }
-        label:first-child { margin-top: 0; }
+        label:not(.toggle-label):first-child { margin-top: 0; }
         input[type="text"], input[type="number"], select {
             width: 100%;
             padding: 12px;
@@ -595,7 +595,7 @@ HTML_TEMPLATE = """
 
             // Clear previous results
             document.getElementById('routesTableBody').innerHTML = '';
-            var routes = [];
+            collectionRoutes = [];
 
             var params = new URLSearchParams({
                 url: url,
@@ -618,11 +618,11 @@ HTML_TEMPLATE = """
                         'Analyzing route ' + data.current + ' of ' + data.total + '...';
                     document.getElementById('progressRoute').textContent = '';
                 } else if (data.type === 'route') {
-                    routes.push(data.route);
+                    collectionRoutes.push(data.route);
                     var r = data.route;
 
                     // Update progress bar to show completed route
-                    var pct = (routes.length / data.total * 100).toFixed(0);
+                    var pct = (collectionRoutes.length / data.total * 100).toFixed(0);
                     document.getElementById('progressFill').style.width = pct + '%';
                     document.getElementById('progressRoute').textContent = r.name || '';
 
@@ -639,7 +639,7 @@ HTML_TEMPLATE = """
 
                     // Show results container and update totals
                     document.getElementById('collectionResults').classList.remove('hidden');
-                    updateTotals(routes);
+                    updateTotals(collectionRoutes);
                 } else if (data.type === 'complete') {
                     eventSource.close();
                     document.getElementById('progressContainer').classList.add('hidden');
@@ -659,6 +659,35 @@ HTML_TEMPLATE = """
                 submitBtn.disabled = false;
                 submitBtn.textContent = 'Analyze';
             };
+        });
+
+        // Store routes globally so we can re-render when units change
+        var collectionRoutes = [];
+
+        function rerenderCollectionTable() {
+            if (collectionRoutes.length === 0) return;
+
+            var tbody = document.getElementById('routesTableBody');
+            tbody.innerHTML = '';
+
+            collectionRoutes.forEach(function(r) {
+                var row = document.createElement('tr');
+                row.innerHTML = '<td class="route-name" title="' + r.name + '">' + r.name + '</td>' +
+                    '<td class="num primary">' + r.time_str + '</td>' +
+                    '<td class="num primary separator">' + Math.round(r.work_kj) + 'kJ</td>' +
+                    '<td class="num">' + formatDist(r.distance_km) + '</td>' +
+                    '<td class="num">' + formatElev(r.elevation_m) + '</td>' +
+                    '<td class="num">' + formatSpeed(r.avg_speed_kmh) + '</td>' +
+                    '<td class="num">' + Math.round(r.unpaved_pct || 0) + '%</td>' +
+                    '<td class="num">' + r.elevation_scale.toFixed(2) + '</td>';
+                tbody.appendChild(row);
+            });
+
+            updateTotals(collectionRoutes);
+        }
+
+        document.getElementById('imperial').addEventListener('change', function() {
+            rerenderCollectionTable();
         });
     </script>
 
