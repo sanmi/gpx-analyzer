@@ -491,6 +491,9 @@ HTML_TEMPLATE = """
             document.getElementById('progressContainer').classList.add('hidden');
             document.getElementById('errorContainer').classList.add('hidden');
             document.getElementById('collectionResults').classList.add('hidden');
+            // Hide server-rendered errors
+            var serverErrors = document.querySelectorAll('.server-error');
+            serverErrors.forEach(function(el) { el.style.display = 'none'; });
         }
 
         function showError(message) {
@@ -692,7 +695,7 @@ HTML_TEMPLATE = """
     </script>
 
     {% if error %}
-    <div class="error">{{ error }}</div>
+    <div class="error server-error">{{ error }}</div>
     {% endif %}
 
     {% if result %}
