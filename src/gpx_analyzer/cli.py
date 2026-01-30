@@ -174,6 +174,11 @@ def build_parser(config: dict | None = None) -> argparse.ArgumentParser:
         choices=["open-elevation", "opentopodata"],
         help="Which DEM API to use (default: open-elevation).",
     )
+    parser.add_argument(
+        "--no-api-elevation",
+        action="store_true",
+        help="Disable automatic elevation scaling based on RideWithGPS API elevation data.",
+    )
     return parser
 
 
@@ -182,6 +187,20 @@ def format_duration(td) -> str:
     hours, remainder = divmod(total_seconds, 3600)
     minutes, seconds = divmod(remainder, 60)
     return f"{hours}h {minutes:02d}m {seconds:02d}s"
+
+
+def calculate_elevation_gain(points: list[TrackPoint]) -> float:
+    """Calculate total elevation gain from a list of points."""
+    if len(points) < 2:
+        return 0.0
+    gain = 0.0
+    for i in range(1, len(points)):
+        elev_a = points[i - 1].elevation or 0.0
+        elev_b = points[i].elevation or 0.0
+        delta = elev_b - elev_a
+        if delta > 0:
+            gain += delta
+    return gain
 
 
 def calculate_surface_breakdown(points: list[TrackPoint]) -> tuple[float, float] | None:
@@ -318,8 +337,29 @@ def main(argv: list[str] | None = None) -> None:
                 print("Continuing with route elevation data...", file=sys.stderr)
 
     smoothing_radius = 0.0 if args.no_smoothing else args.smoothing
-    if smoothing_radius > 0 or args.elevation_scale != 1.0:
-        points = smooth_elevations(points, smoothing_radius, args.elevation_scale)
+
+    # Calculate API-based elevation scale factor for RideWithGPS routes
+    api_elevation_scale = 1.0
+    api_elevation_gain = None
+    raw_elevation_gain = None
+    if (route_metadata
+        and route_metadata.get("elevation_gain")
+        and not args.no_api_elevation
+        and not args.use_dem):
+        api_elevation_gain = route_metadata["elevation_gain"]
+        # Calculate raw elevation gain before any smoothing
+        raw_elevation_gain = calculate_elevation_gain(points)
+        if raw_elevation_gain > 0:
+            # First apply smoothing without scaling to see what we get
+            smoothed_test = smooth_elevations(points, smoothing_radius, 1.0)
+            smoothed_gain = calculate_elevation_gain(smoothed_test)
+            if smoothed_gain > 0:
+                api_elevation_scale = api_elevation_gain / smoothed_gain
+
+    # Apply smoothing with combined scale factor
+    effective_scale = args.elevation_scale * api_elevation_scale
+    if smoothing_radius > 0 or effective_scale != 1.0:
+        points = smooth_elevations(points, smoothing_radius, effective_scale)
 
     result = analyze(points, params)
 
@@ -337,7 +377,11 @@ def main(argv: list[str] | None = None) -> None:
     dist_mi = dist_km * 0.621371
     print(f"Distance:       {dist_km:.2f} km ({dist_mi:.2f} mi)")
     gain_ft = result.elevation_gain * 3.28084
-    print(f"Elevation Gain: {result.elevation_gain:.0f} m ({gain_ft:.0f} ft)")
+    # Only show scale factor if it's a significant adjustment (>5%)
+    if abs(api_elevation_scale - 1.0) > 0.05:
+        print(f"Elevation Gain: {result.elevation_gain:.0f} m ({gain_ft:.0f} ft) [scaled {api_elevation_scale:.2f}x]")
+    else:
+        print(f"Elevation Gain: {result.elevation_gain:.0f} m ({gain_ft:.0f} ft)")
     loss_ft = result.elevation_loss * 3.28084
     print(f"Elevation Loss: {result.elevation_loss:.0f} m ({loss_ft:.0f} ft)")
     avg_kmh = result.avg_speed * 3.6
@@ -363,6 +407,13 @@ def main(argv: list[str] | None = None) -> None:
                 f"Surface:        {paved_km:.1f} km ({paved_mi:.1f} mi) paved, "
                 f"{unpaved_km:.1f} km ({unpaved_mi:.1f} mi) unpaved ({unpaved_pct:.0f}%)"
             )
+
+    # Show elevation scaling note if significant API scaling was used (>5% adjustment)
+    if abs(api_elevation_scale - 1.0) > 0.05 and api_elevation_gain is not None:
+        print("")
+        print(f"Note: Elevation scaled to match RideWithGPS API ({api_elevation_gain:.0f}m).")
+        print(f"      GPS track elevation is often inaccurate; API uses corrected DEM data.")
+        print(f"      Use --no-api-elevation to disable this correction.")
 
     # Compare with actual trip data if provided
     if args.compare_trip:
