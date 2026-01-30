@@ -277,42 +277,60 @@ def format_comparison_report(result: ComparisonResult, params: RiderParams) -> s
     lines.append("=== Route vs Trip Comparison ===")
     lines.append("")
 
-    # Distance comparison
-    lines.append(f"Route distance: {result.route_distance/1000:.1f} km")
-    lines.append(f"Trip distance:  {result.trip_distance/1000:.1f} km")
+    # Build comparison table
+    lines.append(f"{'Metric':<16} {'Estimated':>12} {'Actual':>12} {'Diff':>8}")
+    lines.append("-" * 50)
 
-    # Elevation comparison
+    # Distance
+    est_dist = f"{result.route_distance/1000:.1f} km"
+    act_dist = f"{result.trip_distance/1000:.1f} km"
+    dist_diff = ((result.route_distance - result.trip_distance) / result.trip_distance * 100
+                 if result.trip_distance > 0 else 0.0)
+    lines.append(f"{'Distance':<16} {est_dist:>12} {act_dist:>12} {dist_diff:>+7.1f}%")
+
+    # Elevation gain
     if result.route_elevation_gain is not None and result.trip_elevation_gain is not None:
-        elev_diff_pct = ((result.route_elevation_gain - result.trip_elevation_gain)
-                         / result.trip_elevation_gain * 100 if result.trip_elevation_gain > 0 else 0.0)
-        lines.append(f"Route elevation: {result.route_elevation_gain:.0f} m")
-        lines.append(f"Trip elevation:  {result.trip_elevation_gain:.0f} m ({elev_diff_pct:+.1f}%)")
-    lines.append("")
+        est_elev = f"{result.route_elevation_gain:.0f} m"
+        act_elev = f"{result.trip_elevation_gain:.0f} m"
+        elev_diff = ((result.route_elevation_gain - result.trip_elevation_gain)
+                     / result.trip_elevation_gain * 100 if result.trip_elevation_gain > 0 else 0.0)
+        lines.append(f"{'Elevation gain':<16} {est_elev:>12} {act_elev:>12} {elev_diff:>+7.1f}%")
 
-    # Time comparison
-    pred_hours = result.predicted_time / 3600
-    actual_hours = result.actual_moving_time / 3600
-    diff_minutes = (result.predicted_time - result.actual_moving_time) / 60
+    # Moving time
+    est_time = f"{result.predicted_time/3600:.2f} h"
+    act_time = f"{result.actual_moving_time/3600:.2f} h"
+    time_diff = result.time_error_pct
+    lines.append(f"{'Moving time':<16} {est_time:>12} {act_time:>12} {time_diff:>+7.1f}%")
 
-    lines.append(f"Predicted time @{params.assumed_avg_power:.0f}W: {pred_hours:.2f} hours")
-    lines.append(f"Actual moving time:        {actual_hours:.2f} hours")
-    lines.append(f"Difference: {diff_minutes:+.0f} minutes ({result.time_error_pct:+.1f}%)")
-    lines.append("")
+    # Average speed
+    est_speed = result.route_distance / result.predicted_time if result.predicted_time > 0 else 0
+    act_speed = result.trip_distance / result.actual_moving_time if result.actual_moving_time > 0 else 0
+    est_speed_str = f"{est_speed * 3.6:.1f} km/h"
+    act_speed_str = f"{act_speed * 3.6:.1f} km/h"
+    speed_diff = ((est_speed - act_speed) / act_speed * 100 if act_speed > 0 else 0.0)
+    lines.append(f"{'Avg speed':<16} {est_speed_str:>12} {act_speed_str:>12} {speed_diff:>+7.1f}%")
 
-    # Work comparison
-    pred_kj = result.predicted_work / 1000
-    lines.append(f"Predicted work: {pred_kj:.0f} kJ")
-    if result.actual_work is not None:
-        actual_kj = result.actual_work / 1000
-        work_diff_pct = ((result.predicted_work - result.actual_work) / result.actual_work * 100
-                         if result.actual_work > 0 else 0.0)
-        lines.append(f"Actual work:    {actual_kj:.0f} kJ ({work_diff_pct:+.0f}%)")
-    lines.append("")
-
-    # Power data
+    # Average power
+    est_power = f"{params.assumed_avg_power:.0f} W"
     if result.has_power_data and result.actual_avg_power:
-        lines.append(f"Actual avg power: {result.actual_avg_power:.0f}W (model assumes {params.assumed_avg_power:.0f}W)")
-        lines.append("")
+        act_power = f"{result.actual_avg_power:.0f} W"
+        power_diff = ((params.assumed_avg_power - result.actual_avg_power)
+                      / result.actual_avg_power * 100 if result.actual_avg_power > 0 else 0.0)
+        lines.append(f"{'Avg power':<16} {est_power:>12} {act_power:>12} {power_diff:>+7.1f}%")
+    else:
+        lines.append(f"{'Avg power':<16} {est_power:>12} {'n/a':>12} {'':>8}")
+
+    # Work
+    est_work = f"{result.predicted_work/1000:.0f} kJ"
+    if result.actual_work is not None:
+        act_work = f"{result.actual_work/1000:.0f} kJ"
+        work_diff = ((result.predicted_work - result.actual_work) / result.actual_work * 100
+                     if result.actual_work > 0 else 0.0)
+        lines.append(f"{'Work':<16} {est_work:>12} {act_work:>12} {work_diff:>+7.1f}%")
+    else:
+        lines.append(f"{'Work':<16} {est_work:>12} {'n/a':>12} {'':>8}")
+
+    lines.append("")
 
     # Grade breakdown
     lines.append("Speed by gradient (actual vs predicted):")

@@ -216,8 +216,8 @@ class TestFormatComparisonReport:
         )
         params = RiderParams(assumed_avg_power=150.0)
         report = format_comparison_report(result, params)
-        assert "2.00 hours" in report
-        assert "+20 minutes" in report or "+20.0%" in report
+        assert "2.00 h" in report
+        assert "+20.0%" in report
 
     def test_includes_power_when_available(self):
         result = ComparisonResult(
@@ -234,8 +234,8 @@ class TestFormatComparisonReport:
         )
         params = RiderParams(assumed_avg_power=100.0)
         report = format_comparison_report(result, params)
-        assert "120W" in report
-        assert "100W" in report
+        assert "120 W" in report
+        assert "100 W" in report
 
     def test_includes_work_comparison(self):
         result = ComparisonResult(
@@ -254,7 +254,7 @@ class TestFormatComparisonReport:
         report = format_comparison_report(result, params)
         assert "500 kJ" in report
         assert "400 kJ" in report
-        assert "+25%" in report  # (500-400)/400 = 25%
+        assert "+25.0%" in report  # (500-400)/400 = 25%
 
     def test_includes_grade_buckets(self):
         bucket = GradeBucket(
