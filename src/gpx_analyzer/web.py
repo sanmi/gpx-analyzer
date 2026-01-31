@@ -1120,7 +1120,7 @@ HTML_TEMPLATE = """
 
     <script>
         // Recent URLs management
-        var MAX_RECENT_URLS = 10;
+        var MAX_RECENT_URLS = 20;
 
         function getRecentUrls() {
             try {
