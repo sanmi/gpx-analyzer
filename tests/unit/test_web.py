@@ -44,7 +44,7 @@ class TestIndexGet:
     def test_contains_title(self, client):
         response = client.get("/")
         html = response.data.decode()
-        assert "Cycle Route Difficulty Estimator" in html
+        assert "Reality Check my Route" in html
 
     def test_contains_mode_indicator(self, client):
         response = client.get("/")

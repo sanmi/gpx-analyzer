@@ -1,4 +1,4 @@
-# GPX Bike Route Analyzer
+# Reality Check my Route
 
 Analyze GPX bike routes with physics-based power estimation. Calculates distance, elevation gain/loss, speed, and estimates work and average power using gravitational, rolling resistance, and aerodynamic drag models.
 
@@ -46,6 +46,11 @@ Speed is calculated by solving the power balance equation: your power output equ
 - **Steepness** — Effort-weighted average grade of climbs ≥2%. Measures *how steep* the climbs are, not just total climbing. Steeper sections contribute more because they require disproportionately more power. A route with punchy 10% grades scores higher than one with gentle 4% grades, even if total climbing is similar.
 
 - **Grade histogram** — Time spent at each grade bucket, showing the character of a route. Displayed as a bar chart in the web UI and ASCII art in the CLI.
+
+- **Steep climbs section** — Detailed breakdown of grades ≥10%, including:
+  - **Max grade** — Maximum sustained grade, calculated using a 300m rolling average to filter GPS noise and match RideWithGPS methodology.
+  - **Distance at steep grades** — How much of the route is at ≥10% and ≥15% grades.
+  - **Steep grade histogram** — Time and distance distribution across steep grade buckets (10-12%, 12-14%, etc.), using the same 300m rolling average for consistency with max grade.
 
 ## Installation
 

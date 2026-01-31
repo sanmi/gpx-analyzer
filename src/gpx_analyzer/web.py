@@ -29,7 +29,7 @@ HTML_TEMPLATE = """
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{% if result and result.name %}{{ result.name }} | {% endif %}Cycle Route Difficulty Estimator</title>
+    <title>{% if result and result.name %}{{ result.name }} | {% endif %}Reality Check my Route</title>
 
     <!-- Open Graph meta tags for link previews -->
     {% if result %}
@@ -38,7 +38,7 @@ HTML_TEMPLATE = """
     <meta property="og:image" content="{{ request.url_root }}og-image?url={{ url|urlencode }}&power={{ power }}&mass={{ mass }}&headwind={{ headwind }}">
     <meta property="og:type" content="website">
     {% else %}
-    <meta property="og:title" content="Cycle Route Difficulty Estimator">
+    <meta property="og:title" content="Reality Check my Route">
     <meta property="og:description" content="Physics-based cycling time and energy estimates from elevation, surface, and rider parameters">
     <meta property="og:image" content="{{ request.url_root }}og-image">
     <meta property="og:type" content="website">
@@ -765,7 +765,7 @@ HTML_TEMPLATE = """
                     <line x1="12" y1="-1" x2="18" y2="5" stroke="#2D3047" stroke-width="1.5" stroke-linecap="round"/>
                 </g>
             </svg>
-            <h1>Cycle Route Difficulty Estimator</h1>
+            <h1>Reality Check my Route</h1>
         </div>
         <p class="tagline">Physics-based cycling time and energy estimates from elevation, surface, and rider parameters</p>
         <a href="#" class="how-link" onclick="showModal('physicsModal'); return false;">How does it work?</a>
@@ -1954,7 +1954,7 @@ def generate_fallback_image():
     """Generate a simple fallback OG image."""
     fig, ax = plt.subplots(figsize=(6, 3), facecolor='#f5f5f7')
     ax.set_facecolor('#f5f5f7')
-    ax.text(0.5, 0.5, 'Cycle Route\nDifficulty Estimator',
+    ax.text(0.5, 0.5, 'Reality Check\nmy Route',
             ha='center', va='center', fontsize=20, fontweight='bold',
             color='#FF6B35', transform=ax.transAxes)
     ax.axis('off')
