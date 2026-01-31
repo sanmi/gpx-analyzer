@@ -1,8 +1,12 @@
 """Simple web interface for GPX analyzer."""
 
+import io
 import json
 
-from flask import Flask, render_template_string, request, Response
+from flask import Flask, render_template_string, request, Response, send_file
+import matplotlib
+matplotlib.use('Agg')  # Non-interactive backend for server
+import matplotlib.pyplot as plt
 
 from gpx_analyzer import __version_date__, get_git_hash
 from gpx_analyzer.analyzer import analyze, calculate_hilliness
@@ -25,7 +29,21 @@ HTML_TEMPLATE = """
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Cycle Route Difficulty Estimator</title>
+    <title>{% if result and result.name %}{{ result.name }} | {% endif %}Cycle Route Difficulty Estimator</title>
+
+    <!-- Open Graph meta tags for link previews -->
+    {% if result %}
+    <meta property="og:title" content="{{ result.name or 'Route Analysis' }}">
+    <meta property="og:description" content="{{ '%.0f'|format(result.distance_km) }} km • {{ result.time_str }} @ {{ power|int }}W • {{ '%.0f'|format(result.elevation_m) }}m climbing">
+    <meta property="og:image" content="{{ request.url_root }}og-image?url={{ url|urlencode }}&power={{ power }}&mass={{ mass }}&headwind={{ headwind }}">
+    <meta property="og:type" content="website">
+    {% else %}
+    <meta property="og:title" content="Cycle Route Difficulty Estimator">
+    <meta property="og:description" content="Physics-based cycling time and energy estimates from elevation, surface, and rider parameters">
+    <meta property="og:image" content="{{ request.url_root }}og-image">
+    <meta property="og:type" content="website">
+    {% endif %}
+    <meta property="og:url" content="{{ request.url }}">
     <style>
         :root {
             --primary: #FF6B35;
@@ -1769,6 +1787,96 @@ def analyze_collection_stream():
             yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
 
     return Response(generate(), mimetype="text/event-stream")
+
+
+@app.route("/og-image")
+def og_image():
+    """Generate Open Graph preview image with time-at-grade histogram."""
+    url = request.args.get("url", "")
+
+    if not url or not is_ridewithgps_url(url):
+        # Return a simple fallback image
+        return generate_fallback_image()
+
+    try:
+        power = float(request.args.get("power", DEFAULTS["power"]))
+        mass = float(request.args.get("mass", DEFAULTS["mass"]))
+        headwind = float(request.args.get("headwind", DEFAULTS["headwind"]))
+    except ValueError:
+        return generate_fallback_image()
+
+    try:
+        params = build_params(power, mass, headwind)
+        result = analyze_single_route(url, params)
+        return generate_histogram_image(result)
+    except Exception:
+        return generate_fallback_image()
+
+
+def generate_fallback_image():
+    """Generate a simple fallback OG image."""
+    fig, ax = plt.subplots(figsize=(6, 3), facecolor='#f5f5f7')
+    ax.set_facecolor('#f5f5f7')
+    ax.text(0.5, 0.5, 'Cycle Route\nDifficulty Estimator',
+            ha='center', va='center', fontsize=20, fontweight='bold',
+            color='#FF6B35', transform=ax.transAxes)
+    ax.axis('off')
+
+    buf = io.BytesIO()
+    fig.savefig(buf, format='png', dpi=100, bbox_inches='tight',
+                facecolor='#f5f5f7', edgecolor='none')
+    plt.close(fig)
+    buf.seek(0)
+    return send_file(buf, mimetype='image/png')
+
+
+def generate_histogram_image(result: dict):
+    """Generate histogram image for Open Graph preview."""
+    histogram = result.get("grade_histogram", {})
+    if not histogram:
+        return generate_fallback_image()
+
+    labels = ['<-10', '-10', '-8', '-6', '-4', '-2', '0', '+2', '+4', '+6', '+8', '>10']
+    values = list(histogram.values())
+    total = sum(values)
+    percentages = [(v / total * 100) if total > 0 else 0 for v in values]
+
+    # Create figure with route info
+    fig, ax = plt.subplots(figsize=(6, 3.5), facecolor='white')
+
+    # Color bars by grade (red for steep up, blue for steep down, gray for flat)
+    colors = ['#4a90d9', '#5a9fd9', '#6aaee0', '#7abde7', '#8acbef', '#9adaf6',
+              '#cccccc',
+              '#ffb399', '#ff9966', '#ff7f33', '#ff6600', '#e55a00']
+
+    bars = ax.bar(range(len(labels)), percentages, color=colors, edgecolor='white', linewidth=0.5)
+
+    ax.set_xticks(range(len(labels)))
+    ax.set_xticklabels(labels, fontsize=8)
+    ax.set_ylabel('Time %', fontsize=9)
+    ax.set_xlabel('Grade %', fontsize=9)
+
+    # Add route summary as title
+    name = result.get("name", "Route Analysis")
+    dist_km = result.get("distance_km", 0)
+    elev_m = result.get("elevation_m", 0)
+    time_str = result.get("time_str", "")
+
+    title = f"{name}\n{dist_km:.0f} km • {elev_m:.0f}m climbing • {time_str}"
+    ax.set_title(title, fontsize=10, fontweight='bold', color='#333', pad=10)
+
+    ax.spines['top'].set_visible(False)
+    ax.spines['right'].set_visible(False)
+    ax.tick_params(axis='both', which='both', length=0)
+
+    plt.tight_layout()
+
+    buf = io.BytesIO()
+    fig.savefig(buf, format='png', dpi=150, bbox_inches='tight',
+                facecolor='white', edgecolor='none')
+    plt.close(fig)
+    buf.seek(0)
+    return send_file(buf, mimetype='image/png')
 
 
 def extract_route_id(url: str) -> str | None:
