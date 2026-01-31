@@ -548,24 +548,28 @@ HTML_TEMPLATE = """
                         <stop offset="0%" style="stop-color:#FF6B35"/>
                         <stop offset="100%" style="stop-color:#F7931E"/>
                     </linearGradient>
-                    <linearGradient id="wheelGrad" x1="0%" y1="0%" x2="100%" y2="0%">
-                        <stop offset="0%" style="stop-color:#2D3047"/>
-                        <stop offset="100%" style="stop-color:#4A4E69"/>
-                    </linearGradient>
                 </defs>
-                <!-- Mountain -->
-                <path d="M10 75 L35 30 L50 50 L65 25 L90 75 Z" fill="url(#mountainGrad)"/>
-                <!-- Snow cap -->
-                <path d="M65 25 L72 38 L58 38 Z" fill="white" opacity="0.9"/>
-                <!-- Bike wheel -->
-                <circle cx="75" cy="70" r="18" fill="none" stroke="url(#wheelGrad)" stroke-width="4"/>
-                <circle cx="75" cy="70" r="3" fill="#2D3047"/>
-                <!-- Spokes -->
-                <g stroke="#2D3047" stroke-width="1.5" opacity="0.7">
-                    <line x1="75" y1="52" x2="75" y2="64"/>
-                    <line x1="75" y1="76" x2="75" y2="88"/>
-                    <line x1="57" y1="70" x2="69" y2="70"/>
-                    <line x1="81" y1="70" x2="93" y2="70"/>
+                <!-- Mountain range -->
+                <path d="M0 85 L25 45 L40 60 L60 30 L80 50 L100 85 Z" fill="url(#mountainGrad)"/>
+                <!-- Snow caps -->
+                <path d="M60 30 L67 42 L53 42 Z" fill="white" opacity="0.85"/>
+                <path d="M25 45 L30 52 L20 52 Z" fill="white" opacity="0.7"/>
+                <!-- Cyclist climbing - positioned on left slope -->
+                <g transform="translate(18, 50) rotate(-20) scale(1.5)">
+                    <!-- Wheels -->
+                    <circle cx="0" cy="14" r="7" fill="none" stroke="#2D3047" stroke-width="1.5"/>
+                    <circle cx="22" cy="14" r="7" fill="none" stroke="#2D3047" stroke-width="1.5"/>
+                    <!-- Diamond frame -->
+                    <path d="M0 14 L8 6 L18 6 L22 14 M8 6 L11 14 L18 6 M11 14 L0 14"
+                          fill="none" stroke="#2D3047" stroke-width="1.5" stroke-linejoin="round"/>
+                    <!-- Seat post -->
+                    <line x1="8" y1="6" x2="7" y2="3" stroke="#2D3047" stroke-width="1.5"/>
+                    <!-- Rider - aggressive climbing posture, bent forward -->
+                    <line x1="7" y1="3" x2="14" y2="-1" stroke="#2D3047" stroke-width="2" stroke-linecap="round"/>
+                    <!-- Head - tucked forward -->
+                    <circle cx="16" cy="-2" r="2.5" fill="#2D3047"/>
+                    <!-- Arms down to drops -->
+                    <line x1="12" y1="-1" x2="18" y2="5" stroke="#2D3047" stroke-width="1.5" stroke-linecap="round"/>
                 </g>
             </svg>
             <h1>Cycle Route Difficulty Estimator</h1>
