@@ -32,18 +32,19 @@ HTML_TEMPLATE = """
     <title>{% if result and result.name %}{{ result.name }} | {% endif %}Reality Check my Route</title>
 
     <!-- Open Graph meta tags for link previews -->
+    {% set base_url = request.url_root | replace('http://', 'https://') %}
     {% if result %}
     <meta property="og:title" content="{{ result.name or 'Route Analysis' }}">
     <meta property="og:description" content="{{ '%.0f'|format(result.distance_km) }} km • {{ result.time_str }} @ {{ power|int }}W • {{ '%.0f'|format(result.elevation_m) }}m climbing">
-    <meta property="og:image" content="{{ request.url_root }}og-image?url={{ url|urlencode }}&power={{ power }}&mass={{ mass }}&headwind={{ headwind }}">
+    <meta property="og:image" content="{{ base_url }}og-image?url={{ url|urlencode }}&power={{ power }}&mass={{ mass }}&headwind={{ headwind }}">
     <meta property="og:type" content="website">
     {% else %}
     <meta property="og:title" content="Reality Check my Route">
     <meta property="og:description" content="Physics-based cycling time and energy estimates from elevation, surface, and rider parameters">
-    <meta property="og:image" content="{{ request.url_root }}og-image">
+    <meta property="og:image" content="{{ base_url }}og-image">
     <meta property="og:type" content="website">
     {% endif %}
-    <meta property="og:url" content="{{ request.url }}">
+    <meta property="og:url" content="{{ request.url | replace('http://', 'https://') }}">
     <style>
         :root {
             --primary: #FF6B35;
@@ -2103,7 +2104,8 @@ def index():
         }
         if imperial:
             share_params["imperial"] = "1"
-        share_url = f"{request.url_root}?{urlencode(share_params)}"
+        base_url = request.url_root.replace('http://', 'https://')
+        share_url = f"{base_url}?{urlencode(share_params)}"
 
     return render_template_string(
         HTML_TEMPLATE,
