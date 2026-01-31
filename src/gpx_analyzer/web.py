@@ -101,6 +101,8 @@ HTML_TEMPLATE = """
             box-shadow: 0 2px 4px rgba(0,0,0,0.1);
         }
         .results h2 { margin-top: 0; font-size: 1.2em; color: #333; }
+        .results h2 a { color: inherit; text-decoration: none; }
+        .results h2 a:hover { color: var(--primary); }
         .result-row {
             display: flex;
             justify-content: space-between;
@@ -1079,7 +1081,9 @@ HTML_TEMPLATE = """
                 var data = JSON.parse(event.data);
 
                 if (data.type === 'start') {
-                    document.getElementById('collectionName').textContent = data.name || 'Collection Analysis';
+                    var collectionNameEl = document.getElementById('collectionName');
+                    var nameText = data.name || 'Collection Analysis';
+                    collectionNameEl.innerHTML = '<a href="' + url + '" target="_blank">' + nameText + '</a>';
                     document.getElementById('progressText').textContent =
                         'Analyzing route 0 of ' + data.total + '...';
                     // Save URL with collection name
