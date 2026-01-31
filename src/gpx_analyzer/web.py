@@ -1740,9 +1740,9 @@ HTML_TEMPLATE = """
         </div>
         {% endif %}
 
-        {% if result.steep_distance and result.steep_distance > 0 %}
+        {% if result.max_grade >= 8 or (result.steep_distance and result.steep_distance > 0) %}
         <div class="steep-section">
-            <h4><span class="th-with-info">Steep Climbs (≥10%) <button type="button" class="info-btn" onclick="showModal('steepClimbsModal')">?</button></span></h4>
+            <h4><span class="th-with-info">Steep Climbs <button type="button" class="info-btn" onclick="showModal('steepClimbsModal')">?</button></span></h4>
             <div class="steep-stats">
                 <div class="steep-stat">
                     <span class="steep-label">Max Grade</span>
