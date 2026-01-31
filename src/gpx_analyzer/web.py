@@ -135,8 +135,8 @@ HTML_TEMPLATE = """
             box-shadow: 0 2px 4px rgba(0,0,0,0.1);
             position: relative;
             width: 100%;
-            /* 4:3 aspect ratio using padding trick */
-            padding-bottom: 75%;
+            /* Tall ratio on mobile to show both map and elevation */
+            padding-bottom: 120%;
         }
         .route-map iframe {
             position: absolute;
@@ -145,6 +145,12 @@ HTML_TEMPLATE = """
             width: 100%;
             height: 100%;
             border: none;
+        }
+        @media (min-width: 500px) {
+            .route-map {
+                /* Square-ish on medium screens */
+                padding-bottom: 90%;
+            }
         }
         @media (min-width: 768px) {
             .route-map {
