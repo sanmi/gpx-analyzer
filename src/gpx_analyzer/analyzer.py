@@ -133,8 +133,62 @@ def analyze(points: list[TrackPoint], params: RiderParams) -> RideAnalysis:
 GRADE_BINS = [-float('inf'), -10, -8, -6, -4, -2, 0, 2, 4, 6, 8, 10, float('inf')]
 GRADE_LABELS = ['<-10%', '-10%', '-8%', '-6%', '-4%', '-2%', '0%', '2%', '4%', '6%', '8%', '>10%']
 
+# Steep grade histogram bins (percent): 10, 12, 14, 16, 18, 20, ...
+STEEP_GRADE_BINS = [10, 12, 14, 16, 18, 20, float('inf')]
+STEEP_GRADE_LABELS = ['10-12%', '12-14%', '14-16%', '16-18%', '18-20%', '>20%']
+
+# Rolling window for max grade calculation (filters GPS noise)
+MAX_GRADE_WINDOW = 10.0  # meters
+
+# Maximum realistic grade (caps unrealistic GPS spikes)
+MAX_REALISTIC_GRADE = 35.0  # percent - steeper is almost certainly GPS noise
+
 # Minimum grade to count as "climbing" for steepness calculation
 STEEPNESS_MIN_GRADE_PCT = 2.0
+
+
+def _calculate_rolling_grades(points: list[TrackPoint], window: float) -> list[float]:
+    """Calculate rolling average grade over a distance window for each point.
+
+    Returns a list of grades (%) for each segment, where each grade is calculated
+    as elevation change over a forward-looking window of approximately `window` meters.
+    """
+    if len(points) < 2:
+        return []
+
+    # Pre-calculate cumulative distance and elevation at each point
+    n = len(points)
+    cum_dist = [0.0] * n
+    elevations = [0.0] * n
+
+    for i in range(n):
+        elevations[i] = points[i].elevation if points[i].elevation is not None else 0.0
+        if i > 0:
+            d = geodesic(
+                (points[i-1].lat, points[i-1].lon),
+                (points[i].lat, points[i].lon)
+            ).meters
+            cum_dist[i] = cum_dist[i-1] + d
+
+    # For each point, find the grade over the next `window` meters
+    rolling_grades = []
+    for i in range(n - 1):
+        # Find the furthest point within the window
+        target_dist = cum_dist[i] + window
+        j = i + 1
+        while j < n - 1 and cum_dist[j] < target_dist:
+            j += 1
+
+        # Calculate grade from i to j
+        dist = cum_dist[j] - cum_dist[i]
+        if dist > 0:
+            delta_elev = elevations[j] - elevations[i]
+            grade = (delta_elev / dist) * 100
+            rolling_grades.append(grade)
+        else:
+            rolling_grades.append(0.0)
+
+    return rolling_grades
 
 
 @dataclass
@@ -146,6 +200,12 @@ class HillinessAnalysis:
     grade_distance_histogram: dict[str, float]  # grade bucket -> meters
     total_time: float  # total seconds
     total_distance: float  # total meters
+    # Steep climb stats (grades >= 10%)
+    max_grade: float  # maximum grade encountered (%)
+    steep_distance: float  # meters at >= 10% grade
+    very_steep_distance: float  # meters at >= 15% grade
+    steep_time_histogram: dict[str, float]  # steep grade bucket -> seconds
+    steep_distance_histogram: dict[str, float]  # steep grade bucket -> meters
 
 
 def calculate_hilliness(
@@ -165,13 +225,27 @@ def calculate_hilliness(
             grade_distance_histogram={label: 0.0 for label in GRADE_LABELS},
             total_time=0.0,
             total_distance=0.0,
+            max_grade=0.0,
+            steep_distance=0.0,
+            very_steep_distance=0.0,
+            steep_time_histogram={label: 0.0 for label in STEEP_GRADE_LABELS},
+            steep_distance_histogram={label: 0.0 for label in STEEP_GRADE_LABELS},
         )
 
     total_distance = 0.0
     elevation_gain = 0.0
     grade_times = {label: 0.0 for label in GRADE_LABELS}
     grade_distances = {label: 0.0 for label in GRADE_LABELS}
+    steep_times = {label: 0.0 for label in STEEP_GRADE_LABELS}
+    steep_distances = {label: 0.0 for label in STEEP_GRADE_LABELS}
     total_time = 0.0
+    steep_distance = 0.0
+    very_steep_distance = 0.0
+
+    # Calculate rolling grades for max grade (filters GPS noise)
+    rolling_grades = _calculate_rolling_grades(points, MAX_GRADE_WINDOW)
+    # Cap at realistic maximum to filter remaining GPS artifacts
+    max_grade = min(max(rolling_grades), MAX_REALISTIC_GRADE) if rolling_grades else 0.0
 
     # For steepness calculation (effort-weighted average grade)
     weighted_grade_sum = 0.0
@@ -207,12 +281,26 @@ def calculate_hilliness(
             weighted_grade_sum += grade_pct * work
             climbing_work_sum += work
 
+        # Track steep distances
+        if grade_pct >= 10:
+            steep_distance += dist
+        if grade_pct >= 15:
+            very_steep_distance += dist
+
         # Bin the grade
         for j in range(len(GRADE_BINS) - 1):
             if GRADE_BINS[j] <= grade_pct < GRADE_BINS[j + 1]:
                 grade_times[GRADE_LABELS[j]] += elapsed
                 grade_distances[GRADE_LABELS[j]] += dist
                 break
+
+        # Bin steep grades (>= 10%)
+        if grade_pct >= 10:
+            for j in range(len(STEEP_GRADE_BINS) - 1):
+                if STEEP_GRADE_BINS[j] <= grade_pct < STEEP_GRADE_BINS[j + 1]:
+                    steep_times[STEEP_GRADE_LABELS[j]] += elapsed
+                    steep_distances[STEEP_GRADE_LABELS[j]] += dist
+                    break
 
     # Hilliness score: meters gained per km
     hilliness_score = (elevation_gain / (total_distance / 1000)) if total_distance > 0 else 0.0
@@ -227,4 +315,9 @@ def calculate_hilliness(
         grade_distance_histogram=grade_distances,
         total_time=total_time,
         total_distance=total_distance,
+        max_grade=max_grade,
+        steep_distance=steep_distance,
+        very_steep_distance=very_steep_distance,
+        steep_time_histogram=steep_times,
+        steep_distance_histogram=steep_distances,
     )

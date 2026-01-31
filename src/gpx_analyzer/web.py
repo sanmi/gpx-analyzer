@@ -216,6 +216,44 @@ HTML_TEMPLATE = """
             font-size: 0.9em;
             color: #555;
         }
+        .steep-section {
+            margin-top: 20px;
+            padding: 15px;
+            background: #fff5f0;
+            border-radius: 6px;
+            border-left: 3px solid #ff6600;
+        }
+        .steep-section > h4 {
+            margin: 0 0 12px 0;
+            font-size: 1em;
+            color: #e55a00;
+        }
+        .steep-stats {
+            display: flex;
+            gap: 20px;
+            margin-bottom: 15px;
+            flex-wrap: wrap;
+        }
+        .steep-stat {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+        }
+        .steep-label {
+            font-size: 0.8em;
+            color: #888;
+        }
+        .steep-value {
+            font-size: 1.1em;
+            font-weight: 600;
+            color: #e55a00;
+        }
+        .steep-section .histograms-container {
+            margin-top: 10px;
+        }
+        .steep-section .grade-histogram {
+            background: white;
+        }
         .histogram-bars {
             display: flex;
             align-items: flex-end;
@@ -1469,6 +1507,25 @@ HTML_TEMPLATE = """
                     hillyEl.textContent = Math.round(mkm) + ' m/km';
                 }
             }
+            // Steep distance stats
+            var steep10 = document.getElementById('steepDist10');
+            var steep15 = document.getElementById('steepDist15');
+            if (steep10) {
+                var m = parseFloat(steep10.dataset.m);
+                if (imperial) {
+                    steep10.textContent = (m * 0.000621371).toFixed(2) + ' mi';
+                } else {
+                    steep10.textContent = (m / 1000).toFixed(2) + ' km';
+                }
+            }
+            if (steep15) {
+                var m = parseFloat(steep15.dataset.m);
+                if (imperial) {
+                    steep15.textContent = (m * 0.000621371).toFixed(2) + ' mi';
+                } else {
+                    steep15.textContent = (m / 1000).toFixed(2) + ' km';
+                }
+            }
         }
 
         document.getElementById('imperial').addEventListener('change', function() {
@@ -1591,6 +1648,68 @@ HTML_TEMPLATE = """
                         {% if pct >= 1 %}<span class="pct">{{ "%.0f"|format(pct) }}%</span>{% endif %}
                     </div>
                     {% endfor %}
+                </div>
+            </div>
+        </div>
+        {% endif %}
+
+        {% if result.steep_distance and result.steep_distance > 0 %}
+        <div class="steep-section">
+            <h4>Steep Climbs (≥10%)</h4>
+            <div class="steep-stats">
+                <div class="steep-stat">
+                    <span class="steep-label">Max Grade</span>
+                    <span class="steep-value">{{ "%.1f"|format(result.max_grade) }}%</span>
+                </div>
+                <div class="steep-stat">
+                    <span class="steep-label">Distance ≥10%</span>
+                    <span class="steep-value" id="steepDist10" data-m="{{ result.steep_distance }}"></span>
+                </div>
+                <div class="steep-stat">
+                    <span class="steep-label">Distance ≥15%</span>
+                    <span class="steep-value" id="steepDist15" data-m="{{ result.very_steep_distance }}"></span>
+                </div>
+            </div>
+            {% set steep_labels = ['10-12', '12-14', '14-16', '16-18', '18-20', '>20'] %}
+            {% set steep_colors = ['#ffb399', '#ff9966', '#ff7f33', '#ff6600', '#e55a00', '#cc4400'] %}
+            <div class="histograms-container">
+                <div class="grade-histogram">
+                    <h4>Time at Steep Grade</h4>
+                    <div class="histogram-bars">
+                        {% set total_steep_time = result.steep_time_histogram.values() | sum %}
+                        {% set max_steep_time = result.steep_time_histogram.values() | max %}
+                        {% for label in result.steep_time_histogram.keys() %}
+                        {% set seconds = result.steep_time_histogram[label] %}
+                        {% set pct = (seconds / total_steep_time * 100) if total_steep_time > 0 else 0 %}
+                        {% set bar_height = (seconds / max_steep_time * 100) if max_steep_time > 0 else 0 %}
+                        <div class="histogram-bar">
+                            <div class="bar-container">
+                                <div class="bar" style="height: {{ bar_height }}%; background: {{ steep_colors[loop.index0] }};"></div>
+                            </div>
+                            <span class="label">{{ steep_labels[loop.index0] }}</span>
+                            {% if pct >= 1 %}<span class="pct">{{ "%.0f"|format(pct) }}%</span>{% endif %}
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+                <div class="grade-histogram">
+                    <h4>Distance at Steep Grade</h4>
+                    <div class="histogram-bars">
+                        {% set total_steep_dist = result.steep_distance_histogram.values() | sum %}
+                        {% set max_steep_dist = result.steep_distance_histogram.values() | max %}
+                        {% for label in result.steep_distance_histogram.keys() %}
+                        {% set meters = result.steep_distance_histogram[label] %}
+                        {% set pct = (meters / total_steep_dist * 100) if total_steep_dist > 0 else 0 %}
+                        {% set bar_height = (meters / max_steep_dist * 100) if max_steep_dist > 0 else 0 %}
+                        <div class="histogram-bar">
+                            <div class="bar-container">
+                                <div class="bar" style="height: {{ bar_height }}%; background: {{ steep_colors[loop.index0] }};"></div>
+                            </div>
+                            <span class="label">{{ steep_labels[loop.index0] }}</span>
+                            {% if pct >= 1 %}<span class="pct">{{ "%.0f"|format(pct) }}%</span>{% endif %}
+                        </div>
+                        {% endfor %}
+                    </div>
                 </div>
             </div>
         </div>
@@ -1731,6 +1850,11 @@ def analyze_single_route(url: str, params: RiderParams) -> dict:
         "steepness_score": hilliness.steepness_score,
         "grade_histogram": hilliness.grade_time_histogram,
         "grade_distance_histogram": hilliness.grade_distance_histogram,
+        "max_grade": hilliness.max_grade,
+        "steep_distance": hilliness.steep_distance,
+        "very_steep_distance": hilliness.very_steep_distance,
+        "steep_time_histogram": hilliness.steep_time_histogram,
+        "steep_distance_histogram": hilliness.steep_distance_histogram,
     }
 
 
