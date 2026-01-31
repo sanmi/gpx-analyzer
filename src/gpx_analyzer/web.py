@@ -86,8 +86,8 @@ class AnalysisCache:
             self.misses = 0
 
 
-# Global cache instance
-_analysis_cache = AnalysisCache(max_size=200)
+# Global cache instance (~0.75 MB at full capacity)
+_analysis_cache = AnalysisCache(max_size=500)
 
 
 app = Flask(__name__)
@@ -1958,6 +1958,19 @@ def analyze_single_route(url: str, params: RiderParams) -> dict:
     )
 
     return result
+
+
+@app.route("/cache-stats")
+def cache_stats():
+    """Return cache statistics as JSON."""
+    return _analysis_cache.stats()
+
+
+@app.route("/cache-clear", methods=["POST"])
+def cache_clear():
+    """Clear the analysis cache. POST only for safety."""
+    _analysis_cache.clear()
+    return {"status": "ok", "message": "Cache cleared"}
 
 
 @app.route("/analyze-collection-stream")
