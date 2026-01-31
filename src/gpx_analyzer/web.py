@@ -104,6 +104,40 @@ HTML_TEMPLATE = """
         .results h2 { margin-top: 0; font-size: 1.2em; color: #333; }
         .results h2 a { color: inherit; text-decoration: none; }
         .results h2 a:hover { color: var(--primary); }
+        .results-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+        .results-header h2 { margin-bottom: 0; }
+        .share-btn {
+            width: 32px;
+            height: 32px;
+            padding: 6px;
+            background: white;
+            border: 1.5px solid var(--primary);
+            color: var(--primary);
+            border-radius: 4px;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .share-btn svg {
+            width: 18px;
+            height: 18px;
+            fill: currentColor;
+        }
+        .share-btn:hover {
+            background: var(--primary);
+            color: white;
+        }
+        .share-btn.copied {
+            background: #28a745;
+            border-color: #28a745;
+            color: white;
+        }
         .result-row {
             display: flex;
             justify-content: space-between;
@@ -714,7 +748,13 @@ HTML_TEMPLATE = """
     <div id="errorContainer" class="error hidden"></div>
 
     <div id="collectionResults" class="results hidden">
-        <h2 id="collectionName">Collection Analysis</h2>
+        <div class="results-header">
+            <h2 id="collectionName">Collection Analysis</h2>
+            <button type="button" class="share-btn" onclick="copyShareLink('collectionShareUrl', this)" title="Copy link to share">
+                <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81 1.66 0 3-1.34 3-3s-1.34-3-3-3-3 1.34-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9c-1.66 0-3 1.34-3 3s1.34 3 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.16c-.05.21-.08.43-.08.65 0 1.61 1.31 2.92 2.92 2.92s2.92-1.31 2.92-2.92-1.31-2.92-2.92-2.92z"/></svg>
+            </button>
+            <input type="hidden" id="collectionShareUrl" value="">
+        </div>
         <div class="result-row">
             <span class="result-label">Routes</span>
             <span class="result-value" id="totalRoutes">-</span>
@@ -1024,6 +1064,22 @@ HTML_TEMPLATE = """
             document.getElementById(id).classList.remove('active');
         }
 
+        function copyShareLink(inputId, btn) {
+            var shareUrl = document.getElementById(inputId).value;
+            var originalHtml = btn.innerHTML;
+            navigator.clipboard.writeText(shareUrl).then(function() {
+                btn.innerHTML = '<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>';
+                btn.classList.add('copied');
+                setTimeout(function() {
+                    btn.innerHTML = originalHtml;
+                    btn.classList.remove('copied');
+                }, 2000);
+            }).catch(function() {
+                // Fallback for older browsers
+                prompt('Copy this link:', shareUrl);
+            });
+        }
+
         function detectModeFromUrl(url) {
             if (url.includes('/collections/')) {
                 return 'collection';
@@ -1210,6 +1266,18 @@ HTML_TEMPLATE = """
                         'Analyzing route 0 of ' + data.total + '...';
                     // Save URL with collection name
                     saveRecentUrl(url, data.name);
+                    // Build share URL
+                    var shareParams = new URLSearchParams({
+                        url: url,
+                        power: power,
+                        mass: mass,
+                        headwind: headwind
+                    });
+                    if (document.getElementById('imperial').checked) {
+                        shareParams.set('imperial', '1');
+                    }
+                    document.getElementById('collectionShareUrl').value =
+                        window.location.origin + window.location.pathname + '?' + shareParams.toString();
                 } else if (data.type === 'progress') {
                     document.getElementById('progressText').textContent =
                         'Analyzing route ' + data.current + ' of ' + data.total + '...';
@@ -1345,6 +1413,18 @@ HTML_TEMPLATE = """
             updateSingleRouteUnits();
         });
 
+        // Auto-trigger collection analysis when loaded via shared link
+        (function() {
+            var mode = '{{ mode }}';
+            var url = document.getElementById('url').value;
+            if (mode === 'collection' && url && url.includes('/collections/')) {
+                // Small delay to ensure page is fully loaded
+                setTimeout(function() {
+                    document.getElementById('analyzeForm').dispatchEvent(new Event('submit'));
+                }, 100);
+            }
+        })();
+
     </script>
 
     {% if error %}
@@ -1353,7 +1433,15 @@ HTML_TEMPLATE = """
 
     {% if result %}
     <div class="results" id="singleRouteResults">
-        <h2>{{ result.name or 'Route Analysis' }}</h2>
+        <div class="results-header">
+            <h2>{{ result.name or 'Route Analysis' }}</h2>
+            {% if share_url %}
+            <button type="button" class="share-btn" onclick="copyShareLink('shareUrl', this)" title="Copy link to share">
+                <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81 1.66 0 3-1.34 3-3s-1.34-3-3-3-3 1.34-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9c-1.66 0-3 1.34-3 3s1.34 3 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.16c-.05.21-.08.43-.08.65 0 1.61 1.31 2.92 2.92 2.92s2.92-1.31 2.92-2.92-1.31-2.92-2.92-2.92z"/></svg>
+            </button>
+            <input type="hidden" id="shareUrl" value="{{ share_url }}">
+            {% endif %}
+        </div>
 
         <div class="primary-results">
             <div class="result-row primary">
@@ -1628,12 +1716,38 @@ def index():
     mode = "route"
     imperial = False
     route_id = None
+    share_url = None
 
     power = defaults["power"]
     mass = defaults["mass"]
     headwind = defaults["headwind"]
 
-    if request.method == "POST":
+    # Check for GET parameters (shared link)
+    if request.method == "GET" and request.args.get("url"):
+        url = request.args.get("url", "").strip()
+        imperial = request.args.get("imperial") == "1"
+
+        try:
+            power = float(request.args.get("power", defaults["power"]))
+            mass = float(request.args.get("mass", defaults["mass"]))
+            headwind = float(request.args.get("headwind", defaults["headwind"]))
+        except ValueError:
+            error = "Invalid number in parameters"
+
+        if not error:
+            if is_ridewithgps_collection_url(url):
+                # Collection - set mode and let JavaScript handle it
+                mode = "collection"
+            elif is_ridewithgps_url(url):
+                # Single route - analyze server-side
+                try:
+                    params = build_params(power, mass, headwind)
+                    result = analyze_single_route(url, params)
+                    route_id = extract_route_id(url)
+                except Exception as e:
+                    error = f"Error analyzing route: {e}"
+
+    elif request.method == "POST":
         url = request.form.get("url", "").strip()
         mode = request.form.get("mode", "route")
         imperial = request.form.get("imperial") == "on"
@@ -1660,6 +1774,19 @@ def index():
                         error = f"Error analyzing route: {e}"
             # Collection mode is handled by JavaScript + SSE
 
+    # Build share URL if we have results
+    if result and url:
+        from urllib.parse import urlencode
+        share_params = {
+            "url": url,
+            "power": power,
+            "mass": mass,
+            "headwind": headwind,
+        }
+        if imperial:
+            share_params["imperial"] = "1"
+        share_url = f"{request.url_root}?{urlencode(share_params)}"
+
     return render_template_string(
         HTML_TEMPLATE,
         url=url,
@@ -1671,6 +1798,7 @@ def index():
         error=error,
         result=result,
         route_id=route_id,
+        share_url=share_url,
         version_date=__version_date__,
         git_hash=get_git_hash(),
     )
