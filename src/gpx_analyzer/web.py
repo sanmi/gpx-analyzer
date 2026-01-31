@@ -338,7 +338,9 @@ HTML_TEMPLATE = """
             display: flex;
             flex-direction: column;
             align-items: center;
+            justify-content: flex-end;
             min-width: 0;
+            min-height: 80px;
         }
         .histogram-bar .bar-container {
             width: 100%;
