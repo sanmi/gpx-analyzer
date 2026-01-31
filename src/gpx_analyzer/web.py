@@ -1773,7 +1773,7 @@ HTML_TEMPLATE = """
                                 <div class="bar" style="height: {{ bar_height }}%; background: {{ steep_colors[loop.index0] }};"></div>
                             </div>
                             <span class="label">{{ steep_labels[loop.index0] }}</span>
-                            {% if pct >= 0.5 %}<span class="pct">{{ "%.0f"|format(pct) }}%</span>{% endif %}
+                            <span class="pct">{% if pct >= 0.5 %}{{ "%.0f"|format(pct) }}%{% else %}&nbsp;{% endif %}</span>
                         </div>
                         {% endfor %}
                     </div>
@@ -1791,7 +1791,7 @@ HTML_TEMPLATE = """
                                 <div class="bar" style="height: {{ bar_height }}%; background: {{ steep_colors[loop.index0] }};"></div>
                             </div>
                             <span class="label">{{ steep_labels[loop.index0] }}</span>
-                            {% if pct >= 0.5 %}<span class="pct">{{ "%.0f"|format(pct) }}%</span>{% endif %}
+                            <span class="pct">{% if pct >= 0.5 %}{{ "%.0f"|format(pct) }}%{% else %}&nbsp;{% endif %}</span>
                         </div>
                         {% endfor %}
                     </div>
