@@ -5,6 +5,7 @@ from pathlib import Path
 
 from geopy.distance import geodesic
 
+from gpx_analyzer import __version_date__, get_git_hash
 from gpx_analyzer.analyzer import analyze
 from gpx_analyzer.models import RiderParams, TrackPoint
 from gpx_analyzer.parser import parse_gpx
@@ -55,6 +56,10 @@ def build_parser(config: dict | None = None) -> argparse.ArgumentParser:
 
     parser = argparse.ArgumentParser(
         description="Analyze a GPX bike route with physics-based power estimation."
+    )
+    parser.add_argument(
+        "--version", action="version",
+        version=f"gpx-analyzer {__version_date__} ({get_git_hash()})"
     )
     parser.add_argument("gpx_file", nargs="?", help="Path to GPX file or RideWithGPS route URL")
     parser.add_argument(

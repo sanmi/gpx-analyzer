@@ -4,6 +4,7 @@ import json
 
 from flask import Flask, render_template_string, request, Response
 
+from gpx_analyzer import __version_date__, get_git_hash
 from gpx_analyzer.analyzer import analyze
 from gpx_analyzer.cli import calculate_elevation_gain, calculate_surface_breakdown, DEFAULTS
 from gpx_analyzer.models import RiderParams
@@ -468,10 +469,18 @@ HTML_TEMPLATE = """
         .footer a:hover {
             text-decoration: underline;
         }
+        .footer-content {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
         .footer-links {
             display: flex;
-            justify-content: center;
             gap: 20px;
+        }
+        .footer-version {
+            color: #aaa;
+            font-size: 0.9em;
         }
         .url-input-wrapper {
             position: relative;
@@ -1275,9 +1284,12 @@ HTML_TEMPLATE = """
     {% endif %}
 
     <div class="footer">
-        <div class="footer-links">
-            <a href="https://github.com/sanmi/gpx-analyzer" target="_blank">Source Code</a>
-            <a href="https://github.com/sanmi/gpx-analyzer/issues" target="_blank">Report a Bug</a>
+        <div class="footer-content">
+            <div class="footer-links">
+                <a href="https://github.com/sanmi/gpx-analyzer" target="_blank">Source Code</a>
+                <a href="https://github.com/sanmi/gpx-analyzer/issues" target="_blank">Report a Bug</a>
+            </div>
+            <div class="footer-version">{{ version_date }} ({{ git_hash }})</div>
         </div>
     </div>
 </body>
@@ -1499,6 +1511,8 @@ def index():
         error=error,
         result=result,
         route_id=route_id,
+        version_date=__version_date__,
+        git_hash=get_git_hash(),
     )
 
 
