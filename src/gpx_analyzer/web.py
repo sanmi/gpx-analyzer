@@ -1971,9 +1971,9 @@ def cache_stats():
     return _analysis_cache.stats()
 
 
-@app.route("/cache-clear", methods=["POST"])
+@app.route("/cache-clear", methods=["GET", "POST"])
 def cache_clear():
-    """Clear the analysis cache. POST only for safety."""
+    """Clear the analysis cache."""
     _analysis_cache.clear()
     return {"status": "ok", "message": "Cache cleared"}
 

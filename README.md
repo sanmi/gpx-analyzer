@@ -114,7 +114,7 @@ Cache management endpoints (web interface):
 curl https://your-server/cache-stats
 
 # Clear the analysis cache (for testing)
-curl -X POST https://your-server/cache-clear
+curl https://your-server/cache-clear
 ```
 
 The analysis cache is keyed by `(url, power, mass, headwind)` - changing any parameter triggers a fresh computation. The cache resets on server restart.
