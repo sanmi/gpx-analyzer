@@ -343,6 +343,21 @@ HTML_TEMPLATE = """
         .route-name a:hover {
             text-decoration: underline;
         }
+        .route-name .rwgps-link {
+            display: inline-block;
+            background: #FA6400;
+            color: white;
+            margin-left: 6px;
+            padding: 1px 4px;
+            font-size: 0.65em;
+            font-weight: 600;
+            text-decoration: none;
+            vertical-align: middle;
+            border-radius: 3px;
+        }
+        .route-name .rwgps-link:hover {
+            background: #e55a00;
+        }
         @media (min-width: 1200px) {
             .route-name { max-width: 400px; }
             .collection-table { font-size: 0.95em; }
@@ -1190,6 +1205,19 @@ HTML_TEMPLATE = """
             return Math.round(m) + ' m';
         }
 
+        function buildAnalyzeUrl(routeUrl) {
+            var params = new URLSearchParams({
+                url: routeUrl,
+                power: document.getElementById('power').value,
+                mass: document.getElementById('mass').value,
+                headwind: document.getElementById('headwind').value
+            });
+            if (document.getElementById('imperial').checked) {
+                params.set('imperial', '1');
+            }
+            return window.location.origin + window.location.pathname + '?' + params.toString();
+        }
+
         function updateTotals(routes) {
             var totalDist = 0, totalElev = 0, totalTime = 0, totalWork = 0;
             routes.forEach(function(r) {
@@ -1295,8 +1323,9 @@ HTML_TEMPLATE = """
                     document.getElementById('progressRoute').textContent = r.name || '';
 
                     var row = document.createElement('tr');
-                    var routeUrl = 'https://ridewithgps.com/routes/' + r.route_id;
-                    row.innerHTML = '<td class="route-name" title="' + r.name + '"><a href="' + routeUrl + '" target="_blank">' + r.name + '</a></td>' +
+                    var rwgpsUrl = 'https://ridewithgps.com/routes/' + r.route_id;
+                    var analyzeUrl = buildAnalyzeUrl(rwgpsUrl);
+                    row.innerHTML = '<td class="route-name" title="' + r.name + '"><a href="' + analyzeUrl + '">' + r.name + '</a><a href="' + rwgpsUrl + '" target="_blank" class="rwgps-link" title="View on RideWithGPS">↗</a></td>' +
                         '<td class="num primary">' + r.time_str + '</td>' +
                         '<td class="num primary separator">' + Math.round(r.work_kj) + 'kJ</td>' +
                         '<td class="num">' + formatDist(r.distance_km) + '</td>' +
@@ -1343,8 +1372,9 @@ HTML_TEMPLATE = """
 
             collectionRoutes.forEach(function(r) {
                 var row = document.createElement('tr');
-                var routeUrl = 'https://ridewithgps.com/routes/' + r.route_id;
-                row.innerHTML = '<td class="route-name" title="' + r.name + '"><a href="' + routeUrl + '" target="_blank">' + r.name + '</a></td>' +
+                var rwgpsUrl = 'https://ridewithgps.com/routes/' + r.route_id;
+                var analyzeUrl = buildAnalyzeUrl(rwgpsUrl);
+                row.innerHTML = '<td class="route-name" title="' + r.name + '"><a href="' + analyzeUrl + '">' + r.name + '</a><a href="' + rwgpsUrl + '" target="_blank" class="rwgps-link" title="View on RideWithGPS">↗</a></td>' +
                     '<td class="num primary">' + r.time_str + '</td>' +
                     '<td class="num primary separator">' + Math.round(r.work_kj) + 'kJ</td>' +
                     '<td class="num">' + formatDist(r.distance_km) + '</td>' +
