@@ -128,6 +128,30 @@ HTML_TEMPLATE = """
             background: #f9f9f9;
             border-radius: 4px;
         }
+        .route-map {
+            margin-top: 20px;
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            position: relative;
+            width: 100%;
+            /* 4:3 aspect ratio using padding trick */
+            padding-bottom: 75%;
+        }
+        .route-map iframe {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            border: none;
+        }
+        @media (min-width: 768px) {
+            .route-map {
+                /* 16:10 aspect ratio on larger screens */
+                padding-bottom: 62.5%;
+            }
+        }
         /* Progress bar styles */
         .progress-container {
             background: white;
@@ -1127,6 +1151,13 @@ HTML_TEMPLATE = """
             Elevation scaled {{ "%.2f"|format(result.elevation_scale) }}x to match RideWithGPS API data.
         </div>
         {% endif %}
+
+        {% if route_id %}
+        <div class="route-map">
+            <iframe src="https://ridewithgps.com/embeds?type=route&id={{ route_id }}&sampleGraph=true"
+                    scrolling="no"></iframe>
+        </div>
+        {% endif %}
     </div>
     <script>
         // Save URL with route name for recent URLs dropdown
@@ -1295,6 +1326,15 @@ def analyze_collection_stream():
     return Response(generate(), mimetype="text/event-stream")
 
 
+def extract_route_id(url: str) -> str | None:
+    """Extract route ID from a RideWithGPS route URL."""
+    if not url:
+        return None
+    import re
+    match = re.search(r'/routes/(\d+)', url)
+    return match.group(1) if match else None
+
+
 @app.route("/", methods=["GET", "POST"])
 def index():
     defaults = get_defaults()
@@ -1303,6 +1343,7 @@ def index():
     url = None
     mode = "route"
     imperial = False
+    route_id = None
 
     power = defaults["power"]
     mass = defaults["mass"]
@@ -1330,6 +1371,7 @@ def index():
                     try:
                         params = build_params(power, mass, headwind)
                         result = analyze_single_route(url, params)
+                        route_id = extract_route_id(url)
                     except Exception as e:
                         error = f"Error analyzing route: {e}"
             # Collection mode is handled by JavaScript + SSE
@@ -1344,6 +1386,7 @@ def index():
         imperial=imperial,
         error=error,
         result=result,
+        route_id=route_id,
     )
 
 
