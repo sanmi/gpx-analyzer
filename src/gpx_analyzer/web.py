@@ -1355,12 +1355,14 @@ def analyze_single_route(url: str, params: RiderParams) -> dict:
 
     analysis = analyze(points, params)
 
-    unpaved_pct = None
-    surface_breakdown = calculate_surface_breakdown(points)
-    if surface_breakdown:
-        total_dist = surface_breakdown[0] + surface_breakdown[1]
-        if total_dist > 0:
-            unpaved_pct = (surface_breakdown[1] / total_dist) * 100
+    # Prefer API's unpaved_pct if available, otherwise calculate from track points
+    unpaved_pct = route_metadata.get("unpaved_pct") if route_metadata else None
+    if unpaved_pct is None:
+        surface_breakdown = calculate_surface_breakdown(points)
+        if surface_breakdown:
+            total_dist = surface_breakdown[0] + surface_breakdown[1]
+            if total_dist > 0:
+                unpaved_pct = (surface_breakdown[1] / total_dist) * 100
 
     return {
         "name": route_metadata.get("name") if route_metadata else None,

@@ -283,13 +283,8 @@ def analyze_collection(
 
             analysis = analyze(points, params)
 
-            # Calculate unpaved percentage
-            surface_breakdown = calculate_surface_breakdown(points)
-            if surface_breakdown:
-                total_dist = surface_breakdown[0] + surface_breakdown[1]
-                unpaved_pct = (surface_breakdown[1] / total_dist * 100) if total_dist > 0 else 0
-            else:
-                unpaved_pct = 0
+            # Get unpaved percentage from API metadata
+            unpaved_pct = route_metadata.get("unpaved_pct", 0) if route_metadata else 0
 
             route_name = route_metadata.get("name", f"Route {route_id}") if route_metadata else f"Route {route_id}"
 
@@ -564,18 +559,16 @@ def main(argv: list[str] | None = None) -> None:
     print(f"Max Speed:      {max_speed:.1f} {speed_unit}")
     print(f"Est. Avg Power: {result.estimated_avg_power:.0f} W")
 
-    # Surface breakdown if available
-    surface_breakdown = calculate_surface_breakdown(points)
-    if surface_breakdown:
-        paved_dist = surface_breakdown[0] / 1000 * dist_factor
-        unpaved_dist = surface_breakdown[1] / 1000 * dist_factor
-        total_dist = paved_dist + unpaved_dist
-        if total_dist > 0:
-            unpaved_pct = (unpaved_dist / total_dist) * 100
-            print(
-                f"Surface:        {paved_dist:.1f} {dist_unit} paved, "
-                f"{unpaved_dist:.1f} {dist_unit} unpaved ({unpaved_pct:.0f}%)"
-            )
+    # Surface info - prefer API's unpaved_pct if available
+    api_unpaved_pct = route_metadata.get("unpaved_pct") if route_metadata else None
+    if api_unpaved_pct is not None:
+        total_dist_km = result.total_distance / 1000 * dist_factor
+        unpaved_dist = total_dist_km * (api_unpaved_pct / 100)
+        paved_dist = total_dist_km - unpaved_dist
+        print(
+            f"Surface:        {paved_dist:.1f} {dist_unit} paved, "
+            f"{unpaved_dist:.1f} {dist_unit} unpaved ({api_unpaved_pct:.0f}%)"
+        )
 
     # Show elevation scaling note if significant API scaling was used (>5% adjustment)
     if abs(api_elevation_scale - 1.0) > 0.05 and api_elevation_gain is not None:
