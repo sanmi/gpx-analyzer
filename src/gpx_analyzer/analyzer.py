@@ -285,23 +285,26 @@ def calculate_hilliness(
             weighted_grade_sum += grade_pct * work
             climbing_work_sum += work
 
-        # Track steep distances
-        if grade_pct >= 10:
-            steep_distance += dist
-        if grade_pct >= 15:
-            very_steep_distance += dist
-
-        # Bin the grade
+        # Bin the grade (using point-to-point for main histogram)
         for j in range(len(GRADE_BINS) - 1):
             if GRADE_BINS[j] <= grade_pct < GRADE_BINS[j + 1]:
                 grade_times[GRADE_LABELS[j]] += elapsed
                 grade_distances[GRADE_LABELS[j]] += dist
                 break
 
-        # Bin steep grades (>= 10%)
-        if grade_pct >= 10:
+        # Use rolling grade for steep metrics (consistent with max grade calculation)
+        rolling_grade = rolling_grades[i - 1] if i - 1 < len(rolling_grades) else 0.0
+
+        # Track steep distances using rolling grade
+        if rolling_grade >= 10:
+            steep_distance += dist
+        if rolling_grade >= 15:
+            very_steep_distance += dist
+
+        # Bin steep grades (>= 10%) using rolling grade
+        if rolling_grade >= 10:
             for j in range(len(STEEP_GRADE_BINS) - 1):
-                if STEEP_GRADE_BINS[j] <= grade_pct < STEEP_GRADE_BINS[j + 1]:
+                if STEEP_GRADE_BINS[j] <= rolling_grade < STEEP_GRADE_BINS[j + 1]:
                     steep_times[STEEP_GRADE_LABELS[j]] += elapsed
                     steep_distances[STEEP_GRADE_LABELS[j]] += dist
                     break

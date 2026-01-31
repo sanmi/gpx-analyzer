@@ -1031,6 +1031,17 @@ HTML_TEMPLATE = """
         </div>
     </div>
 
+    <div id="steepClimbsModal" class="modal-overlay" onclick="hideModal('steepClimbsModal')">
+        <div class="modal" onclick="event.stopPropagation()">
+            <h3>Steep Climbs Methodology</h3>
+            <p><strong>Max Grade</strong> is calculated using a 300m rolling average to filter GPS noise and match RideWithGPS methodology. This gives the maximum <em>sustained</em> grade over a meaningful distance.</p>
+            <p><strong>Grade Histogram</strong> uses the same 300m rolling average, so grades shown will never exceed the max grade. This ensures consistency between the reported maximum and the histogram distribution.</p>
+            <p><strong>Why 300m?</strong> Point-to-point GPS measurements can show unrealistic spikes (50%+ grades) due to elevation noise. Averaging over 300m filters these artifacts while still capturing steep sections that riders actually experience.</p>
+            <p>Elevation data is smoothed (50m Gaussian) before grade calculation to reduce GPS noise.</p>
+            <button class="modal-close" onclick="hideModal('steepClimbsModal')">Got it</button>
+        </div>
+    </div>
+
     <script>
         // Recent URLs management
         var MAX_RECENT_URLS = 10;
@@ -1655,7 +1666,7 @@ HTML_TEMPLATE = """
 
         {% if result.steep_distance and result.steep_distance > 0 %}
         <div class="steep-section">
-            <h4>Steep Climbs (≥10%)</h4>
+            <h4><span class="th-with-info">Steep Climbs (≥10%) <button type="button" class="info-btn" onclick="showModal('steepClimbsModal')">?</button></span></h4>
             <div class="steep-stats">
                 <div class="steep-stat">
                     <span class="steep-label">Max Grade</span>
@@ -1676,18 +1687,17 @@ HTML_TEMPLATE = """
                 <div class="grade-histogram">
                     <h4>Time at Steep Grade</h4>
                     <div class="histogram-bars">
-                        {% set total_steep_time = result.steep_time_histogram.values() | sum %}
                         {% set max_steep_time = result.steep_time_histogram.values() | max %}
                         {% for label in result.steep_time_histogram.keys() %}
                         {% set seconds = result.steep_time_histogram[label] %}
-                        {% set pct = (seconds / total_steep_time * 100) if total_steep_time > 0 else 0 %}
+                        {% set pct = (seconds / result.hilliness_total_time * 100) if result.hilliness_total_time > 0 else 0 %}
                         {% set bar_height = (seconds / max_steep_time * 100) if max_steep_time > 0 else 0 %}
                         <div class="histogram-bar">
                             <div class="bar-container">
                                 <div class="bar" style="height: {{ bar_height }}%; background: {{ steep_colors[loop.index0] }};"></div>
                             </div>
                             <span class="label">{{ steep_labels[loop.index0] }}</span>
-                            {% if pct >= 1 %}<span class="pct">{{ "%.0f"|format(pct) }}%</span>{% endif %}
+                            {% if pct >= 0.5 %}<span class="pct">{{ "%.0f"|format(pct) }}%</span>{% endif %}
                         </div>
                         {% endfor %}
                     </div>
@@ -1695,18 +1705,17 @@ HTML_TEMPLATE = """
                 <div class="grade-histogram">
                     <h4>Distance at Steep Grade</h4>
                     <div class="histogram-bars">
-                        {% set total_steep_dist = result.steep_distance_histogram.values() | sum %}
                         {% set max_steep_dist = result.steep_distance_histogram.values() | max %}
                         {% for label in result.steep_distance_histogram.keys() %}
                         {% set meters = result.steep_distance_histogram[label] %}
-                        {% set pct = (meters / total_steep_dist * 100) if total_steep_dist > 0 else 0 %}
+                        {% set pct = (meters / result.hilliness_total_distance * 100) if result.hilliness_total_distance > 0 else 0 %}
                         {% set bar_height = (meters / max_steep_dist * 100) if max_steep_dist > 0 else 0 %}
                         <div class="histogram-bar">
                             <div class="bar-container">
                                 <div class="bar" style="height: {{ bar_height }}%; background: {{ steep_colors[loop.index0] }};"></div>
                             </div>
                             <span class="label">{{ steep_labels[loop.index0] }}</span>
-                            {% if pct >= 1 %}<span class="pct">{{ "%.0f"|format(pct) }}%</span>{% endif %}
+                            {% if pct >= 0.5 %}<span class="pct">{{ "%.0f"|format(pct) }}%</span>{% endif %}
                         </div>
                         {% endfor %}
                     </div>
@@ -1857,6 +1866,8 @@ def analyze_single_route(url: str, params: RiderParams) -> dict:
         "very_steep_distance": hilliness.very_steep_distance,
         "steep_time_histogram": hilliness.steep_time_histogram,
         "steep_distance_histogram": hilliness.steep_distance_histogram,
+        "hilliness_total_time": hilliness.total_time,
+        "hilliness_total_distance": hilliness.total_distance,
     }
 
 
