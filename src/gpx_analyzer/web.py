@@ -192,10 +192,6 @@ HTML_TEMPLATE = """
             border-radius: 8px;
             margin-top: 20px;
             box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-            max-width: 600px;
-        }
-        #collectionResults {
-            max-width: none;
         }
         .results h2 { margin-top: 0; font-size: 1.2em; color: #333; }
         .results h2 a { color: inherit; text-decoration: none; }
@@ -245,6 +241,9 @@ HTML_TEMPLATE = """
             border-bottom: 1px solid #eee;
         }
         .result-row:last-child { border-bottom: none; }
+        #singleRouteResults .result-row {
+            max-width: 350px;
+        }
         .result-label { color: #666; }
         .result-value { font-weight: 600; color: #333; }
         .result-row.primary {
@@ -257,6 +256,9 @@ HTML_TEMPLATE = """
             margin-bottom: 12px;
             padding-bottom: 8px;
             border-bottom: 2px solid #ccc;
+        }
+        #singleRouteResults .primary-results {
+            max-width: 350px;
         }
         .error {
             background: #fee;
