@@ -133,11 +133,15 @@ def analyze(points: list[TrackPoint], params: RiderParams) -> RideAnalysis:
 GRADE_BINS = [-float('inf'), -10, -8, -6, -4, -2, 0, 2, 4, 6, 8, 10, float('inf')]
 GRADE_LABELS = ['<-10%', '-10%', '-8%', '-6%', '-4%', '-2%', '0%', '2%', '4%', '6%', '8%', '>10%']
 
+# Minimum grade to count as "climbing" for steepness calculation
+STEEPNESS_MIN_GRADE_PCT = 2.0
+
 
 @dataclass
 class HillinessAnalysis:
     """Hilliness metrics for a route."""
     hilliness_score: float  # meters of elevation gain per km
+    steepness_score: float  # effort-weighted average climbing grade (%)
     grade_time_histogram: dict[str, float]  # grade bucket -> seconds spent
     total_time: float  # total seconds
 
@@ -145,14 +149,16 @@ class HillinessAnalysis:
 def calculate_hilliness(
     points: list[TrackPoint], params: RiderParams
 ) -> HillinessAnalysis:
-    """Calculate hilliness score and time-at-grade histogram.
+    """Calculate hilliness score, steepness score, and time-at-grade histogram.
 
     Hilliness score is elevation gain per km (m/km).
+    Steepness score is effort-weighted average climbing grade (%) for grades >= 2%.
     Grade histogram shows time spent in each grade bucket.
     """
     if len(points) < 2:
         return HillinessAnalysis(
             hilliness_score=0.0,
+            steepness_score=0.0,
             grade_time_histogram={label: 0.0 for label in GRADE_LABELS},
             total_time=0.0,
         )
@@ -161,6 +167,10 @@ def calculate_hilliness(
     elevation_gain = 0.0
     grade_times = {label: 0.0 for label in GRADE_LABELS}
     total_time = 0.0
+
+    # For steepness calculation (effort-weighted average grade)
+    weighted_grade_sum = 0.0
+    climbing_work_sum = 0.0
 
     for i in range(1, len(points)):
         pt_a, pt_b = points[i - 1], points[i]
@@ -183,12 +193,14 @@ def calculate_hilliness(
         # Grade in percent
         grade_pct = (delta_elev / dist) * 100 if dist > 0 else 0.0
 
-        # Calculate time for this segment
-        slope_angle = math.atan2(delta_elev, dist)
-        segment_crr = pt_b.crr if pt_b.crr is not None else params.crr
-        speed = estimate_speed_from_power(slope_angle, params, segment_crr, pt_b.unpaved)
-        elapsed = dist / speed if speed > 0 else 0.0
+        # Calculate work and time for this segment
+        work, _, elapsed = calculate_segment_work(pt_a, pt_b, params)
         total_time += elapsed
+
+        # Accumulate steepness data for climbing segments >= threshold
+        if grade_pct >= STEEPNESS_MIN_GRADE_PCT and work > 0:
+            weighted_grade_sum += grade_pct * work
+            climbing_work_sum += work
 
         # Bin the grade
         for j in range(len(GRADE_BINS) - 1):
@@ -199,8 +211,12 @@ def calculate_hilliness(
     # Hilliness score: meters gained per km
     hilliness_score = (elevation_gain / (total_distance / 1000)) if total_distance > 0 else 0.0
 
+    # Steepness score: effort-weighted average climbing grade
+    steepness_score = (weighted_grade_sum / climbing_work_sum) if climbing_work_sum > 0 else 0.0
+
     return HillinessAnalysis(
         hilliness_score=hilliness_score,
+        steepness_score=steepness_score,
         grade_time_histogram=grade_times,
         total_time=total_time,
     )

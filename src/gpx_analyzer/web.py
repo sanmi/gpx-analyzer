@@ -648,7 +648,6 @@ HTML_TEMPLATE = """
         </div>
         <div class="mode-indicator">
             <span id="modeText">Enter a route or collection URL</span>
-            <button type="button" class="info-btn info-btn-small" onclick="showModal('modeModal')">?</button>
         </div>
         <input type="hidden" id="mode" name="mode" value="route">
 
@@ -722,11 +721,12 @@ HTML_TEMPLATE = """
             <thead>
                 <tr>
                     <th>Route</th>
-                    <th class="num primary">Time</th>
-                    <th class="num primary separator">Work</th>
+                    <th class="num primary">Time <button type="button" class="info-btn info-btn-small" onclick="showModal('timeModal')">?</button></th>
+                    <th class="num primary separator">Work <button type="button" class="info-btn info-btn-small" onclick="showModal('workModal')">?</button></th>
                     <th class="num">Dist</th>
                     <th class="num">Elev</th>
-                    <th class="num">Hilly</th>
+                    <th class="num">Hilly <button type="button" class="info-btn info-btn-small" onclick="showModal('hillyModal')">?</button></th>
+                    <th class="num">Steep <button type="button" class="info-btn info-btn-small" onclick="showModal('steepModal')">?</button></th>
                     <th class="num">Speed</th>
                     <th class="num">Unpvd</th>
                     <th class="num">EScl <button type="button" class="info-btn info-btn-small" onclick="showModal('esclModal')">?</button></th>
@@ -738,15 +738,6 @@ HTML_TEMPLATE = """
     </div>
 
     <!-- Info Modals -->
-    <div id="modeModal" class="modal-overlay" onclick="hideModal('modeModal')">
-        <div class="modal" onclick="event.stopPropagation()">
-            <h3>Mode</h3>
-            <p><strong>Single Route</strong> — Analyze one route at a time. Enter a RideWithGPS route URL to get time and energy estimates.</p>
-            <p><strong>Collection</strong> — Analyze all routes in a RideWithGPS collection at once. Great for multi-day tours or comparing route options.</p>
-            <button class="modal-close" onclick="hideModal('modeModal')">Got it</button>
-        </div>
-    </div>
-
     <div id="urlModal" class="modal-overlay" onclick="hideModal('urlModal')">
         <div class="modal" onclick="event.stopPropagation()">
             <h3>RideWithGPS URL</h3>
@@ -843,6 +834,56 @@ HTML_TEMPLATE = """
             <strong>&lt;1.00</strong> = route elevation was overstated</p>
             <p>Values far from 1.0 may indicate poor GPS data quality for that route.</p>
             <button class="modal-close" onclick="hideModal('esclModal')">Got it</button>
+        </div>
+    </div>
+
+    <div id="timeModal" class="modal-overlay" onclick="hideModal('timeModal')">
+        <div class="modal" onclick="event.stopPropagation()">
+            <h3>Estimated Time</h3>
+            <p>Moving time estimate based on your power output and the route's terrain. This is the time you'd spend actually riding, excluding stops.</p>
+            <p>The estimate accounts for:</p>
+            <p>• Slower speeds on climbs (more power needed to fight gravity)<br>
+            • Faster speeds on descents (limited by safety/comfort)<br>
+            • Surface type (gravel/dirt is slower than pavement)</p>
+            <button class="modal-close" onclick="hideModal('timeModal')">Got it</button>
+        </div>
+    </div>
+
+    <div id="workModal" class="modal-overlay" onclick="hideModal('workModal')">
+        <div class="modal" onclick="event.stopPropagation()">
+            <h3>Estimated Work</h3>
+            <p>Total mechanical energy expenditure in kilojoules (kJ). This is the energy your legs put into the pedals.</p>
+            <p>Useful for estimating food/fuel needs:</p>
+            <p>• Human efficiency is ~20-25%, so multiply by 4-5 for calories burned<br>
+            • Example: 1000 kJ of work ≈ 4000-5000 kJ (950-1200 kcal) of food energy</p>
+            <button class="modal-close" onclick="hideModal('workModal')">Got it</button>
+        </div>
+    </div>
+
+    <div id="hillyModal" class="modal-overlay" onclick="hideModal('hillyModal')">
+        <div class="modal" onclick="event.stopPropagation()">
+            <h3>Hilliness</h3>
+            <p>Total elevation gain per unit distance (m/km or ft/mi). Measures <em>how much</em> climbing a route has, normalized by length.</p>
+            <p>Typical values:</p>
+            <p>• Flat: 0-5 m/km (0-26 ft/mi)<br>
+            • Rolling: 5-15 m/km (26-79 ft/mi)<br>
+            • Hilly: 15-25 m/km (79-132 ft/mi)<br>
+            • Mountainous: 25+ m/km (132+ ft/mi)</p>
+            <button class="modal-close" onclick="hideModal('hillyModal')">Got it</button>
+        </div>
+    </div>
+
+    <div id="steepModal" class="modal-overlay" onclick="hideModal('steepModal')">
+        <div class="modal" onclick="event.stopPropagation()">
+            <h3>Steepness</h3>
+            <p>Effort-weighted average grade of climbs 2% and steeper. Measures <em>how steep</em> the climbs are, not just how much climbing.</p>
+            <p>Steeper sections count more because they require disproportionately more power. A route with punchy 10% grades will score higher than one with gentle 4% grades, even if total climbing is similar.</p>
+            <p>Typical values:</p>
+            <p>• Gentle climbs: 3-5%<br>
+            • Moderate climbs: 5-7%<br>
+            • Steep climbs: 7-10%<br>
+            • Very steep: 10%+</p>
+            <button class="modal-close" onclick="hideModal('steepModal')">Got it</button>
         </div>
     </div>
 
@@ -1050,6 +1091,14 @@ HTML_TEMPLATE = """
             return kmh.toFixed(1);
         }
 
+        function formatHilliness(mkm) {
+            if (isImperial()) {
+                // m/km to ft/mi: (3.28084 ft/m) / (0.621371 mi/km) ≈ 5.28
+                return Math.round(mkm * 5.28);
+            }
+            return Math.round(mkm);
+        }
+
         function formatDistFull(km) {
             if (isImperial()) {
                 return Math.round(km * 0.621371) + ' mi';
@@ -1091,7 +1140,7 @@ HTML_TEMPLATE = """
                 '<td class="num primary separator">' + Math.round(totalWork) + 'kJ</td>' +
                 '<td class="num">' + formatDist(totalDist) + '</td>' +
                 '<td class="num">' + formatElev(totalElev) + '</td>' +
-                '<td class="num"></td><td class="num"></td><td class="num"></td><td class="num"></td>';
+                '<td class="num"></td><td class="num"></td><td class="num"></td><td class="num"></td><td class="num"></td>';
             tbody.appendChild(totalsRow);
         }
 
@@ -1163,7 +1212,8 @@ HTML_TEMPLATE = """
                         '<td class="num primary separator">' + Math.round(r.work_kj) + 'kJ</td>' +
                         '<td class="num">' + formatDist(r.distance_km) + '</td>' +
                         '<td class="num">' + formatElev(r.elevation_m) + '</td>' +
-                        '<td class="num">' + Math.round(r.hilliness_score || 0) + '</td>' +
+                        '<td class="num">' + formatHilliness(r.hilliness_score || 0) + '</td>' +
+                        '<td class="num">' + (r.steepness_score || 0).toFixed(1) + '%</td>' +
                         '<td class="num">' + formatSpeed(r.avg_speed_kmh) + '</td>' +
                         '<td class="num">' + Math.round(r.unpaved_pct || 0) + '%</td>' +
                         '<td class="num">' + r.elevation_scale.toFixed(2) + '</td>';
@@ -1210,7 +1260,8 @@ HTML_TEMPLATE = """
                     '<td class="num primary separator">' + Math.round(r.work_kj) + 'kJ</td>' +
                     '<td class="num">' + formatDist(r.distance_km) + '</td>' +
                     '<td class="num">' + formatElev(r.elevation_m) + '</td>' +
-                    '<td class="num">' + Math.round(r.hilliness_score || 0) + '</td>' +
+                    '<td class="num">' + formatHilliness(r.hilliness_score || 0) + '</td>' +
+                    '<td class="num">' + (r.steepness_score || 0).toFixed(1) + '%</td>' +
                     '<td class="num">' + formatSpeed(r.avg_speed_kmh) + '</td>' +
                     '<td class="num">' + Math.round(r.unpaved_pct || 0) + '%</td>' +
                     '<td class="num">' + r.elevation_scale.toFixed(2) + '</td>';
@@ -1259,6 +1310,16 @@ HTML_TEMPLATE = """
                     speedEl.textContent = kmh.toFixed(1) + ' km/h';
                 }
             }
+            var hillyEl = document.getElementById('singleHilliness');
+            if (hillyEl) {
+                var mkm = parseFloat(hillyEl.dataset.mkm);
+                if (imperial) {
+                    // m/km to ft/mi: (3.28084 ft/m) / (0.621371 mi/km) ≈ 5.28
+                    hillyEl.textContent = Math.round(mkm * 5.28) + ' ft/mi';
+                } else {
+                    hillyEl.textContent = Math.round(mkm) + ' m/km';
+                }
+            }
         }
 
         document.getElementById('imperial').addEventListener('change', function() {
@@ -1278,11 +1339,11 @@ HTML_TEMPLATE = """
 
         <div class="primary-results">
             <div class="result-row primary">
-                <span class="result-label">Estimated Time</span>
+                <span class="result-label">Estimated Time <button type="button" class="info-btn info-btn-small" onclick="showModal('timeModal')">?</button></span>
                 <span class="result-value">{{ result.time_str }}</span>
             </div>
             <div class="result-row primary">
-                <span class="result-label">Estimated Work</span>
+                <span class="result-label">Estimated Work <button type="button" class="info-btn info-btn-small" onclick="showModal('workModal')">?</button></span>
                 <span class="result-value">{{ "%.0f"|format(result.work_kj) }} kJ</span>
             </div>
         </div>
@@ -1310,8 +1371,12 @@ HTML_TEMPLATE = """
         </div>
         {% endif %}
         <div class="result-row">
-            <span class="result-label">Hilliness</span>
-            <span class="result-value">{{ "%.0f"|format(result.hilliness_score) }} m/km</span>
+            <span class="result-label">Hilliness <button type="button" class="info-btn info-btn-small" onclick="showModal('hillyModal')">?</button></span>
+            <span class="result-value" id="singleHilliness" data-mkm="{{ result.hilliness_score }}"></span>
+        </div>
+        <div class="result-row">
+            <span class="result-label">Steepness <button type="button" class="info-btn info-btn-small" onclick="showModal('steepModal')">?</button></span>
+            <span class="result-value">{{ "%.1f"|format(result.steepness_score) }}%</span>
         </div>
 
         {% if result.grade_histogram %}
@@ -1465,6 +1530,7 @@ def analyze_single_route(url: str, params: RiderParams) -> dict:
         "elevation_scale": api_elevation_scale,
         "elevation_scaled": abs(api_elevation_scale - 1.0) > 0.05,
         "hilliness_score": hilliness.hilliness_score,
+        "steepness_score": hilliness.steepness_score,
         "grade_histogram": hilliness.grade_time_histogram,
     }
 
