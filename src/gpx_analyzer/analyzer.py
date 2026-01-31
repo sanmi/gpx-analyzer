@@ -143,7 +143,9 @@ class HillinessAnalysis:
     hilliness_score: float  # meters of elevation gain per km
     steepness_score: float  # effort-weighted average climbing grade (%)
     grade_time_histogram: dict[str, float]  # grade bucket -> seconds spent
+    grade_distance_histogram: dict[str, float]  # grade bucket -> meters
     total_time: float  # total seconds
+    total_distance: float  # total meters
 
 
 def calculate_hilliness(
@@ -160,12 +162,15 @@ def calculate_hilliness(
             hilliness_score=0.0,
             steepness_score=0.0,
             grade_time_histogram={label: 0.0 for label in GRADE_LABELS},
+            grade_distance_histogram={label: 0.0 for label in GRADE_LABELS},
             total_time=0.0,
+            total_distance=0.0,
         )
 
     total_distance = 0.0
     elevation_gain = 0.0
     grade_times = {label: 0.0 for label in GRADE_LABELS}
+    grade_distances = {label: 0.0 for label in GRADE_LABELS}
     total_time = 0.0
 
     # For steepness calculation (effort-weighted average grade)
@@ -206,6 +211,7 @@ def calculate_hilliness(
         for j in range(len(GRADE_BINS) - 1):
             if GRADE_BINS[j] <= grade_pct < GRADE_BINS[j + 1]:
                 grade_times[GRADE_LABELS[j]] += elapsed
+                grade_distances[GRADE_LABELS[j]] += dist
                 break
 
     # Hilliness score: meters gained per km
@@ -218,5 +224,7 @@ def calculate_hilliness(
         hilliness_score=hilliness_score,
         steepness_score=steepness_score,
         grade_time_histogram=grade_times,
+        grade_distance_histogram=grade_distances,
         total_time=total_time,
+        total_distance=total_distance,
     )

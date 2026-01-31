@@ -177,8 +177,18 @@ HTML_TEMPLATE = """
             background: #f9f9f9;
             border-radius: 4px;
         }
-        .grade-histogram {
+        .histograms-container {
+            display: flex;
+            gap: 15px;
             margin-top: 15px;
+        }
+        @media (max-width: 600px) {
+            .histograms-container {
+                flex-direction: column;
+            }
+        }
+        .grade-histogram {
+            flex: 1;
             padding: 15px;
             background: #f9f9f9;
             border-radius: 6px;
@@ -213,7 +223,7 @@ HTML_TEMPLATE = """
             min-height: 2px;
         }
         .histogram-bar .label {
-            font-size: 0.65em;
+            font-size: 0.6em;
             color: #888;
             margin-top: 4px;
             white-space: nowrap;
@@ -1525,22 +1535,45 @@ HTML_TEMPLATE = """
         </div>
 
         {% if result.grade_histogram %}
-        <div class="grade-histogram">
-            <h4>Time at Grade</h4>
-            <div class="histogram-bars">
-                {% set total_time = result.grade_histogram.values() | sum %}
-                {% set max_seconds = result.grade_histogram.values() | max %}
-                {% for label, seconds in result.grade_histogram.items() %}
-                {% set pct = (seconds / total_time * 100) if total_time > 0 else 0 %}
-                {% set bar_height = (seconds / max_seconds * 100) if max_seconds > 0 else 0 %}
-                <div class="histogram-bar">
-                    <div class="bar-container">
-                        <div class="bar" style="height: {{ bar_height }}%;"></div>
+        {% set labels = ['<-10', '-10', '-8', '-6', '-4', '-2', '0', '+2', '+4', '+6', '+8', '>10'] %}
+        <div class="histograms-container">
+            <div class="grade-histogram">
+                <h4>Time at Grade</h4>
+                <div class="histogram-bars">
+                    {% set total_time = result.grade_histogram.values() | sum %}
+                    {% set max_seconds = result.grade_histogram.values() | max %}
+                    {% for label in result.grade_histogram.keys() %}
+                    {% set seconds = result.grade_histogram[label] %}
+                    {% set pct = (seconds / total_time * 100) if total_time > 0 else 0 %}
+                    {% set bar_height = (seconds / max_seconds * 100) if max_seconds > 0 else 0 %}
+                    <div class="histogram-bar">
+                        <div class="bar-container">
+                            <div class="bar" style="height: {{ bar_height }}%;"></div>
+                        </div>
+                        <span class="label">{{ labels[loop.index0] }}</span>
+                        {% if pct >= 1 %}<span class="pct">{{ "%.0f"|format(pct) }}%</span>{% endif %}
                     </div>
-                    <span class="label">{{ label }}</span>
-                    {% if pct >= 1 %}<span class="pct">{{ "%.0f"|format(pct) }}%</span>{% endif %}
+                    {% endfor %}
                 </div>
-                {% endfor %}
+            </div>
+            <div class="grade-histogram">
+                <h4>Distance at Grade</h4>
+                <div class="histogram-bars">
+                    {% set total_dist = result.grade_distance_histogram.values() | sum %}
+                    {% set max_dist = result.grade_distance_histogram.values() | max %}
+                    {% for label in result.grade_distance_histogram.keys() %}
+                    {% set meters = result.grade_distance_histogram[label] %}
+                    {% set pct = (meters / total_dist * 100) if total_dist > 0 else 0 %}
+                    {% set bar_height = (meters / max_dist * 100) if max_dist > 0 else 0 %}
+                    <div class="histogram-bar">
+                        <div class="bar-container">
+                            <div class="bar" style="height: {{ bar_height }}%;"></div>
+                        </div>
+                        <span class="label">{{ labels[loop.index0] }}</span>
+                        {% if pct >= 1 %}<span class="pct">{{ "%.0f"|format(pct) }}%</span>{% endif %}
+                    </div>
+                    {% endfor %}
+                </div>
             </div>
         </div>
         {% endif %}
@@ -1679,6 +1712,7 @@ def analyze_single_route(url: str, params: RiderParams) -> dict:
         "hilliness_score": hilliness.hilliness_score,
         "steepness_score": hilliness.steepness_score,
         "grade_histogram": hilliness.grade_time_histogram,
+        "grade_distance_histogram": hilliness.grade_distance_histogram,
     }
 
 
