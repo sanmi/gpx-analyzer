@@ -126,7 +126,8 @@ class TestIndexPostSingleRoute:
         assert "Estimated Work" in html
 
     @patch.object(web, "get_route_with_surface")
-    def test_imperial_units_displayed(self, mock_get_route, client, no_config, mock_route_points):
+    def test_result_has_data_attributes_for_unit_conversion(self, mock_get_route, client, no_config, mock_route_points):
+        """Results should have data attributes with metric values for JS unit conversion."""
         mock_get_route.return_value = (
             mock_route_points,
             {"name": "Test Route", "elevation_gain": 100},
@@ -138,13 +139,36 @@ class TestIndexPostSingleRoute:
             "power": "100",
             "mass": "85",
             "headwind": "0",
-            "imperial": "on",
         })
         html = response.data.decode()
 
-        assert "mi" in html
-        assert "ft" in html
-        assert "mph" in html
+        # Check data attributes exist for client-side unit conversion
+        assert 'data-km="' in html
+        assert 'data-m="' in html
+        assert 'data-kmh="' in html
+        assert 'id="singleDistance"' in html
+        assert 'id="singleElevGain"' in html
+        assert 'id="singleSpeed"' in html
+
+    @patch.object(web, "get_route_with_surface")
+    def test_imperial_toggle_js_function_exists(self, mock_get_route, client, no_config, mock_route_points):
+        """JavaScript function to update units should exist."""
+        mock_get_route.return_value = (
+            mock_route_points,
+            {"name": "Test Route", "elevation_gain": 100},
+        )
+
+        response = client.post("/", data={
+            "url": "https://ridewithgps.com/routes/12345",
+            "mode": "route",
+            "power": "100",
+            "mass": "85",
+            "headwind": "0",
+        })
+        html = response.data.decode()
+
+        assert "updateSingleRouteUnits" in html
+        assert "isImperial()" in html
 
     @patch.object(web, "get_route_with_surface")
     def test_metric_units_displayed(self, mock_get_route, client, no_config, mock_route_points):

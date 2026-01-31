@@ -1089,9 +1089,52 @@ HTML_TEMPLATE = """
             updateTotals(collectionRoutes);
         }
 
+        function updateSingleRouteUnits() {
+            var imperial = isImperial();
+            var distEl = document.getElementById('singleDistance');
+            var gainEl = document.getElementById('singleElevGain');
+            var lossEl = document.getElementById('singleElevLoss');
+            var speedEl = document.getElementById('singleSpeed');
+
+            if (distEl) {
+                var km = parseFloat(distEl.dataset.km);
+                if (imperial) {
+                    distEl.textContent = (km * 0.621371).toFixed(1) + ' mi';
+                } else {
+                    distEl.textContent = km.toFixed(1) + ' km';
+                }
+            }
+            if (gainEl) {
+                var m = parseFloat(gainEl.dataset.m);
+                if (imperial) {
+                    gainEl.textContent = Math.round(m * 3.28084) + ' ft';
+                } else {
+                    gainEl.textContent = Math.round(m) + ' m';
+                }
+            }
+            if (lossEl) {
+                var m = parseFloat(lossEl.dataset.m);
+                if (imperial) {
+                    lossEl.textContent = Math.round(m * 3.28084) + ' ft';
+                } else {
+                    lossEl.textContent = Math.round(m) + ' m';
+                }
+            }
+            if (speedEl) {
+                var kmh = parseFloat(speedEl.dataset.kmh);
+                if (imperial) {
+                    speedEl.textContent = (kmh * 0.621371).toFixed(1) + ' mph';
+                } else {
+                    speedEl.textContent = kmh.toFixed(1) + ' km/h';
+                }
+            }
+        }
+
         document.getElementById('imperial').addEventListener('change', function() {
             rerenderCollectionTable();
+            updateSingleRouteUnits();
         });
+
     </script>
 
     {% if error %}
@@ -1115,35 +1158,19 @@ HTML_TEMPLATE = """
 
         <div class="result-row">
             <span class="result-label">Distance</span>
-            {% if imperial %}
-            <span class="result-value">{{ "%.1f"|format(result.distance_mi) }} mi</span>
-            {% else %}
-            <span class="result-value">{{ "%.1f"|format(result.distance_km) }} km</span>
-            {% endif %}
+            <span class="result-value" id="singleDistance" data-km="{{ result.distance_km }}"></span>
         </div>
         <div class="result-row">
             <span class="result-label">Elevation Gain</span>
-            {% if imperial %}
-            <span class="result-value">{{ "%.0f"|format(result.elevation_ft) }} ft</span>
-            {% else %}
-            <span class="result-value">{{ "%.0f"|format(result.elevation_m) }} m</span>
-            {% endif %}
+            <span class="result-value" id="singleElevGain" data-m="{{ result.elevation_m }}"></span>
         </div>
         <div class="result-row">
             <span class="result-label">Elevation Loss</span>
-            {% if imperial %}
-            <span class="result-value">{{ "%.0f"|format(result.elevation_loss_ft) }} ft</span>
-            {% else %}
-            <span class="result-value">{{ "%.0f"|format(result.elevation_loss_m) }} m</span>
-            {% endif %}
+            <span class="result-value" id="singleElevLoss" data-m="{{ result.elevation_loss_m }}"></span>
         </div>
         <div class="result-row">
             <span class="result-label">Avg Speed</span>
-            {% if imperial %}
-            <span class="result-value">{{ "%.1f"|format(result.avg_speed_mph) }} mph</span>
-            {% else %}
-            <span class="result-value">{{ "%.1f"|format(result.avg_speed_kmh) }} km/h</span>
-            {% endif %}
+            <span class="result-value" id="singleSpeed" data-kmh="{{ result.avg_speed_kmh }}"></span>
         </div>
         {% if result.unpaved_pct is not none %}
         <div class="result-row">
@@ -1168,6 +1195,8 @@ HTML_TEMPLATE = """
     <script>
         // Save URL with route name for recent URLs dropdown
         saveRecentUrl('{{ url }}', '{{ result.name|e if result.name else '' }}');
+        // Initialize units display
+        updateSingleRouteUnits();
     </script>
     {% endif %}
 
