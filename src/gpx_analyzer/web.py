@@ -370,8 +370,10 @@ HTML_TEMPLATE = """
             gap: 6px;
         }
         .info-btn {
-            width: 18px;
-            height: 18px;
+            width: 20px;
+            height: 20px;
+            min-width: 20px;
+            min-height: 20px;
             border-radius: 50%;
             border: 1.5px solid var(--primary);
             background: white;
@@ -385,16 +387,32 @@ HTML_TEMPLATE = """
             padding: 0;
             line-height: 1;
             flex-shrink: 0;
+            vertical-align: text-bottom;
+            margin-left: 4px;
+            position: relative;
+            top: -1px;
         }
         .info-btn:hover {
             background: var(--primary);
             color: white;
         }
-        .info-btn-small {
-            width: 14px;
-            height: 14px;
-            font-size: 10px;
-            vertical-align: middle;
+        .th-with-info, .label-with-info {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+        }
+        .th-with-info .info-btn, .label-with-info .info-btn {
+            margin-left: 0;
+            top: 0;
+        }
+        @media (max-width: 600px) {
+            .info-btn {
+                width: 24px;
+                height: 24px;
+                min-width: 24px;
+                min-height: 24px;
+                font-size: 14px;
+            }
         }
         /* Modal styles */
         .modal-overlay {
@@ -721,15 +739,15 @@ HTML_TEMPLATE = """
             <thead>
                 <tr>
                     <th>Route</th>
-                    <th class="num primary">Time <button type="button" class="info-btn info-btn-small" onclick="showModal('timeModal')">?</button></th>
-                    <th class="num primary separator">Work <button type="button" class="info-btn info-btn-small" onclick="showModal('workModal')">?</button></th>
+                    <th class="num primary"><span class="th-with-info">Time <button type="button" class="info-btn" onclick="showModal('timeModal')">?</button></span></th>
+                    <th class="num primary separator"><span class="th-with-info">Work <button type="button" class="info-btn" onclick="showModal('workModal')">?</button></span></th>
                     <th class="num">Dist</th>
                     <th class="num">Elev</th>
-                    <th class="num">Hilly <button type="button" class="info-btn info-btn-small" onclick="showModal('hillyModal')">?</button></th>
-                    <th class="num">Steep <button type="button" class="info-btn info-btn-small" onclick="showModal('steepModal')">?</button></th>
+                    <th class="num"><span class="th-with-info">Hilly <button type="button" class="info-btn" onclick="showModal('hillyModal')">?</button></span></th>
+                    <th class="num"><span class="th-with-info">Steep <button type="button" class="info-btn" onclick="showModal('steepModal')">?</button></span></th>
                     <th class="num">Speed</th>
                     <th class="num">Unpvd</th>
-                    <th class="num">EScl <button type="button" class="info-btn info-btn-small" onclick="showModal('esclModal')">?</button></th>
+                    <th class="num"><span class="th-with-info">EScl <button type="button" class="info-btn" onclick="showModal('esclModal')">?</button></span></th>
                 </tr>
             </thead>
             <tbody id="routesTableBody">
@@ -1339,11 +1357,11 @@ HTML_TEMPLATE = """
 
         <div class="primary-results">
             <div class="result-row primary">
-                <span class="result-label">Estimated Time <button type="button" class="info-btn info-btn-small" onclick="showModal('timeModal')">?</button></span>
+                <span class="result-label label-with-info">Estimated Time <button type="button" class="info-btn" onclick="showModal('timeModal')">?</button></span>
                 <span class="result-value">{{ result.time_str }}</span>
             </div>
             <div class="result-row primary">
-                <span class="result-label">Estimated Work <button type="button" class="info-btn info-btn-small" onclick="showModal('workModal')">?</button></span>
+                <span class="result-label label-with-info">Estimated Work <button type="button" class="info-btn" onclick="showModal('workModal')">?</button></span>
                 <span class="result-value">{{ "%.0f"|format(result.work_kj) }} kJ</span>
             </div>
         </div>
@@ -1371,11 +1389,11 @@ HTML_TEMPLATE = """
         </div>
         {% endif %}
         <div class="result-row">
-            <span class="result-label">Hilliness <button type="button" class="info-btn info-btn-small" onclick="showModal('hillyModal')">?</button></span>
+            <span class="result-label label-with-info">Hilliness <button type="button" class="info-btn" onclick="showModal('hillyModal')">?</button></span>
             <span class="result-value" id="singleHilliness" data-mkm="{{ result.hilliness_score }}"></span>
         </div>
         <div class="result-row">
-            <span class="result-label">Steepness <button type="button" class="info-btn info-btn-small" onclick="showModal('steepModal')">?</button></span>
+            <span class="result-label label-with-info">Steepness <button type="button" class="info-btn" onclick="showModal('steepModal')">?</button></span>
             <span class="result-value">{{ "%.1f"|format(result.steepness_score) }}%</span>
         </div>
 
