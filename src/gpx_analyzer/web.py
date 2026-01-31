@@ -192,6 +192,10 @@ HTML_TEMPLATE = """
             border-radius: 8px;
             margin-top: 20px;
             box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            max-width: 600px;
+        }
+        #collectionResults {
+            max-width: none;
         }
         .results h2 { margin-top: 0; font-size: 1.2em; color: #333; }
         .results h2 a { color: inherit; text-decoration: none; }
