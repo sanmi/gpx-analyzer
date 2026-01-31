@@ -33,9 +33,10 @@ HTML_TEMPLATE = """
 
     <!-- Open Graph meta tags for link previews -->
     {% set base_url = request.url_root | replace('http://', 'https://') %}
+    <meta property="og:site_name" content="Reality Check my Route">
     {% if result %}
-    <meta property="og:title" content="{{ result.name or 'Route Analysis' }}">
-    <meta property="og:description" content="{{ '%.0f'|format(result.distance_km) }} km • {{ result.time_str }} @ {{ power|int }}W • {{ '%.0f'|format(result.elevation_m) }}m climbing">
+    <meta property="og:title" content="Reality Check: {{ result.name or 'Route Analysis' }}">
+    <meta property="og:description" content="{{ result.time_str }} • {{ '%.0f'|format(result.work_kj) }} kJ | {{ '%.0f'|format(result.distance_km) }} km • {{ '%.0f'|format(result.elevation_m) }}m @ {{ power|int }}W">
     <meta property="og:image" content="{{ base_url }}og-image?url={{ url|urlencode }}&power={{ power }}&mass={{ mass }}&headwind={{ headwind }}">
     <meta property="og:type" content="website">
     {% else %}
