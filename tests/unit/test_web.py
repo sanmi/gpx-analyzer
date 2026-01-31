@@ -13,6 +13,8 @@ from gpx_analyzer.models import TrackPoint
 def client():
     """Create a test client for the Flask app."""
     web.app.config["TESTING"] = True
+    # Clear analysis cache before each test to prevent cross-test contamination
+    web._analysis_cache.clear()
     with web.app.test_client() as client:
         yield client
 

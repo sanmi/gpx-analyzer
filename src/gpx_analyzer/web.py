@@ -1,7 +1,11 @@
 """Simple web interface for GPX analyzer."""
 
+import hashlib
 import io
 import json
+import time
+from collections import OrderedDict
+from threading import Lock
 
 from flask import Flask, render_template_string, request, Response, send_file
 import matplotlib
@@ -20,6 +24,71 @@ from gpx_analyzer.ridewithgps import (
     is_ridewithgps_url,
 )
 from gpx_analyzer.smoothing import smooth_elevations
+
+
+# Simple LRU cache for route analysis results
+class AnalysisCache:
+    """Thread-safe LRU cache for route analysis results."""
+
+    def __init__(self, max_size: int = 200):
+        self.max_size = max_size
+        self.cache: OrderedDict[str, tuple[dict, float]] = OrderedDict()
+        self.lock = Lock()
+        self.hits = 0
+        self.misses = 0
+
+    def _make_key(self, url: str, power: float, mass: float, headwind: float) -> str:
+        """Create a cache key from analysis parameters."""
+        key_str = f"{url}|{power}|{mass}|{headwind}"
+        return hashlib.md5(key_str.encode()).hexdigest()
+
+    def get(self, url: str, power: float, mass: float, headwind: float) -> dict | None:
+        """Get cached result, returns None if not found."""
+        key = self._make_key(url, power, mass, headwind)
+        with self.lock:
+            if key in self.cache:
+                # Move to end (most recently used)
+                self.cache.move_to_end(key)
+                self.hits += 1
+                return self.cache[key][0]
+            self.misses += 1
+            return None
+
+    def set(self, url: str, power: float, mass: float, headwind: float, result: dict) -> None:
+        """Store result in cache."""
+        key = self._make_key(url, power, mass, headwind)
+        with self.lock:
+            if key in self.cache:
+                self.cache.move_to_end(key)
+            self.cache[key] = (result, time.time())
+            # Evict oldest if over limit
+            while len(self.cache) > self.max_size:
+                self.cache.popitem(last=False)
+
+    def stats(self) -> dict:
+        """Return cache statistics."""
+        with self.lock:
+            total = self.hits + self.misses
+            hit_rate = (self.hits / total * 100) if total > 0 else 0
+            return {
+                "size": len(self.cache),
+                "max_size": self.max_size,
+                "hits": self.hits,
+                "misses": self.misses,
+                "hit_rate": f"{hit_rate:.1f}%",
+            }
+
+    def clear(self) -> None:
+        """Clear all cached entries."""
+        with self.lock:
+            self.cache.clear()
+            self.hits = 0
+            self.misses = 0
+
+
+# Global cache instance
+_analysis_cache = AnalysisCache(max_size=200)
+
 
 app = Flask(__name__)
 
@@ -1808,7 +1877,18 @@ def format_duration_long(seconds: float) -> str:
 
 
 def analyze_single_route(url: str, params: RiderParams) -> dict:
-    """Analyze a single route and return results dict."""
+    """Analyze a single route and return results dict.
+
+    Results are cached based on (url, power, mass, headwind) for faster
+    repeated access when comparing routes.
+    """
+    # Check cache first
+    cached = _analysis_cache.get(
+        url, params.assumed_avg_power, params.total_mass, params.headwind
+    )
+    if cached is not None:
+        return cached
+
     config = _load_config() or {}
     smoothing_radius = config.get("smoothing", DEFAULTS["smoothing"])
 
@@ -1843,7 +1923,7 @@ def analyze_single_route(url: str, params: RiderParams) -> dict:
             if total_dist > 0:
                 unpaved_pct = (surface_breakdown[1] / total_dist) * 100
 
-    return {
+    result = {
         "name": route_metadata.get("name") if route_metadata else None,
         "distance_km": analysis.total_distance / 1000,
         "distance_mi": analysis.total_distance / 1000 * 0.621371,
@@ -1871,6 +1951,13 @@ def analyze_single_route(url: str, params: RiderParams) -> dict:
         "hilliness_total_time": hilliness.total_time,
         "hilliness_total_distance": hilliness.total_distance,
     }
+
+    # Store in cache
+    _analysis_cache.set(
+        url, params.assumed_avg_power, params.total_mass, params.headwind, result
+    )
+
+    return result
 
 
 @app.route("/analyze-collection-stream")
