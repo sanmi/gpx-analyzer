@@ -70,9 +70,12 @@ class AnalysisCache:
         with self.lock:
             total = self.hits + self.misses
             hit_rate = (self.hits / total * 100) if total > 0 else 0
+            # Estimate ~1.2 KB per entry based on typical result dict size
+            memory_kb = int(len(self.cache) * 1.2)
             return {
                 "size": len(self.cache),
                 "max_size": self.max_size,
+                "memory_kb": memory_kb,
                 "hits": self.hits,
                 "misses": self.misses,
                 "hit_rate": f"{hit_rate:.1f}%",
