@@ -99,6 +99,26 @@ Then open http://localhost:5050 in your browser. The web interface supports:
 - Imperial/metric unit toggle
 - Customizable power, mass, and headwind parameters
 
+### Caching
+
+The application uses two levels of caching for performance:
+
+1. **GPX Download Cache** - RideWithGPS route data is cached to disk (`~/.cache/gpx-analyzer/`) with LRU eviction. This reduces API calls when re-analyzing routes.
+
+2. **Analysis Result Cache** - Computed analysis results are cached in-memory (500 entries, ~0.75 MB). This speeds up back-and-forth route comparisons and collection re-analysis when using the same parameters.
+
+Cache management endpoints (web interface):
+
+```bash
+# View cache statistics (size, hits, misses, hit rate)
+curl https://your-server/cache-stats
+
+# Clear the analysis cache (for testing)
+curl -X POST https://your-server/cache-clear
+```
+
+The analysis cache is keyed by `(url, power, mass, headwind)` - changing any parameter triggers a fresh computation. The cache resets on server restart.
+
 ### RideWithGPS Integration
 
 Analyze routes directly from RideWithGPS URLs:
