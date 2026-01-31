@@ -138,10 +138,8 @@ STEEP_GRADE_BINS = [10, 12, 14, 16, 18, 20, float('inf')]
 STEEP_GRADE_LABELS = ['10-12%', '12-14%', '14-16%', '16-18%', '18-20%', '>20%']
 
 # Rolling window for max grade calculation (filters GPS noise)
-MAX_GRADE_WINDOW = 10.0  # meters
-
-# Maximum realistic grade (caps unrealistic GPS spikes)
-MAX_REALISTIC_GRADE = 35.0  # percent - steeper is almost certainly GPS noise
+# 300m matches RWGPS methodology for sustained max grade
+MAX_GRADE_WINDOW = 300.0  # meters
 
 # Minimum grade to count as "climbing" for steepness calculation
 STEEPNESS_MIN_GRADE_PCT = 2.0
@@ -209,13 +207,18 @@ class HillinessAnalysis:
 
 
 def calculate_hilliness(
-    points: list[TrackPoint], params: RiderParams
+    points: list[TrackPoint],
+    params: RiderParams,
+    unscaled_points: list[TrackPoint] | None = None,
 ) -> HillinessAnalysis:
     """Calculate hilliness score, steepness score, and time-at-grade histogram.
 
     Hilliness score is elevation gain per km (m/km).
     Steepness score is effort-weighted average climbing grade (%) for grades >= 2%.
     Grade histogram shows time spent in each grade bucket.
+
+    If unscaled_points is provided, max grade is calculated from those points
+    (to match RWGPS methodology which uses raw GPS elevation for max grade).
     """
     if len(points) < 2:
         return HillinessAnalysis(
@@ -243,9 +246,10 @@ def calculate_hilliness(
     very_steep_distance = 0.0
 
     # Calculate rolling grades for max grade (filters GPS noise)
-    rolling_grades = _calculate_rolling_grades(points, MAX_GRADE_WINDOW)
-    # Cap at realistic maximum to filter remaining GPS artifacts
-    max_grade = min(max(rolling_grades), MAX_REALISTIC_GRADE) if rolling_grades else 0.0
+    # Use unscaled points if provided (matches RWGPS methodology)
+    grade_points = unscaled_points if unscaled_points is not None else points
+    rolling_grades = _calculate_rolling_grades(grade_points, MAX_GRADE_WINDOW)
+    max_grade = max(rolling_grades) if rolling_grades else 0.0
 
     # For steepness calculation (effort-weighted average grade)
     weighted_grade_sum = 0.0

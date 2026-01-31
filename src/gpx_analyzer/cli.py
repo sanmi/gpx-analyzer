@@ -277,9 +277,11 @@ def analyze_collection(
             # Calculate API-based elevation scale factor
             api_elevation_scale = 1.0
             api_elevation_gain = route_metadata.get("elevation_gain") if route_metadata else None
+            # Smooth without scaling first (for max grade calculation)
+            unscaled_points = smooth_elevations(points, smoothing_radius, 1.0)
+
             if api_elevation_gain and api_elevation_gain > 0:
-                smoothed_test = smooth_elevations(points, smoothing_radius, 1.0)
-                smoothed_gain = calculate_elevation_gain(smoothed_test)
+                smoothed_gain = calculate_elevation_gain(unscaled_points)
                 if smoothed_gain > 0:
                     api_elevation_scale = api_elevation_gain / smoothed_gain
 
@@ -289,7 +291,7 @@ def analyze_collection(
                 points = smooth_elevations(points, smoothing_radius, effective_scale)
 
             analysis = analyze(points, params)
-            hilliness = calculate_hilliness(points, params)
+            hilliness = calculate_hilliness(points, params, unscaled_points)
 
             # Get unpaved percentage from API metadata
             unpaved_pct = route_metadata.get("unpaved_pct", 0) if route_metadata else 0
@@ -495,6 +497,9 @@ def main(argv: list[str] | None = None) -> None:
 
     smoothing_radius = 0.0 if args.no_smoothing else args.smoothing
 
+    # Smooth without scaling first (for max grade calculation)
+    unscaled_points = smooth_elevations(points, smoothing_radius, 1.0)
+
     # Calculate API-based elevation scale factor for RideWithGPS routes
     api_elevation_scale = 1.0
     api_elevation_gain = None
@@ -506,9 +511,7 @@ def main(argv: list[str] | None = None) -> None:
         # Calculate raw elevation gain before any smoothing
         raw_elevation_gain = calculate_elevation_gain(points)
         if raw_elevation_gain > 0:
-            # First apply smoothing without scaling to see what we get
-            smoothed_test = smooth_elevations(points, smoothing_radius, 1.0)
-            smoothed_gain = calculate_elevation_gain(smoothed_test)
+            smoothed_gain = calculate_elevation_gain(unscaled_points)
             if smoothed_gain > 0:
                 api_elevation_scale = api_elevation_gain / smoothed_gain
 
@@ -518,7 +521,7 @@ def main(argv: list[str] | None = None) -> None:
         points = smooth_elevations(points, smoothing_radius, effective_scale)
 
     result = analyze(points, params)
-    hilliness = calculate_hilliness(points, params)
+    hilliness = calculate_hilliness(points, params, unscaled_points)
 
     # Unit conversion factors
     if args.imperial:

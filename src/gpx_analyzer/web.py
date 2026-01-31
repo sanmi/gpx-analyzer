@@ -1806,12 +1806,14 @@ def analyze_single_route(url: str, params: RiderParams) -> dict:
     if len(points) < 2:
         raise ValueError("Route contains fewer than 2 track points")
 
+    # Smooth without scaling first (for max grade calculation)
+    unscaled_points = smooth_elevations(points, smoothing_radius, 1.0)
+
     # Calculate API-based elevation scale factor
     api_elevation_scale = 1.0
     api_elevation_gain = route_metadata.get("elevation_gain") if route_metadata else None
     if api_elevation_gain and api_elevation_gain > 0:
-        smoothed_test = smooth_elevations(points, smoothing_radius, 1.0)
-        smoothed_gain = calculate_elevation_gain(smoothed_test)
+        smoothed_gain = calculate_elevation_gain(unscaled_points)
         if smoothed_gain > 0:
             api_elevation_scale = api_elevation_gain / smoothed_gain
 
@@ -1819,7 +1821,7 @@ def analyze_single_route(url: str, params: RiderParams) -> dict:
         points = smooth_elevations(points, smoothing_radius, api_elevation_scale)
 
     analysis = analyze(points, params)
-    hilliness = calculate_hilliness(points, params)
+    hilliness = calculate_hilliness(points, params, unscaled_points)
 
     # Prefer API's unpaved_pct if available, otherwise calculate from track points
     unpaved_pct = route_metadata.get("unpaved_pct") if route_metadata else None
