@@ -786,6 +786,12 @@ HTML_TEMPLATE = """
 
             // Initialize mode indicator
             updateModeIndicator();
+
+            // Prepopulate with example route on first visit
+            if (getRecentUrls().length === 0 && !urlInput.value) {
+                urlInput.value = 'https://ridewithgps.com/routes/48889111';
+                updateModeIndicator();
+            }
         }
 
         // Initialize on page load
