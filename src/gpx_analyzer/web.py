@@ -241,7 +241,8 @@ HTML_TEMPLATE = """
             border-bottom: 1px solid #eee;
         }
         .result-row:last-child { border-bottom: none; }
-        #singleRouteResults .result-row {
+        #singleRouteResults .result-row,
+        #collectionResults .result-row {
             max-width: 350px;
         }
         .result-label { color: #666; }
