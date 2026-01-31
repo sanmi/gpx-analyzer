@@ -236,7 +236,6 @@ HTML_TEMPLATE = """
         }
         .histogram-bar .bar {
             width: 100%;
-            background: var(--primary-gradient);
             border-radius: 2px 2px 0 0;
             min-height: 2px;
         }
@@ -1554,6 +1553,7 @@ HTML_TEMPLATE = """
 
         {% if result.grade_histogram %}
         {% set labels = ['<-10', '-10', '-8', '-6', '-4', '-2', '0', '+2', '+4', '+6', '+8', '>10'] %}
+        {% set bar_colors = ['#4a90d9', '#5a9fd9', '#6aaee0', '#7abde7', '#8acbef', '#9adaf6', '#cccccc', '#ffb399', '#ff9966', '#ff7f33', '#ff6600', '#e55a00'] %}
         <div class="histograms-container">
             <div class="grade-histogram">
                 <h4>Time at Grade</h4>
@@ -1566,7 +1566,7 @@ HTML_TEMPLATE = """
                     {% set bar_height = (seconds / max_seconds * 100) if max_seconds > 0 else 0 %}
                     <div class="histogram-bar">
                         <div class="bar-container">
-                            <div class="bar" style="height: {{ bar_height }}%;"></div>
+                            <div class="bar" style="height: {{ bar_height }}%; background: {{ bar_colors[loop.index0] }};"></div>
                         </div>
                         <span class="label">{{ labels[loop.index0] }}</span>
                         {% if pct >= 1 %}<span class="pct">{{ "%.0f"|format(pct) }}%</span>{% endif %}
@@ -1585,7 +1585,7 @@ HTML_TEMPLATE = """
                     {% set bar_height = (meters / max_dist * 100) if max_dist > 0 else 0 %}
                     <div class="histogram-bar">
                         <div class="bar-container">
-                            <div class="bar" style="height: {{ bar_height }}%;"></div>
+                            <div class="bar" style="height: {{ bar_height }}%; background: {{ bar_colors[loop.index0] }};"></div>
                         </div>
                         <span class="label">{{ labels[loop.index0] }}</span>
                         {% if pct >= 1 %}<span class="pct">{{ "%.0f"|format(pct) }}%</span>{% endif %}
