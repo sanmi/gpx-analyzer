@@ -1713,7 +1713,7 @@ HTML_TEMPLATE = """
                             <div class="bar" style="height: {{ bar_height }}%; background: {{ bar_colors[loop.index0] }};"></div>
                         </div>
                         <span class="label">{{ labels[loop.index0] }}</span>
-                        {% if pct >= 1 %}<span class="pct">{{ "%.0f"|format(pct) }}%</span>{% endif %}
+                        <span class="pct">{% if pct >= 1 %}{{ "%.0f"|format(pct) }}%{% else %}&nbsp;{% endif %}</span>
                     </div>
                     {% endfor %}
                 </div>
@@ -1732,7 +1732,7 @@ HTML_TEMPLATE = """
                             <div class="bar" style="height: {{ bar_height }}%; background: {{ bar_colors[loop.index0] }};"></div>
                         </div>
                         <span class="label">{{ labels[loop.index0] }}</span>
-                        {% if pct >= 1 %}<span class="pct">{{ "%.0f"|format(pct) }}%</span>{% endif %}
+                        <span class="pct">{% if pct >= 1 %}{{ "%.0f"|format(pct) }}%{% else %}&nbsp;{% endif %}</span>
                     </div>
                     {% endfor %}
                 </div>
