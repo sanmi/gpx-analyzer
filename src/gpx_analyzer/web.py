@@ -105,16 +105,16 @@ HTML_TEMPLATE = """
         .results h2 a { color: inherit; text-decoration: none; }
         .results h2 a:hover { color: var(--primary); }
         .results-header {
-            display: flex;
-            justify-content: space-between;
+            display: inline-flex;
             align-items: center;
+            gap: 10px;
             margin-bottom: 10px;
         }
-        .results-header h2 { margin-bottom: 0; }
+        .results-header h2 {
+            margin: 0;
+        }
         .share-btn {
-            width: 32px;
-            height: 32px;
-            padding: 6px;
+            padding: 4px 8px;
             background: white;
             border: 1.5px solid var(--primary);
             color: var(--primary);
@@ -122,11 +122,15 @@ HTML_TEMPLATE = """
             cursor: pointer;
             display: inline-flex;
             align-items: center;
-            justify-content: center;
+            gap: 4px;
+            font-size: 12px;
+            font-weight: 500;
+            flex-shrink: 0;
+            width: auto;
         }
         .share-btn svg {
-            width: 18px;
-            height: 18px;
+            width: 14px;
+            height: 14px;
             fill: currentColor;
         }
         .share-btn:hover {
@@ -404,15 +408,15 @@ HTML_TEMPLATE = """
             gap: 6px;
         }
         .info-btn {
-            width: 20px;
-            height: 20px;
-            min-width: 20px;
-            min-height: 20px;
+            width: 16px;
+            height: 16px;
+            min-width: 16px;
+            min-height: 16px;
             border-radius: 50%;
             border: 1.5px solid var(--primary);
             background: white;
             color: var(--primary);
-            font-size: 12px;
+            font-size: 10px;
             font-weight: 600;
             cursor: pointer;
             display: inline-flex;
@@ -421,10 +425,7 @@ HTML_TEMPLATE = """
             padding: 0;
             line-height: 1;
             flex-shrink: 0;
-            vertical-align: text-bottom;
-            margin-left: 4px;
-            position: relative;
-            top: -1px;
+            vertical-align: middle;
         }
         .info-btn:hover {
             background: var(--primary);
@@ -434,18 +435,19 @@ HTML_TEMPLATE = """
             display: inline-flex;
             align-items: center;
             gap: 4px;
+            vertical-align: middle;
         }
         .th-with-info .info-btn, .label-with-info .info-btn {
-            margin-left: 0;
+            margin: 0;
             top: 0;
         }
         @media (max-width: 600px) {
             .info-btn {
-                width: 24px;
-                height: 24px;
-                min-width: 24px;
-                min-height: 24px;
-                font-size: 14px;
+                width: 18px;
+                height: 18px;
+                min-width: 18px;
+                min-height: 18px;
+                font-size: 11px;
             }
         }
         /* Modal styles */
@@ -748,12 +750,13 @@ HTML_TEMPLATE = """
     <div id="errorContainer" class="error hidden"></div>
 
     <div id="collectionResults" class="results hidden">
+        <input type="hidden" id="collectionShareUrl" value="">
         <div class="results-header">
             <h2 id="collectionName">Collection Analysis</h2>
             <button type="button" class="share-btn" onclick="copyShareLink('collectionShareUrl', this)" title="Copy link to share">
                 <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81 1.66 0 3-1.34 3-3s-1.34-3-3-3-3 1.34-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9c-1.66 0-3 1.34-3 3s1.34 3 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.16c-.05.21-.08.43-.08.65 0 1.61 1.31 2.92 2.92 2.92s2.92-1.31 2.92-2.92-1.31-2.92-2.92-2.92z"/></svg>
+                <span>Share</span>
             </button>
-            <input type="hidden" id="collectionShareUrl" value="">
         </div>
         <div class="result-row">
             <span class="result-label">Routes</span>
@@ -1068,7 +1071,7 @@ HTML_TEMPLATE = """
             var shareUrl = document.getElementById(inputId).value;
             var originalHtml = btn.innerHTML;
             navigator.clipboard.writeText(shareUrl).then(function() {
-                btn.innerHTML = '<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>';
+                btn.innerHTML = '<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg><span>Copied</span>';
                 btn.classList.add('copied');
                 setTimeout(function() {
                     btn.innerHTML = originalHtml;
@@ -1433,13 +1436,16 @@ HTML_TEMPLATE = """
 
     {% if result %}
     <div class="results" id="singleRouteResults">
+        {% if share_url %}
+        <input type="hidden" id="shareUrl" value="{{ share_url }}">
+        {% endif %}
         <div class="results-header">
             <h2>{{ result.name or 'Route Analysis' }}</h2>
             {% if share_url %}
             <button type="button" class="share-btn" onclick="copyShareLink('shareUrl', this)" title="Copy link to share">
                 <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81 1.66 0 3-1.34 3-3s-1.34-3-3-3-3 1.34-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9c-1.66 0-3 1.34-3 3s1.34 3 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.16c-.05.21-.08.43-.08.65 0 1.61 1.31 2.92 2.92 2.92s2.92-1.31 2.92-2.92-1.31-2.92-2.92-2.92z"/></svg>
+                <span>Share</span>
             </button>
-            <input type="hidden" id="shareUrl" value="{{ share_url }}">
             {% endif %}
         </div>
 
