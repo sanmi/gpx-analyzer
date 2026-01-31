@@ -39,6 +39,14 @@ Speed is calculated by solving the power balance equation: your power output equ
 - **Elevation scale** — Multiplier for elevation changes. Auto-calculated from RideWithGPS API data when available.
 - **Surface Crr deltas** — Per-surface-type rolling resistance adjustments based on RideWithGPS surface data.
 
+### Terrain Metrics
+
+- **Hilliness** — Total elevation gain per unit distance (m/km or ft/mi). Measures *how much* climbing a route has, normalized by length. Typical values: flat (0-5), rolling (5-15), hilly (15-25), mountainous (25+).
+
+- **Steepness** — Effort-weighted average grade of climbs ≥2%. Measures *how steep* the climbs are, not just total climbing. Steeper sections contribute more because they require disproportionately more power. A route with punchy 10% grades scores higher than one with gentle 4% grades, even if total climbing is similar.
+
+- **Grade histogram** — Time spent at each grade bucket, showing the character of a route. Displayed as a bar chart in the web UI and ASCII art in the CLI.
+
 ## Installation
 
 ```bash
@@ -107,9 +115,9 @@ gpx-analyzer --collection https://ridewithgps.com/collections/12345
 Output shows per-route breakdown with totals:
 
 ```
-================================================================================
+===============================================================================================
 COLLECTION ANALYSIS: Summer Tour 2024
-================================================================================
+===============================================================================================
 
 Model params: mass=85kg cda=0.35 crr=0.005
               power=150W max_coast=48km/h
@@ -121,13 +129,13 @@ Total time:      14.5 hours
 Total work:      4050 kJ
 
 PER-ROUTE BREAKDOWN:
---------------------------------------------------------------------------------
-Route                          Time   Work   Distk   Elev  Speed Unpvd  EScl
---------------------------------------------------------------------------------
-Day 1: Coast to Mountains      4.5h  1250k     85k   950m  18.7    5%  1.02
-Day 2: Mountain Pass           6.3h  1820k     72k  1800m  11.5    0%  0.98
-Day 3: Valley Route            3.8h   980k     92k   450m  24.5   12%  1.05
---------------------------------------------------------------------------------
+-----------------------------------------------------------------------------------------------
+Route                          Time   Work   Distk   Elev Hilly Steep  Speed Unpvd  EScl
+-----------------------------------------------------------------------------------------------
+Day 1: Coast to Mountains      4.5h  1250k     85k   950m    11  5.2%  18.7    5%  1.02
+Day 2: Mountain Pass           6.3h  1820k     72k  1800m    25  8.5%  11.5    0%  0.98
+Day 3: Valley Route            3.8h   980k     92k   450m     5  4.1%  24.5   12%  1.05
+-----------------------------------------------------------------------------------------------
 TOTAL                         14.5h  4050k    249k  3200m
 ```
 
@@ -176,6 +184,22 @@ Avg Speed:      13.6 km/h
 Max Speed:      52.0 km/h
 Est. Avg Power: 99 W
 Surface:        58.0 km paved, 14.2 km unpaved (20%)
+Hilliness:      21 m/km
+Steepness:      8.3%
+
+Time at Grade:
+   <-10%: █████                   5%
+    -10%: ███                     3%
+     -8%: ████                    4%
+     -6%: ████                    4%
+     -4%: █████                   5%
+     -2%: ██████████              9%
+      0%: ████████████████████   18%
+      2%: ████████████           11%
+      4%: ████████████           11%
+      6%: █████████               9%
+      8%: ███████                 6%
+    >10%: █████████████████      15%
 ```
 
 ## Comparing Predictions with Actual Rides

@@ -6,7 +6,7 @@ from pathlib import Path
 from geopy.distance import geodesic
 
 from gpx_analyzer import __version_date__, get_git_hash
-from gpx_analyzer.analyzer import analyze, calculate_hilliness
+from gpx_analyzer.analyzer import analyze, calculate_hilliness, GRADE_LABELS
 from gpx_analyzer.models import RiderParams, TrackPoint
 from gpx_analyzer.parser import parse_gpx
 from gpx_analyzer.compare import compare_route_with_trip, format_comparison_report
@@ -518,6 +518,7 @@ def main(argv: list[str] | None = None) -> None:
         points = smooth_elevations(points, smoothing_radius, effective_scale)
 
     result = analyze(points, params)
+    hilliness = calculate_hilliness(points, params)
 
     # Unit conversion factors
     if args.imperial:
@@ -579,6 +580,25 @@ def main(argv: list[str] | None = None) -> None:
             f"Surface:        {paved_dist:.1f} {dist_unit} paved, "
             f"{unpaved_dist:.1f} {dist_unit} unpaved ({api_unpaved_pct:.0f}%)"
         )
+
+    # Hilliness and steepness
+    hilly_factor = 5.28 if args.imperial else 1.0
+    hilly_unit = "ft/mi" if args.imperial else "m/km"
+    print(f"Hilliness:      {hilliness.hilliness_score * hilly_factor:.0f} {hilly_unit}")
+    print(f"Steepness:      {hilliness.steepness_score:.1f}%")
+
+    # Grade histogram
+    print("")
+    print("Time at Grade:")
+    total_time = sum(hilliness.grade_time_histogram.values())
+    max_seconds = max(hilliness.grade_time_histogram.values()) if total_time > 0 else 1
+    for label in GRADE_LABELS:
+        seconds = hilliness.grade_time_histogram.get(label, 0)
+        pct = (seconds / total_time * 100) if total_time > 0 else 0
+        bar_width = int((seconds / max_seconds) * 20) if max_seconds > 0 else 0
+        bar = "█" * bar_width
+        if pct >= 0.5:
+            print(f"  {label:>6}: {bar:<20} {pct:4.0f}%")
 
     # Show elevation scaling note if significant API scaling was used (>5% adjustment)
     if abs(api_elevation_scale - 1.0) > 0.05 and api_elevation_gain is not None:
