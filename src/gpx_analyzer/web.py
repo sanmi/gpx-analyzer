@@ -242,6 +242,13 @@ HTML_TEMPLATE = """
             text-overflow: ellipsis;
             white-space: nowrap;
         }
+        .route-name a {
+            color: #007aff;
+            text-decoration: none;
+        }
+        .route-name a:hover {
+            text-decoration: underline;
+        }
         @media (min-width: 1200px) {
             .route-name { max-width: 400px; }
             .collection-table { font-size: 0.95em; }
@@ -1030,7 +1037,8 @@ HTML_TEMPLATE = """
                     document.getElementById('progressRoute').textContent = r.name || '';
 
                     var row = document.createElement('tr');
-                    row.innerHTML = '<td class="route-name" title="' + r.name + '">' + r.name + '</td>' +
+                    var routeUrl = 'https://ridewithgps.com/routes/' + r.route_id;
+                    row.innerHTML = '<td class="route-name" title="' + r.name + '"><a href="' + routeUrl + '" target="_blank">' + r.name + '</a></td>' +
                         '<td class="num primary">' + r.time_str + '</td>' +
                         '<td class="num primary separator">' + Math.round(r.work_kj) + 'kJ</td>' +
                         '<td class="num">' + formatDist(r.distance_km) + '</td>' +
@@ -1075,7 +1083,8 @@ HTML_TEMPLATE = """
 
             collectionRoutes.forEach(function(r) {
                 var row = document.createElement('tr');
-                row.innerHTML = '<td class="route-name" title="' + r.name + '">' + r.name + '</td>' +
+                var routeUrl = 'https://ridewithgps.com/routes/' + r.route_id;
+                row.innerHTML = '<td class="route-name" title="' + r.name + '"><a href="' + routeUrl + '" target="_blank">' + r.name + '</a></td>' +
                     '<td class="num primary">' + r.time_str + '</td>' +
                     '<td class="num primary separator">' + Math.round(r.work_kj) + 'kJ</td>' +
                     '<td class="num">' + formatDist(r.distance_km) + '</td>' +
@@ -1346,6 +1355,7 @@ def analyze_collection_stream():
                 try:
                     route_result = analyze_single_route(route_url, params)
                     route_result["time_str"] = format_duration(route_result["time_seconds"])
+                    route_result["route_id"] = route_id
 
                     yield f"data: {json.dumps({'type': 'route', 'route': route_result, 'total': len(route_ids)})}\n\n"
                 except Exception as e:
