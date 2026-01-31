@@ -1384,11 +1384,13 @@ HTML_TEMPLATE = """
             <h4>Time at Grade</h4>
             <div class="histogram-bars">
                 {% set total_time = result.grade_histogram.values() | sum %}
+                {% set max_seconds = result.grade_histogram.values() | max %}
                 {% for label, seconds in result.grade_histogram.items() %}
                 {% set pct = (seconds / total_time * 100) if total_time > 0 else 0 %}
+                {% set bar_height = (seconds / max_seconds * 100) if max_seconds > 0 else 0 %}
                 <div class="histogram-bar">
                     <div class="bar-container">
-                        <div class="bar" style="height: {{ pct }}%;"></div>
+                        <div class="bar" style="height: {{ bar_height }}%;"></div>
                     </div>
                     <span class="label">{{ label }}</span>
                     {% if pct >= 1 %}<span class="pct">{{ "%.0f"|format(pct) }}%</span>{% endif %}
