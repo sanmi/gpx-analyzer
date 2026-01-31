@@ -332,27 +332,30 @@ HTML_TEMPLATE = """
         }
         .route-name {
             max-width: 280px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .route-name a:first-child {
+            color: var(--primary);
+            text-decoration: none;
             overflow: hidden;
             text-overflow: ellipsis;
             white-space: nowrap;
+            min-width: 0;
         }
-        .route-name a {
-            color: var(--primary);
-            text-decoration: none;
-        }
-        .route-name a:hover {
+        .route-name a:first-child:hover {
             text-decoration: underline;
         }
         .route-name .rwgps-link {
+            flex-shrink: 0;
             display: inline-block;
             background: #FA6400;
             color: white;
-            margin-left: 6px;
             padding: 1px 4px;
             font-size: 0.65em;
             font-weight: 600;
             text-decoration: none;
-            vertical-align: middle;
             border-radius: 3px;
         }
         .route-name .rwgps-link:hover {
@@ -363,12 +366,12 @@ HTML_TEMPLATE = """
             .collection-table { font-size: 0.95em; }
         }
         @media (max-width: 768px) {
-            .route-name { max-width: 180px; }
+            .route-name { max-width: 200px; }
         }
         @media (max-width: 600px) {
             .collection-table { font-size: 0.8em; }
             .collection-table th, .collection-table td { padding: 8px 4px; }
-            .route-name { max-width: 120px; }
+            .route-name { max-width: 140px; }
             .param-row { flex-direction: column; gap: 0; }
         }
         .hidden { display: none; }
