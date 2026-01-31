@@ -26,13 +26,21 @@ HTML_TEMPLATE = """
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Cycle Route Difficulty Estimator</title>
     <style>
+        :root {
+            --primary: #FF6B35;
+            --primary-dark: #E55A2B;
+            --primary-gradient: linear-gradient(135deg, #FF6B35, #F7931E);
+            --accent: #2D3047;
+            --text-dark: #333;
+            --text-muted: #666;
+        }
         * { box-sizing: border-box; }
         body {
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
             max-width: 960px;
             margin: 0 auto;
             padding: 20px;
-            background: #f5f5f5;
+            background: #f5f5f7;
         }
         @media (min-width: 1200px) {
             body { max-width: 1100px; }
@@ -40,7 +48,7 @@ HTML_TEMPLATE = """
         @media (max-width: 480px) {
             body { padding: 12px; }
         }
-        h1 { color: #333; font-size: 1.5em; }
+        h1 { color: var(--accent); font-size: 1.5em; }
         form {
             background: white;
             padding: 20px;
@@ -64,7 +72,7 @@ HTML_TEMPLATE = """
         }
         input[type="text"]:focus, input[type="number"]:focus, select:focus {
             outline: none;
-            border-color: #007aff;
+            border-color: var(--primary);
         }
         .param-row {
             display: flex;
@@ -75,7 +83,7 @@ HTML_TEMPLATE = """
             width: 100%;
             padding: 14px;
             margin-top: 20px;
-            background: #007aff;
+            background: var(--primary-gradient);
             color: white;
             border: none;
             border-radius: 6px;
@@ -176,7 +184,7 @@ HTML_TEMPLATE = """
         }
         .progress-fill {
             height: 100%;
-            background: linear-gradient(90deg, #007aff, #00c6ff);
+            background: var(--primary-gradient);
             border-radius: 12px;
             transition: width 0.3s ease;
             width: 0%;
@@ -243,7 +251,7 @@ HTML_TEMPLATE = """
             white-space: nowrap;
         }
         .route-name a {
-            color: #007aff;
+            color: var(--primary);
             text-decoration: none;
         }
         .route-name a:hover {
@@ -266,20 +274,41 @@ HTML_TEMPLATE = """
         /* Header styles */
         .header-section {
             margin-bottom: 20px;
+            text-align: center;
         }
-        .header-section h1 {
+        .logo-container {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 12px;
             margin-bottom: 8px;
         }
+        .logo {
+            width: 48px;
+            height: 48px;
+        }
+        .header-section h1 {
+            margin: 0;
+            font-size: 1.4em;
+            background: var(--primary-gradient);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        @media (max-width: 480px) {
+            .logo { width: 40px; height: 40px; }
+            .header-section h1 { font-size: 1.2em; }
+        }
         .tagline {
-            color: #666;
-            font-size: 0.95em;
+            color: var(--text-muted);
+            font-size: 0.9em;
             margin: 0;
             line-height: 1.4;
         }
         .how-link {
             display: inline-block;
             margin-top: 8px;
-            color: #007aff;
+            color: var(--primary);
             font-size: 0.9em;
             text-decoration: none;
         }
@@ -296,9 +325,9 @@ HTML_TEMPLATE = """
             width: 18px;
             height: 18px;
             border-radius: 50%;
-            border: 1.5px solid #007aff;
+            border: 1.5px solid var(--primary);
             background: white;
-            color: #007aff;
+            color: var(--primary);
             font-size: 12px;
             font-weight: 600;
             cursor: pointer;
@@ -310,7 +339,7 @@ HTML_TEMPLATE = """
             flex-shrink: 0;
         }
         .info-btn:hover {
-            background: #007aff;
+            background: var(--primary);
             color: white;
         }
         .info-btn-small {
@@ -371,7 +400,7 @@ HTML_TEMPLATE = """
             content: "•";
             position: absolute;
             left: 0;
-            color: #007aff;
+            color: var(--primary);
         }
         .modal .param-name {
             font-weight: 600;
@@ -431,7 +460,7 @@ HTML_TEMPLATE = """
             color: #888;
         }
         .footer a {
-            color: #007aff;
+            color: var(--primary);
             text-decoration: none;
         }
         .footer a:hover {
@@ -503,7 +532,7 @@ HTML_TEMPLATE = """
             color: #666;
         }
         .mode-indicator.route {
-            color: #007aff;
+            color: var(--primary);
         }
         .mode-indicator.collection {
             color: #34a853;
@@ -512,8 +541,36 @@ HTML_TEMPLATE = """
 </head>
 <body>
     <div class="header-section">
-        <h1>Cycle Route Difficulty Estimator</h1>
-        <p class="tagline">Uses a physics model to estimate cycling time and energy expenditure based on elevation, surface type, and rider parameters.</p>
+        <div class="logo-container">
+            <svg class="logo" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+                <defs>
+                    <linearGradient id="mountainGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                        <stop offset="0%" style="stop-color:#FF6B35"/>
+                        <stop offset="100%" style="stop-color:#F7931E"/>
+                    </linearGradient>
+                    <linearGradient id="wheelGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+                        <stop offset="0%" style="stop-color:#2D3047"/>
+                        <stop offset="100%" style="stop-color:#4A4E69"/>
+                    </linearGradient>
+                </defs>
+                <!-- Mountain -->
+                <path d="M10 75 L35 30 L50 50 L65 25 L90 75 Z" fill="url(#mountainGrad)"/>
+                <!-- Snow cap -->
+                <path d="M65 25 L72 38 L58 38 Z" fill="white" opacity="0.9"/>
+                <!-- Bike wheel -->
+                <circle cx="75" cy="70" r="18" fill="none" stroke="url(#wheelGrad)" stroke-width="4"/>
+                <circle cx="75" cy="70" r="3" fill="#2D3047"/>
+                <!-- Spokes -->
+                <g stroke="#2D3047" stroke-width="1.5" opacity="0.7">
+                    <line x1="75" y1="52" x2="75" y2="64"/>
+                    <line x1="75" y1="76" x2="75" y2="88"/>
+                    <line x1="57" y1="70" x2="69" y2="70"/>
+                    <line x1="81" y1="70" x2="93" y2="70"/>
+                </g>
+            </svg>
+            <h1>Cycle Route Difficulty Estimator</h1>
+        </div>
+        <p class="tagline">Physics-based cycling time and energy estimates from elevation, surface, and rider parameters</p>
         <a href="#" class="how-link" onclick="showModal('physicsModal'); return false;">How does it work?</a>
     </div>
 
