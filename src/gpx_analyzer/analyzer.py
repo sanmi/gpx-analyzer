@@ -1,8 +1,11 @@
-from dataclasses import replace
+import math
+from dataclasses import dataclass, replace
 from datetime import timedelta
 
+from geopy.distance import geodesic
+
 from gpx_analyzer.models import RideAnalysis, RiderParams, TrackPoint
-from gpx_analyzer.physics import calculate_segment_work
+from gpx_analyzer.physics import calculate_segment_work, estimate_speed_from_power
 
 # Speed below this threshold (m/s) counts as stopped
 MOVING_SPEED_THRESHOLD = 0.5  # ~1.8 km/h
@@ -123,4 +126,81 @@ def analyze(points: list[TrackPoint], params: RiderParams) -> RideAnalysis:
         estimated_work=total_work,
         estimated_avg_power=avg_power,
         estimated_moving_time_at_power=estimated_moving_time_at_power,
+    )
+
+
+# Grade histogram bins (percent): ..., -10, -8, -6, -4, -2, 0, 2, 4, 6, 8, 10, ...
+GRADE_BINS = [-float('inf'), -10, -8, -6, -4, -2, 0, 2, 4, 6, 8, 10, float('inf')]
+GRADE_LABELS = ['<-10%', '-10%', '-8%', '-6%', '-4%', '-2%', '0%', '2%', '4%', '6%', '8%', '>10%']
+
+
+@dataclass
+class HillinessAnalysis:
+    """Hilliness metrics for a route."""
+    hilliness_score: float  # meters of elevation gain per km
+    grade_time_histogram: dict[str, float]  # grade bucket -> seconds spent
+    total_time: float  # total seconds
+
+
+def calculate_hilliness(
+    points: list[TrackPoint], params: RiderParams
+) -> HillinessAnalysis:
+    """Calculate hilliness score and time-at-grade histogram.
+
+    Hilliness score is elevation gain per km (m/km).
+    Grade histogram shows time spent in each grade bucket.
+    """
+    if len(points) < 2:
+        return HillinessAnalysis(
+            hilliness_score=0.0,
+            grade_time_histogram={label: 0.0 for label in GRADE_LABELS},
+            total_time=0.0,
+        )
+
+    total_distance = 0.0
+    elevation_gain = 0.0
+    grade_times = {label: 0.0 for label in GRADE_LABELS}
+    total_time = 0.0
+
+    for i in range(1, len(points)):
+        pt_a, pt_b = points[i - 1], points[i]
+
+        # Calculate distance
+        dist = geodesic((pt_a.lat, pt_a.lon), (pt_b.lat, pt_b.lon)).meters
+        if dist < 0.1:
+            continue
+
+        total_distance += dist
+
+        # Calculate elevation change and grade
+        elev_a = pt_a.elevation if pt_a.elevation is not None else 0.0
+        elev_b = pt_b.elevation if pt_b.elevation is not None else 0.0
+        delta_elev = elev_b - elev_a
+
+        if delta_elev > 0:
+            elevation_gain += delta_elev
+
+        # Grade in percent
+        grade_pct = (delta_elev / dist) * 100 if dist > 0 else 0.0
+
+        # Calculate time for this segment
+        slope_angle = math.atan2(delta_elev, dist)
+        segment_crr = pt_b.crr if pt_b.crr is not None else params.crr
+        speed = estimate_speed_from_power(slope_angle, params, segment_crr, pt_b.unpaved)
+        elapsed = dist / speed if speed > 0 else 0.0
+        total_time += elapsed
+
+        # Bin the grade
+        for j in range(len(GRADE_BINS) - 1):
+            if GRADE_BINS[j] <= grade_pct < GRADE_BINS[j + 1]:
+                grade_times[GRADE_LABELS[j]] += elapsed
+                break
+
+    # Hilliness score: meters gained per km
+    hilliness_score = (elevation_gain / (total_distance / 1000)) if total_distance > 0 else 0.0
+
+    return HillinessAnalysis(
+        hilliness_score=hilliness_score,
+        grade_time_histogram=grade_times,
+        total_time=total_time,
     )

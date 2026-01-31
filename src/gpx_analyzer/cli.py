@@ -6,7 +6,7 @@ from pathlib import Path
 from geopy.distance import geodesic
 
 from gpx_analyzer import __version_date__, get_git_hash
-from gpx_analyzer.analyzer import analyze
+from gpx_analyzer.analyzer import analyze, calculate_hilliness
 from gpx_analyzer.models import RiderParams, TrackPoint
 from gpx_analyzer.parser import parse_gpx
 from gpx_analyzer.compare import compare_route_with_trip, format_comparison_report
@@ -247,6 +247,7 @@ class CollectionRouteResult:
     elevation_gain: float  # meters
     elevation_scale: float
     unpaved_pct: float
+    hilliness_score: float  # m/km
     estimated_time_hours: float
     estimated_work_kj: float
     avg_speed_kmh: float
@@ -287,6 +288,7 @@ def analyze_collection(
                 points = smooth_elevations(points, smoothing_radius, effective_scale)
 
             analysis = analyze(points, params)
+            hilliness = calculate_hilliness(points, params)
 
             # Get unpaved percentage from API metadata
             unpaved_pct = route_metadata.get("unpaved_pct", 0) if route_metadata else 0
@@ -300,6 +302,7 @@ def analyze_collection(
                 elevation_gain=analysis.elevation_gain,
                 elevation_scale=api_elevation_scale,
                 unpaved_pct=unpaved_pct,
+                hilliness_score=hilliness.hilliness_score,
                 estimated_time_hours=analysis.estimated_moving_time_at_power.total_seconds() / 3600,
                 estimated_work_kj=analysis.estimated_work / 1000,
                 avg_speed_kmh=analysis.avg_speed * 3.6,
@@ -330,9 +333,9 @@ def format_collection_summary(
     speed_factor = 0.621371 if imperial else 1.0
     speed_unit = "mph" if imperial else "km/h"
 
-    lines.append("=" * 80)
+    lines.append("=" * 88)
     lines.append(f"COLLECTION ANALYSIS: {collection_name or 'Unnamed'}")
-    lines.append("=" * 80)
+    lines.append("=" * 88)
     lines.append("")
 
     # Config
@@ -356,11 +359,11 @@ def format_collection_summary(
 
     # Per-route breakdown
     lines.append("PER-ROUTE BREAKDOWN:")
-    lines.append("-" * 80)
+    lines.append("-" * 88)
     dist_hdr = "Dist" + dist_unit[0]
     elev_hdr = "Elev"
-    lines.append(f"{'Route':<30} {'Time':>6} {'Work':>6} {dist_hdr:>7} {elev_hdr:>6} {'Speed':>6} {'Unpvd':>5} {'EScl':>5}")
-    lines.append("-" * 80)
+    lines.append(f"{'Route':<30} {'Time':>6} {'Work':>6} {dist_hdr:>7} {elev_hdr:>6} {'Hilly':>5} {'Speed':>6} {'Unpvd':>5} {'EScl':>5}")
+    lines.append("-" * 88)
 
     for r in results:
         name = r.name[:29]
@@ -372,10 +375,10 @@ def format_collection_summary(
             f"{name:<30} "
             f"{r.estimated_time_hours:>5.1f}h {r.estimated_work_kj:>5.0f}k "
             f"{dist:>6.0f}{dist_unit[0]} {elev:>5.0f}{elev_suffix} "
-            f"{speed:>5.1f} {r.unpaved_pct:>4.0f}% {r.elevation_scale:>5.2f}"
+            f"{r.hilliness_score:>5.0f} {speed:>5.1f} {r.unpaved_pct:>4.0f}% {r.elevation_scale:>5.2f}"
         )
 
-    lines.append("-" * 80)
+    lines.append("-" * 88)
     elev_short = "'" if imperial else "m"
     lines.append(
         f"{'TOTAL':<30} "

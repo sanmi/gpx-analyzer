@@ -5,7 +5,7 @@ import json
 from flask import Flask, render_template_string, request, Response
 
 from gpx_analyzer import __version_date__, get_git_hash
-from gpx_analyzer.analyzer import analyze
+from gpx_analyzer.analyzer import analyze, calculate_hilliness
 from gpx_analyzer.cli import calculate_elevation_gain, calculate_surface_breakdown, DEFAULTS
 from gpx_analyzer.models import RiderParams
 from gpx_analyzer.ridewithgps import (
@@ -138,6 +138,51 @@ HTML_TEMPLATE = """
             padding: 10px;
             background: #f9f9f9;
             border-radius: 4px;
+        }
+        .grade-histogram {
+            margin-top: 15px;
+            padding: 15px;
+            background: #f9f9f9;
+            border-radius: 6px;
+        }
+        .grade-histogram h4 {
+            margin: 0 0 10px 0;
+            font-size: 0.9em;
+            color: #555;
+        }
+        .histogram-bars {
+            display: flex;
+            align-items: flex-end;
+            gap: 2px;
+        }
+        .histogram-bar {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            min-width: 0;
+        }
+        .histogram-bar .bar-container {
+            width: 100%;
+            height: 60px;
+            display: flex;
+            align-items: flex-end;
+        }
+        .histogram-bar .bar {
+            width: 100%;
+            background: var(--primary-gradient);
+            border-radius: 2px 2px 0 0;
+            min-height: 2px;
+        }
+        .histogram-bar .label {
+            font-size: 0.65em;
+            color: #888;
+            margin-top: 4px;
+            white-space: nowrap;
+        }
+        .histogram-bar .pct {
+            font-size: 0.6em;
+            color: #666;
         }
         .route-map {
             margin-top: 20px;
@@ -681,6 +726,7 @@ HTML_TEMPLATE = """
                     <th class="num primary separator">Work</th>
                     <th class="num">Dist</th>
                     <th class="num">Elev</th>
+                    <th class="num">Hilly</th>
                     <th class="num">Speed</th>
                     <th class="num">Unpvd</th>
                     <th class="num">EScl <button type="button" class="info-btn info-btn-small" onclick="showModal('esclModal')">?</button></th>
@@ -1045,7 +1091,7 @@ HTML_TEMPLATE = """
                 '<td class="num primary separator">' + Math.round(totalWork) + 'kJ</td>' +
                 '<td class="num">' + formatDist(totalDist) + '</td>' +
                 '<td class="num">' + formatElev(totalElev) + '</td>' +
-                '<td class="num"></td><td class="num"></td><td class="num"></td>';
+                '<td class="num"></td><td class="num"></td><td class="num"></td><td class="num"></td>';
             tbody.appendChild(totalsRow);
         }
 
@@ -1117,6 +1163,7 @@ HTML_TEMPLATE = """
                         '<td class="num primary separator">' + Math.round(r.work_kj) + 'kJ</td>' +
                         '<td class="num">' + formatDist(r.distance_km) + '</td>' +
                         '<td class="num">' + formatElev(r.elevation_m) + '</td>' +
+                        '<td class="num">' + Math.round(r.hilliness_score || 0) + '</td>' +
                         '<td class="num">' + formatSpeed(r.avg_speed_kmh) + '</td>' +
                         '<td class="num">' + Math.round(r.unpaved_pct || 0) + '%</td>' +
                         '<td class="num">' + r.elevation_scale.toFixed(2) + '</td>';
@@ -1163,6 +1210,7 @@ HTML_TEMPLATE = """
                     '<td class="num primary separator">' + Math.round(r.work_kj) + 'kJ</td>' +
                     '<td class="num">' + formatDist(r.distance_km) + '</td>' +
                     '<td class="num">' + formatElev(r.elevation_m) + '</td>' +
+                    '<td class="num">' + Math.round(r.hilliness_score || 0) + '</td>' +
                     '<td class="num">' + formatSpeed(r.avg_speed_kmh) + '</td>' +
                     '<td class="num">' + Math.round(r.unpaved_pct || 0) + '%</td>' +
                     '<td class="num">' + r.elevation_scale.toFixed(2) + '</td>';
@@ -1259,6 +1307,29 @@ HTML_TEMPLATE = """
         <div class="result-row">
             <span class="result-label">Surface</span>
             <span class="result-value">{{ "%.0f"|format(result.unpaved_pct) }}% unpaved</span>
+        </div>
+        {% endif %}
+        <div class="result-row">
+            <span class="result-label">Hilliness</span>
+            <span class="result-value">{{ "%.0f"|format(result.hilliness_score) }} m/km</span>
+        </div>
+
+        {% if result.grade_histogram %}
+        <div class="grade-histogram">
+            <h4>Time at Grade</h4>
+            <div class="histogram-bars">
+                {% set total_time = result.grade_histogram.values() | sum %}
+                {% for label, seconds in result.grade_histogram.items() %}
+                {% set pct = (seconds / total_time * 100) if total_time > 0 else 0 %}
+                <div class="histogram-bar">
+                    <div class="bar-container">
+                        <div class="bar" style="height: {{ pct }}%;"></div>
+                    </div>
+                    <span class="label">{{ label }}</span>
+                    {% if pct >= 1 %}<span class="pct">{{ "%.0f"|format(pct) }}%</span>{% endif %}
+                </div>
+                {% endfor %}
+            </div>
         </div>
         {% endif %}
 
@@ -1366,6 +1437,7 @@ def analyze_single_route(url: str, params: RiderParams) -> dict:
         points = smooth_elevations(points, smoothing_radius, api_elevation_scale)
 
     analysis = analyze(points, params)
+    hilliness = calculate_hilliness(points, params)
 
     # Prefer API's unpaved_pct if available, otherwise calculate from track points
     unpaved_pct = route_metadata.get("unpaved_pct") if route_metadata else None
@@ -1392,6 +1464,8 @@ def analyze_single_route(url: str, params: RiderParams) -> dict:
         "unpaved_pct": unpaved_pct,
         "elevation_scale": api_elevation_scale,
         "elevation_scaled": abs(api_elevation_scale - 1.0) > 0.05,
+        "hilliness_score": hilliness.hilliness_score,
+        "grade_histogram": hilliness.grade_time_histogram,
     }
 
 
