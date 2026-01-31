@@ -280,20 +280,20 @@ def calculate_hilliness(
         work, _, elapsed = calculate_segment_work(pt_a, pt_b, params)
         total_time += elapsed
 
+        # Use rolling grade for all grade metrics (300m window, matches RWGPS methodology)
+        rolling_grade = rolling_grades[i - 1] if i - 1 < len(rolling_grades) else 0.0
+
         # Accumulate steepness data for climbing segments >= threshold
-        if grade_pct >= STEEPNESS_MIN_GRADE_PCT and work > 0:
-            weighted_grade_sum += grade_pct * work
+        if rolling_grade >= STEEPNESS_MIN_GRADE_PCT and work > 0:
+            weighted_grade_sum += rolling_grade * work
             climbing_work_sum += work
 
-        # Bin the grade (using point-to-point for main histogram)
+        # Bin the grade using rolling average
         for j in range(len(GRADE_BINS) - 1):
-            if GRADE_BINS[j] <= grade_pct < GRADE_BINS[j + 1]:
+            if GRADE_BINS[j] <= rolling_grade < GRADE_BINS[j + 1]:
                 grade_times[GRADE_LABELS[j]] += elapsed
                 grade_distances[GRADE_LABELS[j]] += dist
                 break
-
-        # Use rolling grade for steep metrics (consistent with max grade calculation)
-        rolling_grade = rolling_grades[i - 1] if i - 1 < len(rolling_grades) else 0.0
 
         # Track steep distances using rolling grade
         if rolling_grade >= 10:
