@@ -22,7 +22,7 @@
       "route_url": "https://ridewithgps.com/routes/53834800",
       "trip_url": "https://ridewithgps.com/trips/362831000",
       "avg_watts": 101,
-      "tags": ["road", "gravel","hilly", "california"],
+      "tags": ["road", "gravel", "hilly", "california"],
       "notes": "Road with some gravel with significant climbing"
     },
     {
@@ -30,7 +30,7 @@
       "route_url": "https://ridewithgps.com/routes/49041362",
       "trip_url": "https://ridewithgps.com/trips/363067855",
       "avg_watts": 101,
-      "tags": ["road", "gravel","hilly", "california"],
+      "tags": ["road", "gravel", "hilly", "california"],
       "notes": "Road with some gravel with significant climbing"
     },
     {
@@ -38,7 +38,7 @@
       "route_url": "https://ridewithgps.com/routes/49059599",
       "trip_url": "https://ridewithgps.com/trips/238106693",
       "avg_watts": 120,
-      "tags": ["road", "gravel","hilly", "california"],
+      "tags": ["road", "gravel", "hilly", "california"],
       "notes": "Road with some gravel with significant climbing"
     },
     {
@@ -46,7 +46,7 @@
       "route_url": "https://ridewithgps.com/routes/51865658",
       "trip_url": "https://ridewithgps.com/trips/314588305",
       "avg_watts": 120,
-      "tags": ["road", "gravel","hilly", "california"],
+      "tags": ["road", "gravel", "hilly", "california"],
       "notes": "Road with some gravel with significant climbing"
     },
     {
@@ -54,7 +54,7 @@
       "route_url": "https://ridewithgps.com/routes/50410710",
       "trip_url": "https://ridewithgps.com/trips/284165812",
       "avg_watts": 110,
-      "tags": ["road", "gravel","hilly", "spain"],
+      "tags": ["road", "gravel", "hilly", "spain"],
       "notes": "Road with some gravel with significant climbing"
     },
     {
@@ -62,7 +62,7 @@
       "route_url": "https://ridewithgps.com/routes/50532002",
       "trip_url": "https://ridewithgps.com/trips/276204729",
       "avg_watts": 91,
-      "tags": ["road", "gravel","flat", "france"],
+      "tags": ["road", "gravel", "flat", "france"],
       "notes": "Road with some gravel with little climbing"
     },
     {
@@ -71,7 +71,7 @@
       "trip_url": "https://ridewithgps.com/trips/50720949",
       "avg_watts": 116,
       "headwind": -10,
-      "tags": ["road", "gravel","hilly", "california"],
+      "tags": ["road", "gravel", "hilly", "california"],
       "notes": "Road with climbing"
     },
     {
@@ -79,8 +79,26 @@
       "route_url": "https://ridewithgps.com/routes/50387623",
       "trip_url": "https://ridewithgps.com/trips/276589889",
       "avg_watts": 100,
-      "headwind": -10,
-      "tags": ["road", "gravel","hilly", "france"],
+      "headwind": 0,
+      "tags": ["road", "gravel", "hilly", "france"],
+      "notes": "Road with climbing"
+    },
+    {
+      "name": "Le Col d'Ares gravel",
+      "route_url": "https://ridewithgps.com/routes/50345179",
+      "trip_url": "https://ridewithgps.com/trips/281839254",
+      "avg_watts": 110,
+      "headwind": 0,
+      "tags": ["road", "gravel", "hilly", "france"],
+      "notes": "Road with climbing"
+    },
+    {
+      "name": "Mt Hamilton",
+      "route_url": "https://ridewithgps.com/routes/32758196",
+      "trip_url": "https://ridewithgps.com/trips/204649736",
+      "avg_watts": 106,
+      "headwind": 0,
+      "tags": ["road", "hilly", "california"],
       "notes": "Road with climbing"
     }
   ]
