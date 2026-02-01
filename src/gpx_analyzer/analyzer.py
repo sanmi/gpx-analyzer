@@ -6,6 +6,7 @@ from geopy.distance import geodesic
 
 from gpx_analyzer.models import RideAnalysis, RiderParams, TrackPoint
 from gpx_analyzer.physics import calculate_segment_work, estimate_speed_from_power
+from gpx_analyzer.smoothing import smooth_elevations
 
 # Speed below this threshold (m/s) counts as stopped
 MOVING_SPEED_THRESHOLD = 0.5  # ~1.8 km/h
@@ -141,6 +142,14 @@ STEEP_GRADE_LABELS = ['10-12%', '12-14%', '14-16%', '16-18%', '18-20%', '>20%']
 # 150m balances capturing steep sections vs filtering route GPS noise
 DEFAULT_MAX_GRADE_WINDOW = 150.0  # meters
 
+# Maximum realistic grade for paved roads (filters GPS/elevation data errors)
+# Steepest paved roads are ~35% (Baldwin Street NZ), most cycling roads < 25%
+MAX_REALISTIC_GRADE = 35.0  # percent
+
+# Default smoothing radius for max grade calculation (filters GPS elevation noise)
+# Separate from main smoothing to allow more aggressive noise filtering for max grade
+DEFAULT_MAX_GRADE_SMOOTHING = 150.0  # meters
+
 # Minimum grade to count as "climbing" for steepness calculation
 STEEPNESS_MIN_GRADE_PCT = 2.0
 
@@ -183,6 +192,8 @@ def _calculate_rolling_grades(points: list[TrackPoint], window: float) -> list[f
         if dist >= window / 2:
             delta_elev = elevations[j] - elevations[i]
             grade = (delta_elev / dist) * 100
+            # Cap at realistic max to filter GPS/elevation errors
+            grade = min(grade, MAX_REALISTIC_GRADE)
             rolling_grades.append(grade)
         else:
             rolling_grades.append(0.0)
@@ -212,6 +223,7 @@ def calculate_hilliness(
     params: RiderParams,
     unscaled_points: list[TrackPoint] | None = None,
     max_grade_window: float = DEFAULT_MAX_GRADE_WINDOW,
+    max_grade_smoothing: float = DEFAULT_MAX_GRADE_SMOOTHING,
 ) -> HillinessAnalysis:
     """Calculate hilliness score, steepness score, and time-at-grade histogram.
 
@@ -223,6 +235,7 @@ def calculate_hilliness(
     (to match RWGPS methodology which uses raw GPS elevation for max grade).
 
     max_grade_window controls the rolling average window size for max grade calculation.
+    max_grade_smoothing controls additional smoothing applied before max grade calculation.
     """
     if len(points) < 2:
         return HillinessAnalysis(
@@ -250,8 +263,10 @@ def calculate_hilliness(
     very_steep_distance = 0.0
 
     # Calculate rolling grades for max grade (filters GPS noise)
-    # Use unscaled points if provided (matches RWGPS methodology)
+    # Use unscaled points if provided, then apply additional smoothing for max grade
     grade_points = unscaled_points if unscaled_points is not None else points
+    if max_grade_smoothing > 0:
+        grade_points = smooth_elevations(grade_points, max_grade_smoothing, 1.0)
     rolling_grades = _calculate_rolling_grades(grade_points, max_grade_window)
     max_grade = max(rolling_grades) if rolling_grades else 0.0
 
