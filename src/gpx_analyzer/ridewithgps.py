@@ -16,8 +16,10 @@ CONFIG_DIR = Path.home() / ".config" / "gpx-analyzer"
 CONFIG_PATH = CONFIG_DIR / "gpx-analyzer.json"
 CACHE_DIR = Path.home() / ".cache" / "gpx-analyzer"
 ROUTES_DIR = CACHE_DIR / "routes"
+TRIPS_DIR = CACHE_DIR / "trips"
 CACHE_INDEX_PATH = CACHE_DIR / "cache_index.json"
 MAX_CACHED_ROUTES = 10
+MAX_CACHED_TRIPS = 20
 
 RIDEWITHGPS_PATTERN = re.compile(r"^https?://(?:www\.)?ridewithgps\.com/routes/(\d+)")
 RIDEWITHGPS_TRIP_PATTERN = re.compile(r"^https?://(?:www\.)?ridewithgps\.com/trips/(\d+)")
@@ -218,6 +220,89 @@ def _enforce_lru_limit() -> None:
         del index[route_id_str]
 
     _save_cache_index(index)
+
+
+# Trip caching functions (similar to route caching but for JSON trip data)
+TRIP_CACHE_INDEX_PATH = CACHE_DIR / "trip_cache_index.json"
+
+
+def _get_cached_trip_path(trip_id: int) -> Path | None:
+    """Get the cached trip file path if it exists, None otherwise."""
+    path = TRIPS_DIR / f"{trip_id}.json"
+    if path.exists():
+        return path
+    return None
+
+
+def _save_trip_to_cache(trip_id: int, trip_data: dict) -> Path:
+    """Save trip JSON data to cache and update the index."""
+    TRIPS_DIR.mkdir(parents=True, exist_ok=True)
+
+    path = TRIPS_DIR / f"{trip_id}.json"
+    with path.open("w") as f:
+        json.dump(trip_data, f)
+
+    _update_trip_lru(trip_id)
+    _enforce_trip_lru_limit()
+
+    return path
+
+
+def _load_trip_cache_index() -> dict[str, float]:
+    """Load the trip cache index from disk."""
+    if not TRIP_CACHE_INDEX_PATH.exists():
+        return {}
+    try:
+        with TRIP_CACHE_INDEX_PATH.open() as f:
+            return json.load(f)
+    except (json.JSONDecodeError, OSError):
+        return {}
+
+
+def _save_trip_cache_index(index: dict[str, float]) -> None:
+    """Save the trip cache index to disk."""
+    CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    with TRIP_CACHE_INDEX_PATH.open("w") as f:
+        json.dump(index, f)
+
+
+def _update_trip_lru(trip_id: int) -> None:
+    """Update the LRU access time for a trip."""
+    index = _load_trip_cache_index()
+    index[str(trip_id)] = time.time()
+    _save_trip_cache_index(index)
+
+
+def _enforce_trip_lru_limit() -> None:
+    """Remove oldest cached trip files if over the limit."""
+    index = _load_trip_cache_index()
+
+    if len(index) <= MAX_CACHED_TRIPS:
+        return
+
+    sorted_entries = sorted(index.items(), key=lambda x: x[1])
+    to_remove = sorted_entries[: len(index) - MAX_CACHED_TRIPS]
+
+    for trip_id_str, _ in to_remove:
+        path = TRIPS_DIR / f"{trip_id_str}.json"
+        if path.exists():
+            path.unlink()
+        del index[trip_id_str]
+
+    _save_trip_cache_index(index)
+
+
+def _load_cached_trip(trip_id: int) -> dict | None:
+    """Load trip data from cache if available."""
+    path = _get_cached_trip_path(trip_id)
+    if path is None:
+        return None
+    try:
+        with path.open() as f:
+            _update_trip_lru(trip_id)
+            return json.load(f)
+    except (json.JSONDecodeError, OSError):
+        return None
 
 
 # Surface type crr deltas from baseline (R=3 quality paved is the baseline)
@@ -500,6 +585,9 @@ def parse_trip_track_points(trip_data: dict) -> list[TripPoint]:
 def get_trip_data(url: str) -> tuple[list[TripPoint], dict]:
     """Get trip track points from RideWithGPS JSON API.
 
+    Downloads and caches the trip JSON if not already cached.
+    Updates LRU access time on cache hit.
+
     Args:
         url: The RideWithGPS trip URL
 
@@ -513,7 +601,12 @@ def get_trip_data(url: str) -> tuple[list[TripPoint], dict]:
     trip_id = extract_trip_id(url)
     privacy_code = extract_privacy_code(url)
 
-    trip_data = _download_trip_json(trip_id, privacy_code)
+    # Check cache first
+    trip_data = _load_cached_trip(trip_id)
+    if trip_data is None:
+        trip_data = _download_trip_json(trip_id, privacy_code)
+        _save_trip_to_cache(trip_id, trip_data)
+
     points = parse_trip_track_points(trip_data)
 
     # Extract useful metadata

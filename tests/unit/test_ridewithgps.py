@@ -1108,8 +1108,10 @@ class TestGetTripData:
         monkeypatch.delenv("RIDEWITHGPS_API_KEY", raising=False)
         monkeypatch.delenv("RIDEWITHGPS_AUTH_TOKEN", raising=False)
 
+    @patch.object(ridewithgps, "_save_trip_to_cache")
+    @patch.object(ridewithgps, "_load_cached_trip", return_value=None)
     @patch.object(ridewithgps, "_download_trip_json")
-    def test_returns_points_and_metadata(self, mock_download, no_config):
+    def test_returns_points_and_metadata(self, mock_download, mock_cache_load, mock_cache_save, no_config):
         mock_download.return_value = {
             "trip": {
                 "name": "Test Ride",
