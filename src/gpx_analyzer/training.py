@@ -82,11 +82,31 @@ def _calculate_trip_max_grade(points: list[TripPoint], window: float = 50.0) -> 
     """Calculate max grade from trip points using rolling average over distance window.
 
     Uses the cumulative distance from trip points for more accurate measurement.
+    If cumulative distance is not available, calculates it from lat/lon coordinates.
     Skips segments with missing elevation data.
-    Uses 50m window (shorter than route's 300m) to capture actual steep sections.
+    Uses 50m window (shorter than route's 150m) to capture actual steep sections.
     """
+    from geopy.distance import geodesic
+
     if len(points) < 2:
         return 0.0
+
+    # Check if cumulative distance data is available
+    has_distance = any(p.distance > 0 for p in points)
+
+    # Build cumulative distance array
+    cum_dist = [0.0] * len(points)
+    if has_distance:
+        for i, p in enumerate(points):
+            cum_dist[i] = p.distance
+    else:
+        # Calculate cumulative distance from lat/lon
+        for i in range(1, len(points)):
+            d = geodesic(
+                (points[i - 1].lat, points[i - 1].lon),
+                (points[i].lat, points[i].lon)
+            ).meters
+            cum_dist[i] = cum_dist[i - 1] + d
 
     max_grade = 0.0
 
@@ -95,20 +115,20 @@ def _calculate_trip_max_grade(points: list[TripPoint], window: float = 50.0) -> 
         if points[i].elevation is None:
             continue
 
-        start_dist = points[i].distance
+        start_dist = cum_dist[i]
         start_elev = points[i].elevation
 
         # Find point approximately 'window' meters ahead
         target_dist = start_dist + window
         j = i + 1
-        while j < len(points) - 1 and points[j].distance < target_dist:
+        while j < len(points) - 1 and cum_dist[j] < target_dist:
             j += 1
 
         # Skip if end point has no elevation
         if points[j].elevation is None:
             continue
 
-        end_dist = points[j].distance
+        end_dist = cum_dist[j]
         end_elev = points[j].elevation
 
         dist_delta = end_dist - start_dist
