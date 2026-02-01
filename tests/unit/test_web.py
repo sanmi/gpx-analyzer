@@ -442,6 +442,69 @@ class TestInfoModals:
         assert "Rolling resistance" in html
 
 
+class TestElevationProfile:
+    @pytest.fixture
+    def mock_route_points(self):
+        """Create mock track points with elevation for profile testing."""
+        return [
+            TrackPoint(lat=37.7749, lon=-122.4194, elevation=0.0, time=None),
+            TrackPoint(lat=37.7758, lon=-122.4183, elevation=50.0, time=None),
+            TrackPoint(lat=37.7767, lon=-122.4172, elevation=100.0, time=None),
+            TrackPoint(lat=37.7776, lon=-122.4161, elevation=80.0, time=None),
+        ]
+
+    @patch.object(web, "get_route_with_surface")
+    def test_returns_png_image(self, mock_get_route, client, no_config, mock_route_points):
+        """Elevation profile endpoint should return a PNG image."""
+        mock_get_route.return_value = (
+            mock_route_points,
+            {"name": "Test Route", "elevation_gain": 100},
+        )
+
+        response = client.get("/elevation-profile", query_string={
+            "url": "https://ridewithgps.com/routes/12345",
+            "power": "100",
+            "mass": "85",
+            "headwind": "0",
+        })
+
+        assert response.status_code == 200
+        assert response.content_type == "image/png"
+        # PNG files start with these magic bytes
+        assert response.data[:8] == b'\x89PNG\r\n\x1a\n'
+
+    def test_invalid_url_returns_placeholder_image(self, client, no_config):
+        """Invalid URL should return a placeholder PNG image."""
+        response = client.get("/elevation-profile", query_string={
+            "url": "https://example.com/routes/123",
+            "power": "100",
+            "mass": "85",
+            "headwind": "0",
+        })
+
+        # Should return a placeholder PNG (not a text error)
+        assert response.status_code == 200
+        assert response.content_type == "image/png"
+        assert response.data[:8] == b'\x89PNG\r\n\x1a\n'
+
+    @patch.object(web, "get_route_with_surface")
+    def test_route_error_returns_error_image(self, mock_get_route, client, no_config):
+        """Route fetching error should return an error PNG image."""
+        mock_get_route.side_effect = Exception("Network error")
+
+        response = client.get("/elevation-profile", query_string={
+            "url": "https://ridewithgps.com/routes/12345",
+            "power": "100",
+            "mass": "85",
+            "headwind": "0",
+        })
+
+        # Should return an error PNG (not crash)
+        assert response.status_code == 200
+        assert response.content_type == "image/png"
+        assert response.data[:8] == b'\x89PNG\r\n\x1a\n'
+
+
 class TestElevationScaling:
     @pytest.fixture
     def mock_route_points(self):

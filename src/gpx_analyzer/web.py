@@ -13,7 +13,9 @@ matplotlib.use('Agg')  # Non-interactive backend for server
 import matplotlib.pyplot as plt
 
 from gpx_analyzer import __version_date__, get_git_hash
-from gpx_analyzer.analyzer import analyze, calculate_hilliness, DEFAULT_MAX_GRADE_WINDOW, DEFAULT_MAX_GRADE_SMOOTHING
+from gpx_analyzer.analyzer import analyze, calculate_hilliness, DEFAULT_MAX_GRADE_WINDOW, DEFAULT_MAX_GRADE_SMOOTHING, GRADE_BINS
+from gpx_analyzer.physics import calculate_segment_work
+from geopy.distance import geodesic
 from gpx_analyzer.cli import calculate_elevation_gain, calculate_surface_breakdown, DEFAULTS
 from gpx_analyzer.models import RiderParams
 from gpx_analyzer.ridewithgps import (
@@ -369,6 +371,23 @@ HTML_TEMPLATE = """
         .histogram-bar .pct {
             font-size: 0.6em;
             color: #666;
+        }
+        .elevation-profile {
+            margin-top: 20px;
+            background: white;
+            border-radius: 8px;
+            padding: 15px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .elevation-profile h4 {
+            margin: 0 0 10px 0;
+            font-size: 0.95em;
+            color: #333;
+        }
+        .elevation-profile img {
+            width: 100%;
+            height: auto;
+            display: block;
         }
         .route-map {
             margin-top: 20px;
@@ -1765,7 +1784,7 @@ HTML_TEMPLATE = """
                 </div>
             </div>
             {% set steep_labels = ['10-12', '12-14', '14-16', '16-18', '18-20', '>20'] %}
-            {% set steep_colors = ['#ffb399', '#ff9966', '#ff7f33', '#ff6600', '#e55a00', '#cc4400'] %}
+            {% set steep_colors = ['#e55a00', '#cc4400', '#b33300', '#992200', '#801100', '#660000'] %}
             <div class="histograms-container">
                 <div class="grade-histogram">
                     <h4>Time at Steep Grade</h4>
@@ -1812,6 +1831,12 @@ HTML_TEMPLATE = """
             Elevation scaled {{ "%.2f"|format(result.elevation_scale) }}x to match RideWithGPS API data.
         </div>
         {% endif %}
+
+        <div class="elevation-profile">
+            <h4>Elevation Profile</h4>
+            <img src="/elevation-profile?url={{ url|urlencode }}&power={{ power }}&mass={{ mass }}&headwind={{ headwind }}"
+                 alt="Elevation profile" loading="lazy">
+        </div>
 
         {% if route_id %}
         <div class="route-map">
@@ -2130,6 +2155,161 @@ def generate_histogram_image(result: dict):
     plt.close(fig)
     buf.seek(0)
     return send_file(buf, mimetype='image/png')
+
+
+def generate_elevation_profile(url: str, params: RiderParams) -> bytes:
+    """Generate elevation profile image with grade-based coloring.
+
+    Returns PNG image as bytes.
+    """
+    from matplotlib.collections import PolyCollection
+    import numpy as np
+
+    config = _load_config() or {}
+    smoothing_radius = config.get("smoothing", DEFAULTS["smoothing"])
+
+    points, route_metadata = get_route_with_surface(url, params.crr)
+
+    if len(points) < 2:
+        raise ValueError("Route contains fewer than 2 track points")
+
+    # Apply smoothing
+    api_elevation_scale = 1.0
+    api_elevation_gain = route_metadata.get("elevation_gain") if route_metadata else None
+    if api_elevation_gain and api_elevation_gain > 0:
+        unscaled = smooth_elevations(points, smoothing_radius, 1.0)
+        smoothed_gain = calculate_elevation_gain(unscaled)
+        if smoothed_gain > 0:
+            api_elevation_scale = api_elevation_gain / smoothed_gain
+
+    points = smooth_elevations(points, smoothing_radius, api_elevation_scale)
+
+    # Calculate cumulative time and elevation at each point
+    cum_time = [0.0]
+    elevations = [points[0].elevation or 0.0]
+    grades = []
+
+    for i in range(1, len(points)):
+        _, dist, elapsed = calculate_segment_work(points[i-1], points[i], params)
+        cum_time.append(cum_time[-1] + elapsed)
+        elevations.append(points[i].elevation or elevations[-1])
+
+        # Calculate grade for this segment
+        if dist > 0:
+            elev_change = elevations[-1] - elevations[-2]
+            grade = (elev_change / dist) * 100
+        else:
+            grade = 0.0
+        grades.append(grade)
+
+    # Convert to hours
+    times_hours = [t / 3600 for t in cum_time]
+
+    # Grade to color mapping - matches histogram colors exactly
+    # Main histogram colors: <-10, -10, -8, -6, -4, -2, 0, +2, +4, +6, +8, >10
+    main_colors = [
+        '#4a90d9', '#5a9fd9', '#6aaee0', '#7abde7', '#8acbef', '#9adaf6',
+        '#cccccc',
+        '#ffb399', '#ff9966', '#ff7f33', '#ff6600', '#e55a00'
+    ]
+    # Steep histogram colors: 10-12, 12-14, 14-16, 16-18, 18-20, >20
+    steep_colors = ['#e55a00', '#cc4400', '#b33300', '#992200', '#801100', '#660000']
+
+    def grade_to_color(g):
+        """Map grade to histogram color."""
+        # For grades >= 10%, use steep histogram colors
+        if g >= 10:
+            if g < 12:
+                return steep_colors[0]
+            elif g < 14:
+                return steep_colors[1]
+            elif g < 16:
+                return steep_colors[2]
+            elif g < 18:
+                return steep_colors[3]
+            elif g < 20:
+                return steep_colors[4]
+            else:
+                return steep_colors[5]
+        # For grades < 10%, use main histogram colors
+        for i, threshold in enumerate(GRADE_BINS[1:]):
+            if g < threshold:
+                return main_colors[i]
+        return main_colors[-1]
+
+    # Create figure - wide aspect ratio for full width
+    fig, ax = plt.subplots(figsize=(14, 4), facecolor='white')
+
+    # Draw filled segments colored by grade
+    for i in range(len(grades)):
+        t0, t1 = times_hours[i], times_hours[i+1]
+        e0, e1 = elevations[i], elevations[i+1]
+        color = grade_to_color(grades[i])
+
+        # Fill from 0 to elevation
+        ax.fill_between([t0, t1], [0, 0], [e0, e1], color=color, linewidth=0)
+
+    # Add outline on top
+    ax.plot(times_hours, elevations, color='#333333', linewidth=0.5)
+
+    # Style the plot
+    ax.set_xlim(0, times_hours[-1])
+    ax.set_ylim(0, max(elevations) * 1.1)
+    ax.set_xlabel('Time (hours)', fontsize=10)
+    ax.set_ylabel('Elevation (m)', fontsize=10)
+
+    # Add title with route info
+    name = route_metadata.get("name", "Elevation Profile") if route_metadata else "Elevation Profile"
+    total_time = times_hours[-1]
+    ax.set_title(f"{name} - {total_time:.1f}h", fontsize=12, fontweight='bold')
+
+    ax.spines['top'].set_visible(False)
+    ax.spines['right'].set_visible(False)
+    ax.grid(axis='y', alpha=0.3, linestyle='-', linewidth=0.5)
+
+    plt.tight_layout()
+
+    buf = io.BytesIO()
+    fig.savefig(buf, format='png', dpi=100, bbox_inches='tight',
+                facecolor='white', edgecolor='none')
+    plt.close(fig)
+    buf.seek(0)
+    return buf.getvalue()
+
+
+@app.route("/elevation-profile")
+def elevation_profile():
+    """Serve elevation profile image for a route."""
+    url = request.args.get("url", "")
+    power = float(request.args.get("power", DEFAULTS["power"]))
+    mass = float(request.args.get("mass", DEFAULTS["mass"]))
+    headwind = float(request.args.get("headwind", DEFAULTS["headwind"]))
+
+    if not url or not is_ridewithgps_url(url):
+        # Return a placeholder image
+        fig, ax = plt.subplots(figsize=(14, 4), facecolor='white')
+        ax.text(0.5, 0.5, 'No route selected', ha='center', va='center', fontsize=14, color='#999')
+        ax.axis('off')
+        buf = io.BytesIO()
+        fig.savefig(buf, format='png', dpi=100, bbox_inches='tight', facecolor='white')
+        plt.close(fig)
+        buf.seek(0)
+        return send_file(buf, mimetype='image/png')
+
+    try:
+        params = build_params(power, mass, headwind)
+        img_bytes = generate_elevation_profile(url, params)
+        return send_file(io.BytesIO(img_bytes), mimetype='image/png')
+    except Exception as e:
+        # Return error image
+        fig, ax = plt.subplots(figsize=(14, 4), facecolor='white')
+        ax.text(0.5, 0.5, f'Error: {str(e)[:50]}', ha='center', va='center', fontsize=12, color='#cc0000')
+        ax.axis('off')
+        buf = io.BytesIO()
+        fig.savefig(buf, format='png', dpi=100, bbox_inches='tight', facecolor='white')
+        plt.close(fig)
+        buf.seek(0)
+        return send_file(buf, mimetype='image/png')
 
 
 def extract_route_id(url: str) -> str | None:
