@@ -4,7 +4,7 @@ import json
 from dataclasses import dataclass
 from pathlib import Path
 
-from gpx_analyzer.analyzer import analyze, calculate_hilliness, MAX_GRADE_WINDOW
+from gpx_analyzer.analyzer import analyze, calculate_hilliness, DEFAULT_MAX_GRADE_WINDOW
 from gpx_analyzer.compare import ComparisonResult, compare_route_with_trip, _calculate_actual_work
 from gpx_analyzer.models import RiderParams
 from gpx_analyzer.ridewithgps import (
@@ -151,6 +151,8 @@ def analyze_training_route(
     smoothing_radius: float = 50.0,
     elevation_scale: float = 1.0,
     use_trip_elevation: bool = True,
+    max_grade_window_route: float = DEFAULT_MAX_GRADE_WINDOW,
+    max_grade_window_trip: float = 50.0,
 ) -> TrainingResult | None:
     """Analyze a single training route and return comparison results.
 
@@ -160,6 +162,8 @@ def analyze_training_route(
         smoothing_radius: Elevation smoothing radius in meters
         elevation_scale: Manual elevation scale factor
         use_trip_elevation: If True, scale route elevation to match trip elevation
+        max_grade_window_route: Rolling window size for route max grade (meters)
+        max_grade_window_trip: Rolling window size for trip max grade (meters)
     """
     # Validate URLs
     if not is_ridewithgps_url(route.route_url):
@@ -243,9 +247,9 @@ def analyze_training_route(
         unpaved_pct = route_metadata.get("unpaved_pct", 0) or 0
 
         # Calculate max grades
-        hilliness = calculate_hilliness(smoothed, route_params, route_points)
+        hilliness = calculate_hilliness(smoothed, route_params, route_points, max_grade_window_route)
         route_max_grade = hilliness.max_grade
-        trip_max_grade = _calculate_trip_max_grade(trip_points)
+        trip_max_grade = _calculate_trip_max_grade(trip_points, max_grade_window_trip)
 
         return TrainingResult(
             route=route,
@@ -270,13 +274,19 @@ def run_training_analysis(
     params: RiderParams,
     smoothing_radius: float = 50.0,
     elevation_scale: float = 1.0,
+    max_grade_window_route: float = DEFAULT_MAX_GRADE_WINDOW,
+    max_grade_window_trip: float = 50.0,
 ) -> tuple[list[TrainingResult], TrainingSummary]:
     """Run analysis on all training routes and compute summary statistics."""
     results: list[TrainingResult] = []
 
     for route in training_data:
         print(f"Analyzing: {route.name}...")
-        result = analyze_training_route(route, params, smoothing_radius, elevation_scale)
+        result = analyze_training_route(
+            route, params, smoothing_radius, elevation_scale,
+            max_grade_window_route=max_grade_window_route,
+            max_grade_window_trip=max_grade_window_trip,
+        )
         if result:
             results.append(result)
 

@@ -14,5 +14,7 @@
     "steep_descent_grade": -4.0,
     "smoothing": 50.0,
     "elevation_scale": 1.0,
-    "headwind": 0.0
+    "headwind": 0.0,
+    "max_grade_window_route": 150.0,
+    "max_grade_window_trip": 50.0
 }

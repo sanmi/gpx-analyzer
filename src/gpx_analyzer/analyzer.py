@@ -137,9 +137,9 @@ GRADE_LABELS = ['<-10%', '-10%', '-8%', '-6%', '-4%', '-2%', '0%', '2%', '4%', '
 STEEP_GRADE_BINS = [10, 12, 14, 16, 18, 20, float('inf')]
 STEEP_GRADE_LABELS = ['10-12%', '12-14%', '14-16%', '16-18%', '18-20%', '>20%']
 
-# Rolling window for max grade calculation (filters GPS noise)
+# Default rolling window for max grade calculation (filters GPS noise)
 # 150m balances capturing steep sections vs filtering route GPS noise
-MAX_GRADE_WINDOW = 150.0  # meters
+DEFAULT_MAX_GRADE_WINDOW = 150.0  # meters
 
 # Minimum grade to count as "climbing" for steepness calculation
 STEEPNESS_MIN_GRADE_PCT = 2.0
@@ -210,6 +210,7 @@ def calculate_hilliness(
     points: list[TrackPoint],
     params: RiderParams,
     unscaled_points: list[TrackPoint] | None = None,
+    max_grade_window: float = DEFAULT_MAX_GRADE_WINDOW,
 ) -> HillinessAnalysis:
     """Calculate hilliness score, steepness score, and time-at-grade histogram.
 
@@ -219,6 +220,8 @@ def calculate_hilliness(
 
     If unscaled_points is provided, max grade is calculated from those points
     (to match RWGPS methodology which uses raw GPS elevation for max grade).
+
+    max_grade_window controls the rolling average window size for max grade calculation.
     """
     if len(points) < 2:
         return HillinessAnalysis(
@@ -248,7 +251,7 @@ def calculate_hilliness(
     # Calculate rolling grades for max grade (filters GPS noise)
     # Use unscaled points if provided (matches RWGPS methodology)
     grade_points = unscaled_points if unscaled_points is not None else points
-    rolling_grades = _calculate_rolling_grades(grade_points, MAX_GRADE_WINDOW)
+    rolling_grades = _calculate_rolling_grades(grade_points, max_grade_window)
     max_grade = max(rolling_grades) if rolling_grades else 0.0
 
     # For steepness calculation (effort-weighted average grade)

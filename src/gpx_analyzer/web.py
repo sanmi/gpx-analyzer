@@ -13,7 +13,7 @@ matplotlib.use('Agg')  # Non-interactive backend for server
 import matplotlib.pyplot as plt
 
 from gpx_analyzer import __version_date__, get_git_hash
-from gpx_analyzer.analyzer import analyze, calculate_hilliness
+from gpx_analyzer.analyzer import analyze, calculate_hilliness, DEFAULT_MAX_GRADE_WINDOW
 from gpx_analyzer.cli import calculate_elevation_gain, calculate_surface_breakdown, DEFAULTS
 from gpx_analyzer.models import RiderParams
 from gpx_analyzer.ridewithgps import (
@@ -1924,7 +1924,8 @@ def analyze_single_route(url: str, params: RiderParams) -> dict:
         points = smooth_elevations(points, smoothing_radius, api_elevation_scale)
 
     analysis = analyze(points, params)
-    hilliness = calculate_hilliness(points, params, unscaled_points)
+    max_grade_window = config.get("max_grade_window_route", DEFAULTS["max_grade_window_route"])
+    hilliness = calculate_hilliness(points, params, unscaled_points, max_grade_window)
 
     # Prefer API's unpaved_pct if available, otherwise calculate from track points
     unpaved_pct = route_metadata.get("unpaved_pct") if route_metadata else None

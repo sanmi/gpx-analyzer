@@ -6,7 +6,7 @@ from pathlib import Path
 from geopy.distance import geodesic
 
 from gpx_analyzer import __version_date__, get_git_hash
-from gpx_analyzer.analyzer import analyze, calculate_hilliness, GRADE_LABELS
+from gpx_analyzer.analyzer import analyze, calculate_hilliness, GRADE_LABELS, DEFAULT_MAX_GRADE_WINDOW
 from gpx_analyzer.models import RiderParams, TrackPoint
 from gpx_analyzer.parser import parse_gpx
 from gpx_analyzer.compare import compare_route_with_trip, format_comparison_report
@@ -43,6 +43,8 @@ DEFAULTS = {
     "smoothing": 50.0,
     "elevation_scale": 1.0,
     "headwind": 0.0,
+    "max_grade_window_route": 150.0,
+    "max_grade_window_trip": 50.0,
 }
 
 
@@ -259,6 +261,7 @@ def analyze_collection(
     params: RiderParams,
     smoothing_radius: float,
     elevation_scale: float,
+    max_grade_window: float = DEFAULT_MAX_GRADE_WINDOW,
 ) -> list[CollectionRouteResult]:
     """Analyze all routes in a collection."""
     results = []
@@ -291,7 +294,7 @@ def analyze_collection(
                 points = smooth_elevations(points, smoothing_radius, effective_scale)
 
             analysis = analyze(points, params)
-            hilliness = calculate_hilliness(points, params, unscaled_points)
+            hilliness = calculate_hilliness(points, params, unscaled_points, max_grade_window)
 
             # Get unpaved percentage from API metadata
             unpaved_pct = route_metadata.get("unpaved_pct", 0) if route_metadata else 0
@@ -434,8 +437,12 @@ def main(argv: list[str] | None = None) -> None:
         print("")
 
         smoothing_radius = 0.0 if args.no_smoothing else args.smoothing
+        max_grade_window_route = config.get("max_grade_window_route", DEFAULTS["max_grade_window_route"])
+        max_grade_window_trip = config.get("max_grade_window_trip", DEFAULTS["max_grade_window_trip"])
         results, summary = run_training_analysis(
-            training_data, params, smoothing_radius, args.elevation_scale
+            training_data, params, smoothing_radius, args.elevation_scale,
+            max_grade_window_route=max_grade_window_route,
+            max_grade_window_trip=max_grade_window_trip,
         )
 
         print("")
@@ -462,7 +469,10 @@ def main(argv: list[str] | None = None) -> None:
         print("")
 
         smoothing_radius = 0.0 if args.no_smoothing else args.smoothing
-        collection_results = analyze_collection(route_ids, params, smoothing_radius, args.elevation_scale)
+        max_grade_window_route = config.get("max_grade_window_route", DEFAULTS["max_grade_window_route"])
+        collection_results = analyze_collection(
+            route_ids, params, smoothing_radius, args.elevation_scale, max_grade_window_route
+        )
 
         print("")
         print(format_collection_summary(collection_results, collection_name, params, args.imperial))
@@ -521,7 +531,8 @@ def main(argv: list[str] | None = None) -> None:
         points = smooth_elevations(points, smoothing_radius, effective_scale)
 
     result = analyze(points, params)
-    hilliness = calculate_hilliness(points, params, unscaled_points)
+    max_grade_window_route = config.get("max_grade_window_route", DEFAULTS["max_grade_window_route"])
+    hilliness = calculate_hilliness(points, params, unscaled_points, max_grade_window_route)
 
     # Unit conversion factors
     if args.imperial:
