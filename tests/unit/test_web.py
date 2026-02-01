@@ -504,6 +504,42 @@ class TestElevationProfile:
         assert response.content_type == "image/png"
         assert response.data[:8] == b'\x89PNG\r\n\x1a\n'
 
+    @patch.object(web, "get_route_with_surface")
+    def test_data_endpoint_returns_json(self, mock_get_route, client, no_config, mock_route_points):
+        """Elevation profile data endpoint should return JSON with grades."""
+        mock_get_route.return_value = (
+            mock_route_points,
+            {"name": "Test Route", "elevation_gain": 100},
+        )
+
+        response = client.get("/elevation-profile-data", query_string={
+            "url": "https://ridewithgps.com/routes/12345",
+            "power": "100",
+            "mass": "85",
+            "headwind": "0",
+        })
+
+        assert response.status_code == 200
+        assert response.content_type == "application/json"
+        data = json.loads(response.data)
+        assert "times" in data
+        assert "elevations" in data
+        assert "grades" in data
+        assert "total_time" in data
+
+    def test_data_endpoint_invalid_url_returns_error(self, client, no_config):
+        """Data endpoint should return error for invalid URL."""
+        response = client.get("/elevation-profile-data", query_string={
+            "url": "https://example.com/routes/123",
+            "power": "100",
+            "mass": "85",
+            "headwind": "0",
+        })
+
+        assert response.status_code == 400
+        data = json.loads(response.data)
+        assert "error" in data
+
 
 class TestElevationScaling:
     @pytest.fixture

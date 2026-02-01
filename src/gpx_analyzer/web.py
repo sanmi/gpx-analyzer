@@ -5,15 +5,16 @@ import io
 import json
 import time
 from collections import OrderedDict
+from pathlib import Path
 from threading import Lock
 
-from flask import Flask, render_template_string, request, Response, send_file
+from flask import Flask, render_template_string, request, Response, send_file, jsonify
 import matplotlib
 matplotlib.use('Agg')  # Non-interactive backend for server
 import matplotlib.pyplot as plt
 
 from gpx_analyzer import __version_date__, get_git_hash
-from gpx_analyzer.analyzer import analyze, calculate_hilliness, DEFAULT_MAX_GRADE_WINDOW, DEFAULT_MAX_GRADE_SMOOTHING, GRADE_BINS
+from gpx_analyzer.analyzer import analyze, calculate_hilliness, DEFAULT_MAX_GRADE_WINDOW, DEFAULT_MAX_GRADE_SMOOTHING, GRADE_BINS, _calculate_rolling_grades
 from gpx_analyzer.physics import calculate_segment_work
 from geopy.distance import geodesic
 from gpx_analyzer.cli import calculate_elevation_gain, calculate_surface_breakdown, DEFAULTS
@@ -93,6 +94,72 @@ class AnalysisCache:
 
 # Global cache instance (~0.75 MB at full capacity)
 _analysis_cache = AnalysisCache(max_size=500)
+
+
+# Disk cache for elevation profile images
+PROFILE_CACHE_DIR = Path.home() / ".cache" / "gpx-analyzer" / "profiles"
+PROFILE_CACHE_INDEX_PATH = PROFILE_CACHE_DIR / "cache_index.json"
+MAX_CACHED_PROFILES = 150  # ~150 images, each ~60KB = ~9MB max
+
+
+def _make_profile_cache_key(url: str, power: float, mass: float, headwind: float) -> str:
+    """Create a unique cache key for elevation profile parameters."""
+    key_str = f"{url}|{power}|{mass}|{headwind}"
+    return hashlib.md5(key_str.encode()).hexdigest()
+
+
+def _load_profile_cache_index() -> dict:
+    """Load the profile cache index (maps cache_key -> timestamp)."""
+    if PROFILE_CACHE_INDEX_PATH.exists():
+        try:
+            with PROFILE_CACHE_INDEX_PATH.open() as f:
+                return json.load(f)
+        except (json.JSONDecodeError, IOError):
+            return {}
+    return {}
+
+
+def _save_profile_cache_index(index: dict) -> None:
+    """Save the profile cache index."""
+    PROFILE_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    with PROFILE_CACHE_INDEX_PATH.open("w") as f:
+        json.dump(index, f)
+
+
+def _get_cached_profile(cache_key: str) -> bytes | None:
+    """Load cached profile image if available."""
+    path = PROFILE_CACHE_DIR / f"{cache_key}.png"
+    if path.exists():
+        # Update access time in index
+        index = _load_profile_cache_index()
+        index[cache_key] = time.time()
+        _save_profile_cache_index(index)
+        return path.read_bytes()
+    return None
+
+
+def _save_profile_to_cache(cache_key: str, img_bytes: bytes) -> None:
+    """Save profile image to cache and enforce LRU limit."""
+    PROFILE_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+
+    path = PROFILE_CACHE_DIR / f"{cache_key}.png"
+    path.write_bytes(img_bytes)
+
+    # Update index
+    index = _load_profile_cache_index()
+    index[cache_key] = time.time()
+
+    # Enforce LRU limit
+    if len(index) > MAX_CACHED_PROFILES:
+        sorted_entries = sorted(index.items(), key=lambda x: x[1])
+        to_remove = sorted_entries[: len(index) - MAX_CACHED_PROFILES]
+        for key, _ in to_remove:
+            old_path = PROFILE_CACHE_DIR / f"{key}.png"
+            if old_path.exists():
+                old_path.unlink()
+            del index[key]
+
+    _save_profile_cache_index(index)
 
 
 app = Flask(__name__)
@@ -384,10 +451,77 @@ HTML_TEMPLATE = """
             font-size: 0.95em;
             color: #333;
         }
+        .elevation-profile-container {
+            position: relative;
+            width: 100%;
+        }
         .elevation-profile img {
             width: 100%;
             height: auto;
             display: block;
+        }
+        .elevation-tooltip {
+            position: absolute;
+            background: rgba(0, 0, 0, 0.85);
+            color: white;
+            padding: 6px 10px;
+            border-radius: 4px;
+            font-size: 12px;
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.15s;
+            white-space: nowrap;
+            z-index: 100;
+            transform: translateX(-50%);
+        }
+        .elevation-tooltip.visible {
+            opacity: 1;
+        }
+        .elevation-tooltip .grade {
+            font-weight: bold;
+            font-size: 14px;
+        }
+        .elevation-tooltip .elev {
+            color: #ccc;
+            margin-top: 2px;
+        }
+        .elevation-cursor {
+            position: absolute;
+            top: 0;
+            bottom: 0;
+            width: 1px;
+            background: rgba(0, 0, 0, 0.5);
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.15s;
+        }
+        .elevation-cursor.visible {
+            opacity: 1;
+        }
+        .elevation-loading {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 120px;
+            background: #f8f8f8;
+            border-radius: 4px;
+        }
+        .elevation-loading.hidden {
+            display: none;
+        }
+        .elevation-spinner {
+            width: 32px;
+            height: 32px;
+            border: 3px solid #e0e0e0;
+            border-top-color: #666;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        .elevation-profile img.loading {
+            display: none;
         }
         .route-map {
             margin-top: 20px;
@@ -1833,9 +1967,20 @@ HTML_TEMPLATE = """
         {% endif %}
 
         <div class="elevation-profile">
-            <h4>Elevation Profile</h4>
-            <img src="/elevation-profile?url={{ url|urlencode }}&power={{ power }}&mass={{ mass }}&headwind={{ headwind }}"
-                 alt="Elevation profile" loading="lazy">
+            <h4>Time-Based Elevation Profile</h4>
+            <div class="elevation-profile-container" id="elevationContainer">
+                <div class="elevation-loading" id="elevationLoading">
+                    <div class="elevation-spinner"></div>
+                </div>
+                <img src="/elevation-profile?url={{ url|urlencode }}&power={{ power }}&mass={{ mass }}&headwind={{ headwind }}"
+                     alt="Elevation profile" id="elevationImg" class="loading"
+                     onload="document.getElementById('elevationLoading').classList.add('hidden'); this.classList.remove('loading');">
+                <div class="elevation-cursor" id="elevationCursor"></div>
+                <div class="elevation-tooltip" id="elevationTooltip">
+                    <div class="grade">--</div>
+                    <div class="elev">--</div>
+                </div>
+            </div>
         </div>
 
         {% if route_id %}
@@ -1850,6 +1995,121 @@ HTML_TEMPLATE = """
         saveRecentUrl('{{ url }}', '{{ result.name|e if result.name else '' }}');
         // Initialize units display
         updateSingleRouteUnits();
+
+        // Elevation profile hover interaction
+        (function() {
+            const container = document.getElementById('elevationContainer');
+            const img = document.getElementById('elevationImg');
+            const tooltip = document.getElementById('elevationTooltip');
+            const cursor = document.getElementById('elevationCursor');
+            if (!container || !img || !tooltip || !cursor) return;
+
+            let profileData = null;
+
+            // Fetch profile data
+            fetch('/elevation-profile-data?url={{ url|urlencode }}&power={{ power }}&mass={{ mass }}&headwind={{ headwind }}')
+                .then(r => r.json())
+                .then(data => {
+                    if (!data.error) profileData = data;
+                })
+                .catch(() => {});
+
+            // The plot area is approximately 85% of image width (matplotlib default margins)
+            // Left margin ~12%, right margin ~3%
+            const plotLeftPct = 0.10;
+            const plotRightPct = 0.98;
+
+            function getGradeAtPosition(xPct) {
+                if (!profileData || !profileData.times || profileData.times.length < 2) return null;
+
+                // Map x position to time
+                const plotXPct = (xPct - plotLeftPct) / (plotRightPct - plotLeftPct);
+                if (plotXPct < 0 || plotXPct > 1) return null;
+
+                const time = plotXPct * profileData.total_time;
+
+                // Find the segment
+                for (let i = 0; i < profileData.times.length - 1; i++) {
+                    if (time >= profileData.times[i] && time < profileData.times[i + 1]) {
+                        return {
+                            grade: profileData.grades[i] || 0,
+                            elevation: profileData.elevations[i] || 0,
+                            time: time
+                        };
+                    }
+                }
+                // Return last segment if at end
+                const lastIdx = profileData.grades.length - 1;
+                return {
+                    grade: profileData.grades[lastIdx] || 0,
+                    elevation: profileData.elevations[lastIdx + 1] || 0,
+                    time: time
+                };
+            }
+
+            function formatGrade(g) {
+                const sign = g >= 0 ? '+' : '';
+                return sign + g.toFixed(1) + '%';
+            }
+
+            function formatTime(hours) {
+                const h = Math.floor(hours);
+                const m = Math.floor((hours - h) * 60);
+                return h + 'h ' + m.toString().padStart(2, '0') + 'm';
+            }
+
+            function handleMove(e) {
+                if (!profileData) return;
+
+                const rect = img.getBoundingClientRect();
+                let clientX;
+
+                if (e.touches) {
+                    clientX = e.touches[0].clientX;
+                } else {
+                    clientX = e.clientX;
+                }
+
+                const xPct = (clientX - rect.left) / rect.width;
+                const data = getGradeAtPosition(xPct);
+
+                if (data) {
+                    tooltip.querySelector('.grade').textContent = formatGrade(data.grade);
+                    const elevUnit = isImperial() ? 'ft' : 'm';
+                    const elevVal = isImperial() ? data.elevation * 3.28084 : data.elevation;
+                    tooltip.querySelector('.elev').textContent = Math.round(elevVal) + ' ' + elevUnit + ' | ' + formatTime(data.time);
+
+                    // Position tooltip
+                    const xPos = clientX - rect.left;
+                    tooltip.style.left = xPos + 'px';
+                    tooltip.style.bottom = '60px';
+                    tooltip.classList.add('visible');
+
+                    // Position cursor
+                    cursor.style.left = xPos + 'px';
+                    cursor.classList.add('visible');
+                } else {
+                    tooltip.classList.remove('visible');
+                    cursor.classList.remove('visible');
+                }
+            }
+
+            function handleLeave() {
+                tooltip.classList.remove('visible');
+                cursor.classList.remove('visible');
+            }
+
+            // Mouse events
+            container.addEventListener('mousemove', handleMove);
+            container.addEventListener('mouseleave', handleLeave);
+
+            // Touch events
+            container.addEventListener('touchmove', function(e) {
+                e.preventDefault();
+                handleMove(e);
+            }, { passive: false });
+            container.addEventListener('touchend', handleLeave);
+        })();
     </script>
     {% endif %}
 
@@ -1999,17 +2259,53 @@ def analyze_single_route(url: str, params: RiderParams) -> dict:
     return result
 
 
+def _get_profile_cache_stats() -> dict:
+    """Get statistics for the elevation profile disk cache."""
+    index = _load_profile_cache_index()
+    total_bytes = 0
+    for key in index:
+        path = PROFILE_CACHE_DIR / f"{key}.png"
+        if path.exists():
+            total_bytes += path.stat().st_size
+    return {
+        "size": len(index),
+        "max_size": MAX_CACHED_PROFILES,
+        "disk_mb": round(total_bytes / (1024 * 1024), 2),
+    }
+
+
+def _clear_profile_cache() -> int:
+    """Clear the elevation profile disk cache. Returns number of files removed."""
+    index = _load_profile_cache_index()
+    count = 0
+    for key in list(index.keys()):
+        path = PROFILE_CACHE_DIR / f"{key}.png"
+        if path.exists():
+            path.unlink()
+            count += 1
+    # Clear the index
+    _save_profile_cache_index({})
+    return count
+
+
 @app.route("/cache-stats")
 def cache_stats():
     """Return cache statistics as JSON."""
-    return _analysis_cache.stats()
+    return {
+        "analysis_cache": _analysis_cache.stats(),
+        "profile_cache": _get_profile_cache_stats(),
+    }
 
 
 @app.route("/cache-clear", methods=["GET", "POST"])
 def cache_clear():
-    """Clear the analysis cache."""
+    """Clear both analysis and profile image caches."""
     _analysis_cache.clear()
-    return {"status": "ok", "message": "Cache cleared"}
+    profiles_cleared = _clear_profile_cache()
+    return {
+        "status": "ok",
+        "message": f"Caches cleared (analysis cache + {profiles_cleared} profile images)"
+    }
 
 
 @app.route("/analyze-collection-stream")
@@ -2157,14 +2453,11 @@ def generate_histogram_image(result: dict):
     return send_file(buf, mimetype='image/png')
 
 
-def generate_elevation_profile(url: str, params: RiderParams) -> bytes:
-    """Generate elevation profile image with grade-based coloring.
+def _calculate_elevation_profile_data(url: str, params: RiderParams) -> dict:
+    """Calculate elevation profile data for a route.
 
-    Returns PNG image as bytes.
+    Returns dict with times_hours, elevations, grades, and route_name.
     """
-    from matplotlib.collections import PolyCollection
-    import numpy as np
-
     config = _load_config() or {}
     smoothing_radius = config.get("smoothing", DEFAULTS["smoothing"])
 
@@ -2184,26 +2477,45 @@ def generate_elevation_profile(url: str, params: RiderParams) -> bytes:
 
     points = smooth_elevations(points, smoothing_radius, api_elevation_scale)
 
+    # Calculate rolling grades (smoothed over a window, same as histograms)
+    max_grade_window = config.get("max_grade_window_route", DEFAULT_MAX_GRADE_WINDOW)
+    rolling_grades = _calculate_rolling_grades(points, max_grade_window)
+
     # Calculate cumulative time and elevation at each point
     cum_time = [0.0]
     elevations = [points[0].elevation or 0.0]
-    grades = []
 
     for i in range(1, len(points)):
         _, dist, elapsed = calculate_segment_work(points[i-1], points[i], params)
         cum_time.append(cum_time[-1] + elapsed)
         elevations.append(points[i].elevation or elevations[-1])
 
-        # Calculate grade for this segment
-        if dist > 0:
-            elev_change = elevations[-1] - elevations[-2]
-            grade = (elev_change / dist) * 100
-        else:
-            grade = 0.0
-        grades.append(grade)
-
     # Convert to hours
     times_hours = [t / 3600 for t in cum_time]
+
+    # Use rolling grades (one fewer than points, like segment grades)
+    grades = rolling_grades if rolling_grades else [0.0] * (len(points) - 1)
+
+    route_name = route_metadata.get("name", "Elevation Profile") if route_metadata else "Elevation Profile"
+
+    return {
+        "times_hours": times_hours,
+        "elevations": elevations,
+        "grades": grades,
+        "route_name": route_name,
+    }
+
+
+def generate_elevation_profile(url: str, params: RiderParams) -> bytes:
+    """Generate elevation profile image with grade-based coloring.
+
+    Returns PNG image as bytes.
+    """
+    data = _calculate_elevation_profile_data(url, params)
+    times_hours = data["times_hours"]
+    elevations = data["elevations"]
+    grades = data["grades"]
+    route_name = data["route_name"]
 
     # Grade to color mapping - matches histogram colors exactly
     # Main histogram colors: <-10, -10, -8, -6, -4, -2, 0, +2, +4, +6, +8, >10
@@ -2259,9 +2571,8 @@ def generate_elevation_profile(url: str, params: RiderParams) -> bytes:
     ax.set_ylabel('Elevation (m)', fontsize=10)
 
     # Add title with route info
-    name = route_metadata.get("name", "Elevation Profile") if route_metadata else "Elevation Profile"
     total_time = times_hours[-1]
-    ax.set_title(f"{name} - {total_time:.1f}h", fontsize=12, fontweight='bold')
+    ax.set_title(f"{route_name} - {total_time:.1f}h", fontsize=12, fontweight='bold')
 
     ax.spines['top'].set_visible(False)
     ax.spines['right'].set_visible(False)
@@ -2296,9 +2607,17 @@ def elevation_profile():
         buf.seek(0)
         return send_file(buf, mimetype='image/png')
 
+    # Check disk cache first
+    cache_key = _make_profile_cache_key(url, power, mass, headwind)
+    cached_bytes = _get_cached_profile(cache_key)
+    if cached_bytes:
+        return send_file(io.BytesIO(cached_bytes), mimetype='image/png')
+
     try:
         params = build_params(power, mass, headwind)
         img_bytes = generate_elevation_profile(url, params)
+        # Save to disk cache
+        _save_profile_to_cache(cache_key, img_bytes)
         return send_file(io.BytesIO(img_bytes), mimetype='image/png')
     except Exception as e:
         # Return error image
@@ -2310,6 +2629,43 @@ def elevation_profile():
         plt.close(fig)
         buf.seek(0)
         return send_file(buf, mimetype='image/png')
+
+
+@app.route("/elevation-profile-data")
+def elevation_profile_data():
+    """Return elevation profile data as JSON for interactive tooltip."""
+    url = request.args.get("url", "")
+    power = float(request.args.get("power", DEFAULTS["power"]))
+    mass = float(request.args.get("mass", DEFAULTS["mass"]))
+    headwind = float(request.args.get("headwind", DEFAULTS["headwind"]))
+
+    if not url or not is_ridewithgps_url(url):
+        return jsonify({"error": "Invalid URL"}), 400
+
+    try:
+        params = build_params(power, mass, headwind)
+        data = _calculate_elevation_profile_data(url, params)
+
+        # Downsample data if too many points (for performance)
+        max_points = 500
+        times = data["times_hours"]
+        elevations = data["elevations"]
+        grades = data["grades"]
+
+        if len(times) > max_points:
+            step = len(times) // max_points
+            times = times[::step]
+            elevations = elevations[::step]
+            grades = grades[::step]
+
+        return jsonify({
+            "times": times,
+            "elevations": elevations,
+            "grades": grades,
+            "total_time": data["times_hours"][-1],
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 
 def extract_route_id(url: str) -> str | None:

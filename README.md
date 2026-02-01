@@ -101,23 +101,25 @@ Then open http://localhost:5050 in your browser. The web interface supports:
 
 ### Caching
 
-The application uses two levels of caching for performance:
+The application uses multiple levels of caching for performance:
 
-1. **GPX Download Cache** - RideWithGPS route data is cached to disk (`~/.cache/gpx-analyzer/`) with LRU eviction. This reduces API calls when re-analyzing routes.
+1. **GPX Download Cache** - RideWithGPS route and trip data is cached to disk (`~/.cache/gpx-analyzer/routes/` and `trips/`) with LRU eviction. This reduces API calls when re-analyzing routes.
 
-2. **Analysis Result Cache** - Computed analysis results are cached in-memory (500 entries, ~0.75 MB). This speeds up back-and-forth route comparisons and collection re-analysis when using the same parameters.
+2. **Analysis Result Cache** - Computed analysis results are cached in-memory (500 entries, ~0.75 MB). This speeds up back-and-forth route comparisons and collection re-analysis when using the same parameters. Resets on server restart.
+
+3. **Elevation Profile Cache** - Generated elevation profile images are cached to disk (`~/.cache/gpx-analyzer/profiles/`, max 150 images, ~9 MB). This avoids regenerating expensive chart images on repeat views.
 
 Cache management endpoints (web interface):
 
 ```bash
-# View cache statistics (size, hits, misses, hit rate)
+# View cache statistics (analysis cache + profile cache)
 curl https://your-server/cache-stats
 
-# Clear the analysis cache (for testing)
+# Clear all caches (analysis + profile images)
 curl https://your-server/cache-clear
 ```
 
-The analysis cache is keyed by `(url, power, mass, headwind)` - changing any parameter triggers a fresh computation. The cache resets on server restart.
+Both caches are keyed by `(url, power, mass, headwind)` - changing any parameter triggers a fresh computation.
 
 ### RideWithGPS Integration
 
