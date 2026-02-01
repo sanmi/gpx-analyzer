@@ -138,8 +138,8 @@ STEEP_GRADE_BINS = [10, 12, 14, 16, 18, 20, float('inf')]
 STEEP_GRADE_LABELS = ['10-12%', '12-14%', '14-16%', '16-18%', '18-20%', '>20%']
 
 # Rolling window for max grade calculation (filters GPS noise)
-# 300m matches RWGPS methodology for sustained max grade
-MAX_GRADE_WINDOW = 300.0  # meters
+# 150m balances capturing steep sections vs filtering route GPS noise
+MAX_GRADE_WINDOW = 150.0  # meters
 
 # Minimum grade to count as "climbing" for steepness calculation
 STEEPNESS_MIN_GRADE_PCT = 2.0
