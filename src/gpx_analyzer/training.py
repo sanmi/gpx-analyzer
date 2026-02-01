@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from gpx_analyzer.analyzer import analyze
-from gpx_analyzer.compare import ComparisonResult, compare_route_with_trip
+from gpx_analyzer.compare import ComparisonResult, compare_route_with_trip, _calculate_actual_work
 from gpx_analyzer.models import RiderParams
 from gpx_analyzer.ridewithgps import (
     get_route_with_surface,
@@ -120,31 +120,40 @@ def analyze_training_route(
         print(f"  Skipping {route.name}: invalid trip URL")
         return None
 
-    # Use per-route power and headwind if specified, otherwise use defaults
-    power_used = route.avg_watts if route.avg_watts is not None else params.assumed_avg_power
-    headwind_used = route.headwind / 3.6 if route.headwind is not None else params.headwind
-    route_params = RiderParams(
-        total_mass=params.total_mass,
-        cda=params.cda,
-        crr=params.crr,
-        air_density=params.air_density,
-        assumed_avg_power=power_used,
-        coasting_grade_threshold=params.coasting_grade_threshold,
-        max_coasting_speed=params.max_coasting_speed,
-        max_coasting_speed_unpaved=params.max_coasting_speed_unpaved,
-        headwind=headwind_used,
-        climb_power_factor=params.climb_power_factor,
-        climb_threshold_grade=params.climb_threshold_grade,
-        steep_descent_speed=params.steep_descent_speed,
-        steep_descent_grade=params.steep_descent_grade,
-    )
-
     try:
         # Get route data
         route_points, route_metadata = get_route_with_surface(route.route_url, params.crr)
 
         # Get trip data
         trip_points, trip_metadata = get_trip_data(route.trip_url)
+
+        # Use per-route power if specified, otherwise calculate from trip, otherwise use default
+        if route.avg_watts is not None:
+            power_used = route.avg_watts
+        else:
+            # Calculate avg power from trip data points
+            _, trip_avg_power, has_power = _calculate_actual_work(trip_points)
+            if has_power and trip_avg_power:
+                power_used = trip_avg_power
+            else:
+                power_used = params.assumed_avg_power
+
+        headwind_used = route.headwind / 3.6 if route.headwind is not None else params.headwind
+        route_params = RiderParams(
+            total_mass=params.total_mass,
+            cda=params.cda,
+            crr=params.crr,
+            air_density=params.air_density,
+            assumed_avg_power=power_used,
+            coasting_grade_threshold=params.coasting_grade_threshold,
+            max_coasting_speed=params.max_coasting_speed,
+            max_coasting_speed_unpaved=params.max_coasting_speed_unpaved,
+            headwind=headwind_used,
+            climb_power_factor=params.climb_power_factor,
+            climb_threshold_grade=params.climb_threshold_grade,
+            steep_descent_speed=params.steep_descent_speed,
+            steep_descent_grade=params.steep_descent_grade,
+        )
 
         if len(route_points) < 2 or len(trip_points) < 2:
             print(f"  Skipping {route.name}: insufficient data points")
