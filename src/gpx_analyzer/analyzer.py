@@ -179,7 +179,8 @@ def _calculate_rolling_grades(points: list[TrackPoint], window: float) -> list[f
 
         # Calculate grade from i to j
         dist = cum_dist[j] - cum_dist[i]
-        if dist > 0:
+        # Skip segments shorter than half the window (avoids edge effects at route ends)
+        if dist >= window / 2:
             delta_elev = elevations[j] - elevations[i]
             grade = (delta_elev / dist) * 100
             rolling_grades.append(grade)
