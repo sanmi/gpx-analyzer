@@ -1933,7 +1933,7 @@ HTML_TEMPLATE = """
                                 <div class="bar" style="height: {{ bar_height }}%; background: {{ steep_colors[loop.index0] }};"></div>
                             </div>
                             <span class="label">{{ steep_labels[loop.index0] }}</span>
-                            <span class="pct">{% if pct >= 0.5 %}{{ "%.0f"|format(pct) }}%{% else %}&nbsp;{% endif %}</span>
+                            <span class="pct">{% if pct >= 0.5 %}{{ "%.0f"|format(pct) }}%{% elif seconds > 0 %}<1%{% else %}&nbsp;{% endif %}</span>
                         </div>
                         {% endfor %}
                     </div>
@@ -1951,7 +1951,7 @@ HTML_TEMPLATE = """
                                 <div class="bar" style="height: {{ bar_height }}%; background: {{ steep_colors[loop.index0] }};"></div>
                             </div>
                             <span class="label">{{ steep_labels[loop.index0] }}</span>
-                            <span class="pct">{% if pct >= 0.5 %}{{ "%.0f"|format(pct) }}%{% else %}&nbsp;{% endif %}</span>
+                            <span class="pct">{% if pct >= 0.5 %}{{ "%.0f"|format(pct) }}%{% elif meters > 0 %}<1%{% else %}&nbsp;{% endif %}</span>
                         </div>
                         {% endfor %}
                     </div>
