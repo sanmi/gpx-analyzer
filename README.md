@@ -1,6 +1,6 @@
 # Reality Check my Route
 
-Analyze GPX bike routes with physics-based power estimation. Calculates distance, elevation gain/loss, speed, and estimates work and average power using gravitational, rolling resistance, and aerodynamic drag models.
+Analyze RideWithGPS bike routes and collections using physics-based power estimation. Calculates distance, elevation gain/loss, speed, and estimates work and average power using gravitational, rolling resistance, and aerodynamic drag models.
 
 Supports RideWithGPS route URLs with automatic surface type detection for mixed road/gravel routes.
 
