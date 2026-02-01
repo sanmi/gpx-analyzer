@@ -112,6 +112,10 @@ def _calculate_trip_max_grade(points: list[TripPoint], window: float = 50.0) -> 
         end_elev = points[j].elevation
 
         dist_delta = end_dist - start_dist
+
+        # Skip segments shorter than half the window (avoids edge effects)
+        if dist_delta < window / 2:
+            continue
         if dist_delta > 0:
             grade = (end_elev - start_elev) / dist_delta * 100
             if grade > max_grade:
