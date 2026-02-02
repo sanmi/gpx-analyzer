@@ -20,4 +20,9 @@ def parse_gpx(filepath: str) -> list[TrackPoint]:
                         time=pt.time,
                     )
                 )
+
+    # Compute curvature for descent speed modeling
+    from gpx_analyzer.distance import compute_route_curvature
+    compute_route_curvature(points)
+
     return points

@@ -41,6 +41,10 @@ DEFAULTS = {
     "climb_threshold_grade": 4.0,
     "steep_descent_speed": 18.0,
     "steep_descent_grade": -8.0,
+    "straight_descent_speed": 45.0,
+    "hairpin_speed": 18.0,
+    "straight_curvature": 0.3,
+    "hairpin_curvature": 3.0,
     "smoothing": 50.0,
     "elevation_scale": 1.0,
     "headwind": 0.0,
@@ -164,6 +168,30 @@ def build_parser(config: dict | None = None) -> argparse.ArgumentParser:
         type=float,
         default=get_default("steep_descent_grade"),
         help=f"Grade in degrees where steep descent speed applies (default: {DEFAULTS['steep_descent_grade']})",
+    )
+    parser.add_argument(
+        "--straight-descent-speed",
+        type=float,
+        default=get_default("straight_descent_speed"),
+        help=f"Max speed on straight descents in km/h (default: {DEFAULTS['straight_descent_speed']})",
+    )
+    parser.add_argument(
+        "--hairpin-speed",
+        type=float,
+        default=get_default("hairpin_speed"),
+        help=f"Max speed through hairpin turns in km/h (default: {DEFAULTS['hairpin_speed']})",
+    )
+    parser.add_argument(
+        "--straight-curvature",
+        type=float,
+        default=get_default("straight_curvature"),
+        help=f"Curvature threshold for straight sections in deg/m (default: {DEFAULTS['straight_curvature']})",
+    )
+    parser.add_argument(
+        "--hairpin-curvature",
+        type=float,
+        default=get_default("hairpin_curvature"),
+        help=f"Curvature threshold for hairpin turns in deg/m (default: {DEFAULTS['hairpin_curvature']})",
     )
     parser.add_argument(
         "--smoothing",
@@ -431,6 +459,10 @@ def main(argv: list[str] | None = None) -> None:
         climb_threshold_grade=args.climb_threshold_grade,
         steep_descent_speed=args.steep_descent_speed / 3.6,
         steep_descent_grade=args.steep_descent_grade,
+        straight_descent_speed=args.straight_descent_speed / 3.6,
+        hairpin_speed=args.hairpin_speed / 3.6,
+        straight_curvature=args.straight_curvature,
+        hairpin_curvature=args.hairpin_curvature,
     )
 
     # Optimization mode

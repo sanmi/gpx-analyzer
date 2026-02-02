@@ -61,7 +61,7 @@ def smooth_elevations(
             avg = pt.elevation
 
         smoothed.append(
-            TrackPoint(lat=pt.lat, lon=pt.lon, elevation=avg, time=pt.time, crr=pt.crr, unpaved=pt.unpaved)
+            TrackPoint(lat=pt.lat, lon=pt.lon, elevation=avg, time=pt.time, crr=pt.crr, unpaved=pt.unpaved, curvature=pt.curvature)
         )
 
     # Apply elevation scaling if needed
@@ -81,7 +81,7 @@ def smooth_elevations(
                 else:
                     new_elev = ref_elev + (pt.elevation - ref_elev) * elevation_scale
                     scaled.append(
-                        TrackPoint(lat=pt.lat, lon=pt.lon, elevation=new_elev, time=pt.time, crr=pt.crr, unpaved=pt.unpaved)
+                        TrackPoint(lat=pt.lat, lon=pt.lon, elevation=new_elev, time=pt.time, crr=pt.crr, unpaved=pt.unpaved, curvature=pt.curvature)
                     )
             return scaled
 

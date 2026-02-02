@@ -41,13 +41,52 @@ def effective_power(slope_angle: float, params: RiderParams) -> float:
     return base_power * power_factor
 
 
-def _gradient_limited_speed(slope_angle: float, params: RiderParams, unpaved: bool) -> float:
-    """Calculate max descent speed based on gradient (braking model).
+def _curvature_limited_speed(curvature: float, params: RiderParams, unpaved: bool) -> float:
+    """Calculate max descent speed based on road curvature.
 
-    Riders brake more on steeper descents. This models the relationship:
-    - At flat (0°): max_coasting_speed (or max_coasting_speed_unpaved)
-    - At steep_descent_grade: steep_descent_speed
+    Riders brake more through tight turns. This models the relationship:
+    - Straight sections (low curvature): straight_descent_speed
+    - Hairpin turns (high curvature): hairpin_speed
     - Linear interpolation between
+
+    Args:
+        curvature: Heading change rate in degrees per meter
+        params: Rider parameters
+        unpaved: Whether the surface is unpaved
+
+    Returns:
+        Maximum speed in m/s based on curvature
+    """
+    straight_speed = params.straight_descent_speed
+    hairpin_speed = params.hairpin_speed
+
+    # For unpaved, scale down speeds proportionally
+    if unpaved:
+        unpaved_ratio = params.max_coasting_speed_unpaved / params.max_coasting_speed
+        straight_speed *= unpaved_ratio
+        hairpin_speed *= unpaved_ratio
+
+    # Straight section: use straight descent speed
+    if curvature <= params.straight_curvature:
+        return straight_speed
+
+    # Hairpin: use hairpin speed
+    if curvature >= params.hairpin_curvature:
+        return hairpin_speed
+
+    # Interpolate between straight and hairpin speeds
+    fraction = (curvature - params.straight_curvature) / (params.hairpin_curvature - params.straight_curvature)
+    return straight_speed + (hairpin_speed - straight_speed) * fraction
+
+
+def _gradient_limited_speed(slope_angle: float, params: RiderParams, unpaved: bool, curvature: float = 0.0) -> float:
+    """Calculate max descent speed based on gradient and curvature.
+
+    Combines two braking models:
+    1. Gradient-based: steeper descents require more braking
+    2. Curvature-based: tighter turns require more braking
+
+    The final speed limit is the minimum of both models.
 
     For unpaved surfaces, applies an additional reduction factor.
     """
@@ -62,22 +101,28 @@ def _gradient_limited_speed(slope_angle: float, params: RiderParams, unpaved: bo
         gentle_speed *= unpaved_ratio
         steep_speed *= unpaved_ratio
 
-    # Flat or uphill: no gradient-based limit (use gentle_speed as cap)
+    # Calculate gradient-based speed limit
     if slope_angle >= 0:
-        return gentle_speed
+        gradient_speed = gentle_speed
+    elif slope_angle <= steep_grade_rad:
+        gradient_speed = steep_speed
+    else:
+        # Interpolate between gentle and steep speeds
+        fraction = slope_angle / steep_grade_rad
+        gradient_speed = gentle_speed + (steep_speed - gentle_speed) * fraction
 
-    # Beyond steep descent grade: use steep descent speed
-    if slope_angle <= steep_grade_rad:
-        return steep_speed
+    # Calculate curvature-based speed limit (only applies on descents)
+    if slope_angle < 0 and curvature > 0:
+        curvature_speed = _curvature_limited_speed(curvature, params, unpaved)
+        # Use the more restrictive limit
+        return min(gradient_speed, curvature_speed)
 
-    # Interpolate between gentle and steep speeds
-    # fraction = 0 at flat, 1 at steep_descent_grade
-    fraction = slope_angle / steep_grade_rad
-    return gentle_speed + (steep_speed - gentle_speed) * fraction
+    return gradient_speed
 
 
 def estimate_speed_from_power(
-    slope_angle: float, params: RiderParams, crr: float | None = None, unpaved: bool = False
+    slope_angle: float, params: RiderParams, crr: float | None = None, unpaved: bool = False,
+    curvature: float = 0.0
 ) -> float:
     """Estimate rider speed by solving the power balance equation.
 
@@ -86,7 +131,7 @@ def estimate_speed_from_power(
     and P_eff is the effective power adjusted for downhill coasting.
     Headwind is positive when riding into the wind.
 
-    On descents, speed is limited by gradient-dependent braking (steeper = slower).
+    On descents, speed is limited by gradient and curvature-dependent braking.
     """
     effective_crr = crr if crr is not None else params.crr
     A = 0.5 * params.air_density * params.cda
@@ -94,7 +139,7 @@ def estimate_speed_from_power(
         math.sin(slope_angle) + effective_crr * math.cos(slope_angle)
     )
     P = effective_power(slope_angle, params)
-    max_speed = _gradient_limited_speed(slope_angle, params, unpaved)
+    max_speed = _gradient_limited_speed(slope_angle, params, unpaved, curvature)
     w = params.headwind
 
     # Coasting speed on descents (where gravity exceeds rolling resistance)
@@ -159,7 +204,7 @@ def calculate_segment_work(
     if elapsed > 0:
         speed = distance / elapsed
     else:
-        speed = estimate_speed_from_power(slope_angle, params, segment_crr, point_b.unpaved)
+        speed = estimate_speed_from_power(slope_angle, params, segment_crr, point_b.unpaved, point_b.curvature)
         elapsed = distance / speed if speed > 0 else 0.0
 
     # Gravitational work

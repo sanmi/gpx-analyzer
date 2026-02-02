@@ -568,6 +568,10 @@ def get_route_with_surface(url: str, baseline_crr: float) -> tuple[list[TrackPoi
 
     points = parse_json_track_points(route_data, baseline_crr)
 
+    # Compute curvature for descent speed modeling
+    from gpx_analyzer.distance import compute_route_curvature
+    compute_route_curvature(points)
+
     # Extract useful metadata - handle both top-level and nested formats
     if "route" in route_data:
         route_info = route_data["route"]

@@ -86,7 +86,7 @@ def compare_route_with_trip(
     actual_work, actual_avg_power, has_power_data = _calculate_actual_work(trip_points)
 
     # Group trip points by gradient and calculate actual vs predicted speeds
-    grade_buckets = _build_grade_buckets(trip_points, params)
+    grade_buckets = _build_grade_buckets(trip_points, route_points, params)
 
     # Calculate distances
     route_distance = _calculate_route_distance(route_points)
@@ -113,10 +113,32 @@ def compare_route_with_trip(
 
 
 def _build_grade_buckets(
-    trip_points: list[TripPoint], params: RiderParams
+    trip_points: list[TripPoint], route_points: list[TrackPoint], params: RiderParams
 ) -> list[GradeBucket]:
-    """Build gradient buckets from trip data."""
+    """Build gradient buckets from trip data.
+
+    Uses curvature from nearest route point for speed predictions on descents.
+    """
     from gpx_analyzer.distance import haversine_distance
+
+    # Build a simple spatial index for route points to find nearest curvature
+    route_curvatures = [(p.lat, p.lon, p.curvature, p.unpaved) for p in route_points]
+
+    def find_nearest_route_info(lat: float, lon: float) -> tuple[float, bool]:
+        """Find curvature and unpaved status from nearest route point."""
+        min_dist = float('inf')
+        nearest_curv = 0.0
+        nearest_unpaved = False
+        for rlat, rlon, curv, unpaved in route_curvatures:
+            # Quick distance approximation (good enough for nearest neighbor)
+            dlat = abs(lat - rlat)
+            dlon = abs(lon - rlon)
+            dist_sq = dlat * dlat + dlon * dlon
+            if dist_sq < min_dist:
+                min_dist = dist_sq
+                nearest_curv = curv
+                nearest_unpaved = unpaved
+        return nearest_curv, nearest_unpaved
 
     buckets: dict[int, GradeBucket] = {}
 
@@ -155,9 +177,14 @@ def _build_grade_buckets(
         bucket.actual_speeds.append(curr.speed)
         bucket.point_count += 1
 
-        # Calculate predicted speed for this gradient
+        # Get curvature from nearest route point
+        curvature, unpaved = find_nearest_route_info(curr.lat, curr.lon)
+
+        # Calculate predicted speed for this gradient with curvature
         slope_angle = math.atan2(grade_pct / 100, 1)
-        predicted_speed = estimate_speed_from_power(slope_angle, params)
+        predicted_speed = estimate_speed_from_power(
+            slope_angle, params, params.crr, unpaved, curvature
+        )
         bucket.predicted_speeds.append(predicted_speed)
 
         # Record power if available

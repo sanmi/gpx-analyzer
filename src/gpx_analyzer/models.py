@@ -10,6 +10,7 @@ class TrackPoint:
     time: datetime | None
     crr: float | None = None  # per-segment rolling resistance coefficient
     unpaved: bool = False  # whether segment is on unpaved surface
+    curvature: float = 0.0  # degrees per meter - how sharply the road turns
 
 
 @dataclass
@@ -29,6 +30,11 @@ class RiderParams:
     # Gradient-dependent braking model for descents
     steep_descent_speed: float = 18.0 / 3.6  # m/s; max speed on very steep descents (default 18 km/h)
     steep_descent_grade: float = -8.0  # degrees; grade where steep descent speed applies (~-14%)
+    # Curvature-dependent braking model for descents
+    hairpin_speed: float = 18.0 / 3.6  # m/s; speed through tight hairpin turns (default 18 km/h)
+    straight_descent_speed: float = 45.0 / 3.6  # m/s; max speed on straight descents (default 45 km/h)
+    hairpin_curvature: float = 3.0  # deg/m; curvature threshold for hairpin (tighter = higher value)
+    straight_curvature: float = 0.3  # deg/m; curvature threshold for straight sections
 
 
 @dataclass
