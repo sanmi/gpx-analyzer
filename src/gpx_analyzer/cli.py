@@ -63,7 +63,19 @@ def build_parser(config: dict | None = None) -> argparse.ArgumentParser:
         return config.get(key, DEFAULTS[key])
 
     parser = argparse.ArgumentParser(
-        description="Analyze a GPX bike route with physics-based power estimation."
+        description="Analyze GPX bike routes using physics-based power estimation.",
+        epilog="""Examples:
+  gpx-analyzer route.gpx                      Analyze a local GPX file
+  gpx-analyzer https://ridewithgps.com/routes/123  Analyze a RideWithGPS route
+  gpx-analyzer --collection URL               Analyze all routes in a collection
+  gpx-analyzer --training data.json           Batch compare predictions vs actual rides
+  gpx-analyzer --optimize data.json           Tune model parameters from training data
+
+Config file: ~/.config/gpx-analyzer/gpx-analyzer.json or ./gpx-analyzer.json
+  Set default parameters and RideWithGPS API credentials.
+
+See README.md for detailed parameter descriptions.""",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument(
         "--version", action="version",

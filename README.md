@@ -35,9 +35,11 @@ Speed is calculated by solving the power balance equation: your power output equ
 
 ### Data Processing
 
-- **Smoothing radius (m)** — Gaussian smoothing applied to elevation data to reduce GPS noise.
-- **Elevation scale** — Multiplier for elevation changes. Auto-calculated from RideWithGPS API data when available.
-- **Surface Crr deltas** — Per-surface-type rolling resistance adjustments based on RideWithGPS surface data.
+- **Smoothing radius (m)** — Gaussian smoothing applied to elevation data before analysis. GPS elevation is noisy and can show unrealistic grade spikes (e.g., 20%+ grades that don't exist). Smoothing averages elevation over a rolling window, reducing these artifacts while preserving the overall climb profile. Default is 30m; increase for noisier data.
+
+- **Elevation scale** — Multiplier for elevation changes after smoothing. Auto-calculated from RideWithGPS API data when available. The API provides DEM-corrected elevation gain which is typically more accurate than GPS-derived values. The scale factor adjusts the smoothed elevation to match this reference.
+
+- **Surface Crr deltas** — Per-surface-type rolling resistance adjustments based on RideWithGPS surface data. The S field indicates surface type (50-89 = unpaved, others = paved/unknown).
 
 ### Terrain Metrics
 
@@ -168,26 +170,11 @@ TOTAL                         14.5h  4050k    249k  3200m
 
 ### Options
 
-| Flag | Description | Default |
-|------|-------------|---------|
-| `--mass` | Total mass of rider + bike (kg) | 85 |
-| `--cda` | Drag coefficient × frontal area (m²) | 0.35 |
-| `--crr` | Rolling resistance coefficient | 0.005 |
-| `--power` | Assumed average power output (W) | 150 |
-| `--coasting-grade` | Grade in degrees at which rider fully coasts | -5.0 |
-| `--max-coast-speed` | Maximum coasting speed on paved (km/h) | 48 |
-| `--max-coast-speed-unpaved` | Maximum coasting speed on gravel (km/h) | 24 |
-| `--climb-power-factor` | Power multiplier on steep climbs (1.5 = 50% more) | 1.5 |
-| `--climb-threshold-grade` | Grade (degrees) at which full climb power is reached | 4.0 |
-| `--steep-descent-speed` | Max speed on steep descents (km/h) | 18 |
-| `--steep-descent-grade` | Grade (degrees) where steep descent speed applies | -8.0 |
-| `--smoothing` | Elevation smoothing radius (m) | 50 |
-| `--elevation-scale` | Scale factor for elevation changes | 1.0 |
-| `--headwind` | Headwind speed (km/h, negative = tailwind) | 0 |
-| `--compare-trip` | RideWithGPS trip URL to compare against | - |
-| `--training` | Training data JSON file for batch analysis | - |
-| `--collection` | RideWithGPS collection URL to analyze all routes | - |
-| `--imperial` | Display output in imperial units (mi, ft, mph) | false |
+Run `gpx-analyzer --help` for the full list of options and defaults.
+
+Key options: `--mass`, `--power`, `--cda`, `--crr`, `--headwind`, `--smoothing`, `--imperial`
+
+Batch modes: `--collection URL`, `--training FILE`, `--compare-trip URL`, `--optimize FILE`
 
 ### Example
 
