@@ -26,6 +26,7 @@ from gpx_analyzer.training import (
     load_training_data,
     run_training_analysis,
 )
+from gpx_analyzer.optimize import optimize_parameters, save_optimized_config
 
 # Default values for CLI options
 DEFAULTS = {
@@ -71,6 +72,20 @@ def build_parser(config: dict | None = None) -> argparse.ArgumentParser:
         default=None,
         metavar="FILE",
         help="Run batch analysis on training data JSON file instead of single route.",
+    )
+    parser.add_argument(
+        "--optimize",
+        type=str,
+        default=None,
+        metavar="FILE",
+        help="Run parameter optimization on training data JSON file.",
+    )
+    parser.add_argument(
+        "--optimize-output",
+        type=str,
+        default=None,
+        metavar="FILE",
+        help="Save optimized parameters to JSON file (use with --optimize).",
     )
     parser.add_argument(
         "--collection",
@@ -417,6 +432,38 @@ def main(argv: list[str] | None = None) -> None:
         steep_descent_speed=args.steep_descent_speed / 3.6,
         steep_descent_grade=args.steep_descent_grade,
     )
+
+    # Optimization mode
+    if args.optimize:
+        optimize_path = Path(args.optimize)
+        if not optimize_path.exists():
+            print(f"Error: Training data file not found: {args.optimize}", file=sys.stderr)
+            sys.exit(1)
+
+        print("=" * 60)
+        print("PARAMETER OPTIMIZATION")
+        print("=" * 60)
+        print("")
+
+        try:
+            result = optimize_parameters(
+                training_file=optimize_path,
+                default_power=args.power,
+                default_mass=args.mass,
+                weights=(1.0, 1.0, 1.0),  # Equal weights for work, time, grade
+                max_iterations=100,
+                verbose=True,
+            )
+
+            if args.optimize_output:
+                save_optimized_config(result, args.optimize_output)
+                print(f"\nOptimized config saved to: {args.optimize_output}")
+
+        except Exception as e:
+            print(f"Error during optimization: {e}", file=sys.stderr)
+            sys.exit(1)
+
+        sys.exit(0)
 
     # Training mode
     if args.training:

@@ -92,7 +92,7 @@ def _calculate_trip_max_grade(points: list[TripPoint], window: float = 50.0) -> 
         return 0.0
 
     # Check if cumulative distance data is available
-    has_distance = any(p.distance > 0 for p in points)
+    has_distance = any(p.distance is not None and p.distance > 0 for p in points)
 
     # Build cumulative distance array
     cum_dist = [0.0] * len(points)
@@ -236,20 +236,22 @@ def analyze_training_route(
             print(f"  Skipping {route.name}: insufficient data points")
             return None
 
-        # Get trip elevation gain from metadata
+        # Get elevation gains from metadata
+        api_elevation_gain = route_metadata.get("elevation_gain")  # DEM-derived from RWGPS
         trip_elevation_gain = trip_metadata.get("elevation_gain")
 
         # First pass: smooth with base elevation_scale to get route elevation
         smoothed = smooth_elevations(route_points, smoothing_radius, elevation_scale)
 
-        # Calculate elevation correction factor if we have trip data
+        # Calculate elevation correction factor using RWGPS API elevation (DEM-derived)
+        # This matches real-world usage where we have route data but no trip data yet
         effective_scale = elevation_scale
-        if use_trip_elevation and trip_elevation_gain and trip_elevation_gain > 0:
+        if use_trip_elevation and api_elevation_gain and api_elevation_gain > 0:
             # Calculate route elevation gain after smoothing
             route_gain_smoothed = _calculate_elevation_gain(smoothed)
             if route_gain_smoothed > 0:
-                # Scale factor to make route elevation match trip elevation
-                correction_factor = trip_elevation_gain / route_gain_smoothed
+                # Scale factor to make route elevation match API elevation
+                correction_factor = api_elevation_gain / route_gain_smoothed
                 # Re-smooth with corrected scale
                 effective_scale = elevation_scale * correction_factor
                 smoothed = smooth_elevations(route_points, smoothing_radius, effective_scale)
@@ -396,7 +398,7 @@ def format_training_summary(
     # Config
     coast_speed = params.max_coasting_speed * 3.6 * speed_factor
     lines.append(f"Model params: mass={params.total_mass}kg cda={params.cda} crr={params.crr}")
-    lines.append(f"              power={params.assumed_avg_power}W max_coast={coast_speed:.0f}{speed_unit}")
+    lines.append(f"              max_coast={coast_speed:.0f}{speed_unit} (power from trip data per route)")
     lines.append("")
 
     # Overall stats
@@ -407,11 +409,20 @@ def format_training_summary(
     lines.append(f"Total elevation: {total_elev:.0f} {elev_unit}")
     lines.append("")
 
+    # Calculate avg max grade error
+    grade_errors = []
+    for r in results:
+        if r.trip_max_grade and r.trip_max_grade > 0:
+            grade_err = (r.route_max_grade - r.trip_max_grade) / r.trip_max_grade * 100
+            grade_errors.append(grade_err)
+    avg_grade_error = sum(grade_errors) / len(grade_errors) if grade_errors else 0
+
     # Error summary
     lines.append("PREDICTION ERRORS (positive = predicted too slow/high)")
     lines.append("-" * 50)
-    lines.append(f"  Avg time error:  {summary.avg_time_error_pct:+.1f}%")
-    lines.append(f"  Avg work error:  {summary.avg_work_error_pct:+.1f}%")
+    lines.append(f"  Avg time error:       {summary.avg_time_error_pct:+.1f}%")
+    lines.append(f"  Avg work error:       {summary.avg_work_error_pct:+.1f}%")
+    lines.append(f"  Avg max grade error:  {avg_grade_error:+.1f}%")
     lines.append("")
 
     # By terrain type
@@ -434,10 +445,12 @@ def format_training_summary(
     dist_suffix = "m" if imperial else "k"  # miles or km
     elev_suffix = "'" if imperial else "m"  # feet or meters
     lines.append("PER-ROUTE BREAKDOWN:")
-    lines.append("-" * 130)
-    lines.append(f"{'':28} {'------- Estimated -------':>27} {'-------- Actual --------':>27} {'--- Diff ---':>14} {'- Max Grade -':>15}")
-    lines.append(f"{'Route':<22} {'Unpvd':>5} {'Dist':>7} {'Elev':>6} {'Time':>6} {'Work':>6} {'Dist':>7} {'Elev':>6} {'Time':>6} {'Work':>6} {'Time':>7} {'Work':>7} {'Est':>7} {'Act':>7}")
-    lines.append("-" * 130)
+    # Build header and data rows with consistent formatting
+    # Column groups: Route(22) Unpvd(6) Pwr(6) | Est: Dist(8) Elev(7) Time(6) Work(6) Grade(7) | Act: same | Diff: Time(8) Work(8) Elev(8) Grade(8)
+    lines.append("-" * 164)
+    lines.append(f"{'':34} {'------- Estimated -------':^34}{'-------- Actual --------':^34}{'--------- Diff ---------':^32}")
+    lines.append(f"{'Route':<22} {'Unpvd':>5} {'Pwr':>4}  {'Dist':>6} {'Elev':>5} {'Time':>4} {'Work':>4} {'Grade':>5}  {'Dist':>6} {'Elev':>5} {'Time':>4} {'Work':>4} {'Grade':>5}  {'Time':>6} {'Work':>6} {'Elev':>6} {'Grade':>6}")
+    lines.append("-" * 164)
 
     for r in results:
         # Estimated values
@@ -445,29 +458,30 @@ def format_training_summary(
         est_elev = r.route_elevation_gain * elev_factor
         est_time = r.comparison.predicted_time / 3600
         est_work = r.comparison.predicted_work / 1000
+        est_max_grade = r.route_max_grade
 
         # Actual values
         act_dist = r.comparison.trip_distance / 1000 * dist_factor
         act_elev = (r.trip_elevation_gain if r.trip_elevation_gain else 0) * elev_factor
         act_time = r.comparison.actual_moving_time / 3600
         act_work = r.comparison.actual_work / 1000 if r.comparison.actual_work else 0
+        act_max_grade = r.trip_max_grade if r.trip_max_grade is not None else 0
 
         # Differences
         time_diff = r.comparison.time_error_pct
         work_diff = ((r.comparison.predicted_work - r.comparison.actual_work) / r.comparison.actual_work * 100
                      if r.comparison.actual_work and r.comparison.actual_work > 0 else 0)
-
-        # Max grades
-        est_max_grade = r.route_max_grade
-        act_max_grade = r.trip_max_grade if r.trip_max_grade is not None else 0
+        elev_diff = ((est_elev - act_elev) / act_elev * 100
+                     if act_elev > 0 else 0)
+        grade_diff = ((est_max_grade - act_max_grade) / act_max_grade * 100
+                      if act_max_grade > 0 else 0)
 
         name = r.route.name[:21]
         lines.append(
-            f"{name:<22} {r.unpaved_pct:>4.0f}% "
-            f"{est_dist:>6.0f}{dist_suffix} {est_elev:>5.0f}{elev_suffix} {est_time:>5.1f}h {est_work:>5.0f}k "
-            f"{act_dist:>6.0f}{dist_suffix} {act_elev:>5.0f}{elev_suffix} {act_time:>5.1f}h {act_work:>5.0f}k "
-            f"{time_diff:>+6.1f}% {work_diff:>+6.1f}% "
-            f"{est_max_grade:>6.1f}% {act_max_grade:>6.1f}%"
+            f"{name:<22} {r.unpaved_pct:>4.0f}% {r.power_used:>3.0f}W "
+            f" {est_dist:>5.0f}{dist_suffix} {est_elev:>4.0f}{elev_suffix} {est_time:>4.1f}h {est_work:>4.0f}k {est_max_grade:>4.1f}% "
+            f" {act_dist:>5.0f}{dist_suffix} {act_elev:>4.0f}{elev_suffix} {act_time:>4.1f}h {act_work:>4.0f}k {act_max_grade:>4.1f}% "
+            f" {time_diff:>+5.1f}% {work_diff:>+5.1f}% {elev_diff:>+5.1f}% {grade_diff:>+5.1f}%"
         )
 
     lines.append("")
@@ -480,28 +494,5 @@ def format_training_summary(
     if all_tags:
         lines.append(f"Tags in dataset: {', '.join(sorted(all_tags))}")
         lines.append("")
-
-    # Elevation quality analysis
-    routes_with_scale = [r for r in results if r.trip_elevation_gain and r.trip_elevation_gain > 0]
-    if routes_with_scale:
-        lines.append("ELEVATION DATA QUALITY:")
-        lines.append("-" * 50)
-
-        scales = [r.elevation_scale_used for r in routes_with_scale]
-        avg_scale = sum(scales) / len(scales)
-        lines.append(f"  Avg elevation scale: {avg_scale:.2f} (1.00 = perfect match)")
-
-        # Flag routes with significant elevation discrepancy (>15% adjustment)
-        inaccurate_routes = [r for r in routes_with_scale if abs(r.elevation_scale_used - 1.0) > 0.15]
-        if inaccurate_routes:
-            lines.append(f"  Routes with >15% elevation discrepancy: {len(inaccurate_routes)}/{len(routes_with_scale)}")
-            for r in inaccurate_routes:
-                pct_off = (r.elevation_scale_used - 1.0) * 100
-                direction = "inflated" if pct_off < 0 else "understated"
-                lines.append(f"    - {r.route.name}: scale={r.elevation_scale_used:.2f} (route elevation {direction} by {abs(pct_off):.0f}%)")
-            lines.append("")
-            lines.append("  TIP: Route elevation is auto-scaled using RideWithGPS API data in single-route mode.")
-        else:
-            lines.append("  All routes have consistent elevation data (<15% discrepancy)")
 
     return "\n".join(lines)
