@@ -3,7 +3,7 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
-from geopy.distance import geodesic
+from gpx_analyzer.distance import haversine_distance
 
 from gpx_analyzer import __version_date__, get_git_hash
 from gpx_analyzer.analyzer import analyze, calculate_hilliness, GRADE_LABELS, DEFAULT_MAX_GRADE_WINDOW, DEFAULT_MAX_GRADE_SMOOTHING
@@ -230,7 +230,7 @@ def calculate_surface_breakdown(points: list[TrackPoint]) -> tuple[float, float]
     for i in range(1, len(points)):
         pt_a = points[i - 1]
         pt_b = points[i]
-        dist = geodesic((pt_a.lat, pt_a.lon), (pt_b.lat, pt_b.lon)).meters
+        dist = haversine_distance(pt_a.lat, pt_a.lon, pt_b.lat, pt_b.lon)
 
         # Use the destination point's unpaved flag to classify the segment
         if pt_b.unpaved:

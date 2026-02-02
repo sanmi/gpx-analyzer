@@ -86,7 +86,7 @@ def _calculate_trip_max_grade(points: list[TripPoint], window: float = 50.0) -> 
     Skips segments with missing elevation data.
     Uses 50m window (shorter than route's 150m) to capture actual steep sections.
     """
-    from geopy.distance import geodesic
+    from gpx_analyzer.distance import haversine_distance
 
     if len(points) < 2:
         return 0.0
@@ -102,10 +102,10 @@ def _calculate_trip_max_grade(points: list[TripPoint], window: float = 50.0) -> 
     else:
         # Calculate cumulative distance from lat/lon
         for i in range(1, len(points)):
-            d = geodesic(
-                (points[i - 1].lat, points[i - 1].lon),
-                (points[i].lat, points[i].lon)
-            ).meters
+            d = haversine_distance(
+                points[i - 1].lat, points[i - 1].lon,
+                points[i].lat, points[i].lon
+            )
             cum_dist[i] = cum_dist[i - 1] + d
 
     max_grade = 0.0

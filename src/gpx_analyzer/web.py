@@ -16,7 +16,6 @@ import matplotlib.pyplot as plt
 from gpx_analyzer import __version_date__, get_git_hash
 from gpx_analyzer.analyzer import analyze, calculate_hilliness, DEFAULT_MAX_GRADE_WINDOW, DEFAULT_MAX_GRADE_SMOOTHING, GRADE_BINS, _calculate_rolling_grades
 from gpx_analyzer.physics import calculate_segment_work
-from geopy.distance import geodesic
 from gpx_analyzer.cli import calculate_elevation_gain, calculate_surface_breakdown, DEFAULTS
 from gpx_analyzer.models import RiderParams
 from gpx_analyzer.ridewithgps import (

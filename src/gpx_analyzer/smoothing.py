@@ -1,7 +1,6 @@
 from bisect import bisect_left, bisect_right
 
-from geopy.distance import geodesic
-
+from gpx_analyzer.distance import haversine_distance
 from gpx_analyzer.models import TrackPoint
 
 
@@ -30,10 +29,10 @@ def smooth_elevations(
     # Build cumulative distance array
     cum_dist = [0.0]
     for i in range(1, len(points)):
-        d = geodesic(
-            (points[i - 1].lat, points[i - 1].lon),
-            (points[i].lat, points[i].lon),
-        ).meters
+        d = haversine_distance(
+            points[i - 1].lat, points[i - 1].lon,
+            points[i].lat, points[i].lon,
+        )
         cum_dist.append(cum_dist[-1] + d)
 
     # Collect indices of points that have elevation data

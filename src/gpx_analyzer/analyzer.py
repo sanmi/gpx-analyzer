@@ -2,8 +2,7 @@ import math
 from dataclasses import dataclass, replace
 from datetime import timedelta
 
-from geopy.distance import geodesic
-
+from gpx_analyzer.distance import haversine_distance
 from gpx_analyzer.models import RideAnalysis, RiderParams, TrackPoint
 from gpx_analyzer.physics import calculate_segment_work, estimate_speed_from_power
 from gpx_analyzer.smoothing import smooth_elevations
@@ -171,10 +170,10 @@ def _calculate_rolling_grades(points: list[TrackPoint], window: float) -> list[f
     for i in range(n):
         elevations[i] = points[i].elevation if points[i].elevation is not None else 0.0
         if i > 0:
-            d = geodesic(
-                (points[i-1].lat, points[i-1].lon),
-                (points[i].lat, points[i].lon)
-            ).meters
+            d = haversine_distance(
+                points[i-1].lat, points[i-1].lon,
+                points[i].lat, points[i].lon
+            )
             cum_dist[i] = cum_dist[i-1] + d
 
     # For each point, find the grade over the next `window` meters
@@ -278,7 +277,7 @@ def calculate_hilliness(
         pt_a, pt_b = points[i - 1], points[i]
 
         # Calculate distance
-        dist = geodesic((pt_a.lat, pt_a.lon), (pt_b.lat, pt_b.lon)).meters
+        dist = haversine_distance(pt_a.lat, pt_a.lon, pt_b.lat, pt_b.lon)
         if dist < 0.1:
             continue
 

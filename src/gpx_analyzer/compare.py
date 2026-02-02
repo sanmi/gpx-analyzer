@@ -116,15 +116,15 @@ def _build_grade_buckets(
     trip_points: list[TripPoint], params: RiderParams
 ) -> list[GradeBucket]:
     """Build gradient buckets from trip data."""
-    from geopy.distance import geodesic
+    from gpx_analyzer.distance import haversine_distance
 
     buckets: dict[int, GradeBucket] = {}
 
     for i in range(1, len(trip_points)):
         prev, curr = trip_points[i - 1], trip_points[i]
 
-        # Calculate distance between points using geodesic
-        dist_delta = geodesic((prev.lat, prev.lon), (curr.lat, curr.lon)).meters
+        # Calculate distance between points
+        dist_delta = haversine_distance(prev.lat, prev.lon, curr.lat, curr.lon)
         if dist_delta < 1:  # Skip very short segments
             continue
 
@@ -170,18 +170,18 @@ def _build_grade_buckets(
 
 def _calculate_route_distance(points: list[TrackPoint]) -> float:
     """Calculate total route distance."""
-    from geopy.distance import geodesic
+    from gpx_analyzer.distance import haversine_distance
 
     total = 0.0
     for i in range(1, len(points)):
         p1, p2 = points[i - 1], points[i]
-        total += geodesic((p1.lat, p1.lon), (p2.lat, p2.lon)).meters
+        total += haversine_distance(p1.lat, p1.lon, p2.lat, p2.lon)
     return total
 
 
 def _calculate_trip_distance(points: list[TripPoint]) -> float:
     """Calculate total trip distance from coordinates."""
-    from geopy.distance import geodesic
+    from gpx_analyzer.distance import haversine_distance
 
     if not points:
         return 0.0
@@ -189,7 +189,7 @@ def _calculate_trip_distance(points: list[TripPoint]) -> float:
     total = 0.0
     for i in range(1, len(points)):
         p1, p2 = points[i - 1], points[i]
-        total += geodesic((p1.lat, p1.lon), (p2.lat, p2.lon)).meters
+        total += haversine_distance(p1.lat, p1.lon, p2.lat, p2.lon)
     return total
 
 

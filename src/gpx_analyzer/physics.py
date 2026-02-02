@@ -1,7 +1,6 @@
 import math
 
-from geopy.distance import geodesic
-
+from gpx_analyzer.distance import haversine_distance
 from gpx_analyzer.models import RiderParams, TrackPoint
 
 G = 9.81  # m/s²
@@ -137,9 +136,9 @@ def calculate_segment_work(
     When time data is missing, speed is estimated from the rider's assumed
     average power using the power balance equation.
     """
-    distance = geodesic(
-        (point_a.lat, point_a.lon), (point_b.lat, point_b.lon)
-    ).meters
+    distance = haversine_distance(
+        point_a.lat, point_a.lon, point_b.lat, point_b.lon
+    )
 
     if distance < 0.1:
         return 0.0, distance, _elapsed(point_a, point_b)
