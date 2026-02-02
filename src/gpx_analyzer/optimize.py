@@ -30,6 +30,7 @@ class PreloadedRoute:
     trip_metadata: dict
     power: float
     headwind: float
+    mass: float  # Total mass (rider + bike) in kg
     actual_work: float | None
     actual_time: float
     actual_max_grade: float
@@ -93,7 +94,7 @@ def _calculate_elevation_gain(points: list) -> float:
     return gain
 
 
-def _preload_routes(routes: list[TrainingRoute], default_power: float, default_crr: float = 0.005) -> list[PreloadedRoute]:
+def _preload_routes(routes: list[TrainingRoute], default_power: float, default_mass: float, default_crr: float = 0.005) -> list[PreloadedRoute]:
     """Pre-load all route and trip data once."""
     preloaded = []
 
@@ -126,6 +127,7 @@ def _preload_routes(routes: list[TrainingRoute], default_power: float, default_c
 
             power = route.avg_watts if route.avg_watts else default_power
             headwind = route.headwind if route.headwind else 0.0
+            mass = route.mass if route.mass else default_mass
 
             # Get API elevation gain (DEM-derived) for auto-scaling
             api_elevation_gain = route_metadata.get("elevation_gain")
@@ -145,6 +147,7 @@ def _preload_routes(routes: list[TrainingRoute], default_power: float, default_c
                 trip_metadata=trip_metadata,
                 power=power,
                 headwind=headwind,
+                mass=mass,
                 actual_work=actual_work / 1000 if actual_work else None,  # Convert to kJ
                 actual_time=actual_time,
                 actual_max_grade=actual_max_grade,
@@ -188,7 +191,7 @@ def _build_rider_params(opt_values: np.ndarray, param_names: list[str],
 
 
 def _analyze_preloaded_route(route: PreloadedRoute, opt_values: np.ndarray,
-                              param_names: list[str], default_mass: float,
+                              param_names: list[str],
                               need_physics: bool = True, need_grade: bool = True) -> dict | None:
     """Analyze a pre-loaded route with given parameters.
 
@@ -200,7 +203,7 @@ def _analyze_preloaded_route(route: PreloadedRoute, opt_values: np.ndarray,
         params_dict = {name: val for name, val in zip(param_names, opt_values)}
         smoothing = params_dict.get("smoothing", 50.0)
 
-        rider_params = _build_rider_params(opt_values, param_names, route.power, default_mass, route.headwind)
+        rider_params = _build_rider_params(opt_values, param_names, route.power, route.mass, route.headwind)
 
         # Apply smoothing with precomputed elevation scale (from API data)
         smoothed = smooth_elevations(route.route_points, smoothing, route.elevation_scale)
@@ -271,7 +274,7 @@ def _objective_function(opt_values: np.ndarray, param_names: list[str],
 
     # Sequential route analysis (parallel has too much overhead for this workload)
     results = [
-        _analyze_preloaded_route(route, opt_values, param_names, default_mass,
+        _analyze_preloaded_route(route, opt_values, param_names,
                                  need_physics, need_grade)
         for route in routes
     ]
@@ -358,7 +361,7 @@ def optimize_parameters(
         print(f"Loading {len(routes)} training routes...")
 
     # Pre-load all route/trip data
-    preloaded = _preload_routes(routes, default_power)
+    preloaded = _preload_routes(routes, default_power, default_mass)
     if not preloaded:
         raise ValueError("No routes could be loaded")
 
@@ -481,7 +484,7 @@ def optimize_parameters(
     if verbose:
         print("\nPer-route results:")
     for route in preloaded:
-        res = _analyze_preloaded_route(route, result.x, param_names, default_mass)
+        res = _analyze_preloaded_route(route, result.x, param_names)
         if res:
             time_err = (res["pred_time"] - res["actual_time"]) / res["actual_time"]
             work_err = 0.0

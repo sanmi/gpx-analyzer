@@ -28,6 +28,7 @@ class TrainingRoute:
     notes: str = ""
     avg_watts: float | None = None  # Override default power for this ride
     headwind: float | None = None  # Override headwind in km/h (negative = tailwind)
+    mass: float | None = None  # Override total mass (rider + bike) in kg
 
 
 @dataclass
@@ -41,6 +42,7 @@ class TrainingResult:
     route_distance: float
     unpaved_pct: float
     power_used: float  # The power value used for prediction
+    mass_used: float = 84.0  # The mass value used for prediction
     elevation_scale_used: float = 1.0  # Scale factor applied to match trip elevation
     route_max_grade: float = 0.0  # Max grade from route (%)
     trip_max_grade: float | None = None  # Max grade from trip (%)
@@ -175,6 +177,7 @@ def load_training_data(path: Path) -> list[TrainingRoute]:
                 notes=entry.get("notes", ""),
                 avg_watts=entry.get("avg_watts"),
                 headwind=entry.get("headwind"),
+                mass=entry.get("mass"),
             )
         )
     return routes
@@ -228,9 +231,12 @@ def analyze_training_route(
             else:
                 power_used = params.assumed_avg_power
 
+        # Use per-route mass if specified, otherwise use default
+        mass_used = route.mass if route.mass is not None else params.total_mass
+
         headwind_used = route.headwind / 3.6 if route.headwind is not None else params.headwind
         route_params = RiderParams(
-            total_mass=params.total_mass,
+            total_mass=mass_used,
             cda=params.cda,
             crr=params.crr,
             air_density=params.air_density,
@@ -304,6 +310,7 @@ def analyze_training_route(
             route_distance=analysis.total_distance,
             unpaved_pct=unpaved_pct,
             power_used=power_used,
+            mass_used=mass_used,
             elevation_scale_used=effective_scale,
             route_max_grade=route_max_grade,
             trip_max_grade=trip_max_grade,
