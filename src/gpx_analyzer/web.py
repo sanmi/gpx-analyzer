@@ -1027,7 +1027,7 @@ HTML_TEMPLATE = """
         <div class="param-row">
             <div>
                 <div class="label-row">
-                    <label for="power">Power (W)</label>
+                    <label for="power">Average Power (W)</label>
                     <button type="button" class="info-btn" onclick="showModal('powerModal')">?</button>
                 </div>
                 <input type="number" id="power" name="power" value="{{ power }}" step="1">
@@ -1167,7 +1167,7 @@ HTML_TEMPLATE = """
 
             <h4>Primary Parameters (Biggest Impact)</h4>
             <ul class="param-list">
-                <li><span class="param-name">Power (W)</span> — Your sustained power output. This is the most important input; doubling power roughly doubles your speed on flat ground.</li>
+                <li><span class="param-name">Average Power (W)</span> — Your sustained power output. This is the most important input; doubling power roughly doubles your speed on flat ground.</li>
                 <li><span class="param-name">Mass (kg)</span> — Total weight of rider + bike + gear. Dominates climbing speed since you're lifting this weight against gravity.</li>
                 <li><span class="param-name">CdA (m²)</span> — Aerodynamic drag coefficient × frontal area. Controls air resistance, which grows with the cube of speed. Typical values: 0.25 (racing tuck) to 0.45 (upright touring).</li>
                 <li><span class="param-name">Crr</span> — Rolling resistance coefficient. Energy lost to tire deformation and surface friction. Road tires ~0.004, gravel ~0.008-0.012.</li>
@@ -1226,7 +1226,7 @@ HTML_TEMPLATE = """
 
     <div id="timeModal" class="modal-overlay" onclick="hideModal('timeModal')">
         <div class="modal" onclick="event.stopPropagation()">
-            <h3>Estimated Time</h3>
+            <h3>Estimated Moving Time</h3>
             <p>Moving time estimate based on your power output and the route's terrain. This is the time you'd spend actually riding, excluding stops.</p>
             <p>The estimate accounts for:</p>
             <p>• Slower speeds on climbs (more power needed to fight gravity)<br>
@@ -1822,7 +1822,7 @@ HTML_TEMPLATE = """
 
         <div class="primary-results">
             <div class="result-row primary">
-                <span class="result-label label-with-info">Estimated Time <button type="button" class="info-btn" onclick="showModal('timeModal')">?</button></span>
+                <span class="result-label label-with-info">Estimated Moving Time <button type="button" class="info-btn" onclick="showModal('timeModal')">?</button></span>
                 <span class="result-value">{{ result.time_str }}</span>
             </div>
             <div class="result-row primary">
