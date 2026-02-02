@@ -930,8 +930,10 @@ class TestGetRouteWithSurface:
         monkeypatch.delenv("RIDEWITHGPS_API_KEY", raising=False)
         monkeypatch.delenv("RIDEWITHGPS_AUTH_TOKEN", raising=False)
 
+    @patch.object(ridewithgps, "_save_route_json_to_cache")
+    @patch.object(ridewithgps, "_load_cached_route_json", return_value=None)
     @patch.object(ridewithgps, "_download_json")
-    def test_returns_points_and_metadata(self, mock_download, no_config):
+    def test_returns_points_and_metadata(self, mock_download, mock_cache_load, mock_cache_save, no_config):
         mock_download.return_value = {
             "name": "Test Route",
             "distance": 10000,
@@ -954,8 +956,10 @@ class TestGetRouteWithSurface:
         assert metadata["name"] == "Test Route"
         assert metadata["unpaved_pct"] == 15
 
+    @patch.object(ridewithgps, "_save_route_json_to_cache")
+    @patch.object(ridewithgps, "_load_cached_route_json", return_value=None)
     @patch.object(ridewithgps, "_download_json")
-    def test_extracts_privacy_code(self, mock_download, no_config):
+    def test_extracts_privacy_code(self, mock_download, mock_cache_load, mock_cache_save, no_config):
         mock_download.return_value = {
             "track_points": [
                 {"x": -122.4194, "y": 37.7749, "e": 10.0, "d": 0, "R": 4},
@@ -968,8 +972,10 @@ class TestGetRouteWithSurface:
 
         mock_download.assert_called_once_with(12345, "SECRET")
 
+    @patch.object(ridewithgps, "_save_route_json_to_cache")
+    @patch.object(ridewithgps, "_load_cached_route_json", return_value=None)
     @patch.object(ridewithgps, "_download_json")
-    def test_uses_baseline_crr(self, mock_download, no_config):
+    def test_uses_baseline_crr(self, mock_download, mock_cache_load, mock_cache_save, no_config):
         """Verify baseline_crr is used correctly in crr calculation."""
         mock_download.return_value = {
             "track_points": [

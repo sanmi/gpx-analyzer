@@ -16,9 +16,12 @@ CONFIG_DIR = Path.home() / ".config" / "gpx-analyzer"
 CONFIG_PATH = CONFIG_DIR / "gpx-analyzer.json"
 CACHE_DIR = Path.home() / ".cache" / "gpx-analyzer"
 ROUTES_DIR = CACHE_DIR / "routes"
+ROUTES_JSON_DIR = CACHE_DIR / "routes_json"
 TRIPS_DIR = CACHE_DIR / "trips"
 CACHE_INDEX_PATH = CACHE_DIR / "cache_index.json"
+ROUTE_JSON_CACHE_INDEX_PATH = CACHE_DIR / "route_json_cache_index.json"
 MAX_CACHED_ROUTES = 10
+MAX_CACHED_ROUTE_JSON = 50
 MAX_CACHED_TRIPS = 20
 
 RIDEWITHGPS_PATTERN = re.compile(r"^https?://(?:www\.)?ridewithgps\.com/routes/(\d+)")
@@ -305,6 +308,86 @@ def _load_cached_trip(trip_id: int) -> dict | None:
         return None
 
 
+# Route JSON caching functions
+def _get_cached_route_json_path(route_id: int) -> Path | None:
+    """Get the cached route JSON file path if it exists, None otherwise."""
+    path = ROUTES_JSON_DIR / f"{route_id}.json"
+    if path.exists():
+        return path
+    return None
+
+
+def _save_route_json_to_cache(route_id: int, route_data: dict) -> Path:
+    """Save route JSON data to cache and update the index."""
+    ROUTES_JSON_DIR.mkdir(parents=True, exist_ok=True)
+
+    path = ROUTES_JSON_DIR / f"{route_id}.json"
+    with path.open("w") as f:
+        json.dump(route_data, f)
+
+    _update_route_json_lru(route_id)
+    _enforce_route_json_lru_limit()
+
+    return path
+
+
+def _load_route_json_cache_index() -> dict[str, float]:
+    """Load the route JSON cache index from disk."""
+    if not ROUTE_JSON_CACHE_INDEX_PATH.exists():
+        return {}
+    try:
+        with ROUTE_JSON_CACHE_INDEX_PATH.open() as f:
+            return json.load(f)
+    except (json.JSONDecodeError, OSError):
+        return {}
+
+
+def _save_route_json_cache_index(index: dict[str, float]) -> None:
+    """Save the route JSON cache index to disk."""
+    CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    with ROUTE_JSON_CACHE_INDEX_PATH.open("w") as f:
+        json.dump(index, f)
+
+
+def _update_route_json_lru(route_id: int) -> None:
+    """Update the LRU access time for a route JSON."""
+    index = _load_route_json_cache_index()
+    index[str(route_id)] = time.time()
+    _save_route_json_cache_index(index)
+
+
+def _enforce_route_json_lru_limit() -> None:
+    """Remove oldest cached route JSON files if over the limit."""
+    index = _load_route_json_cache_index()
+
+    if len(index) <= MAX_CACHED_ROUTE_JSON:
+        return
+
+    sorted_entries = sorted(index.items(), key=lambda x: x[1])
+    to_remove = sorted_entries[: len(index) - MAX_CACHED_ROUTE_JSON]
+
+    for route_id_str, _ in to_remove:
+        path = ROUTES_JSON_DIR / f"{route_id_str}.json"
+        if path.exists():
+            path.unlink()
+        del index[route_id_str]
+
+    _save_route_json_cache_index(index)
+
+
+def _load_cached_route_json(route_id: int) -> dict | None:
+    """Load route JSON data from cache if available."""
+    path = _get_cached_route_json_path(route_id)
+    if path is None:
+        return None
+    try:
+        with path.open() as f:
+            _update_route_json_lru(route_id)
+            return json.load(f)
+    except (json.JSONDecodeError, OSError):
+        return None
+
+
 # Surface type crr deltas from baseline (R=3 quality paved is the baseline)
 # R values from RideWithGPS JSON route data
 # Actual crr = baseline_crr + R_delta + (unpaved_delta if S >= 50)
@@ -460,6 +543,9 @@ def parse_json_track_points(route_data: dict, baseline_crr: float) -> list[Track
 def get_route_with_surface(url: str, baseline_crr: float) -> tuple[list[TrackPoint], dict]:
     """Get route track points with surface data from RideWithGPS JSON API.
 
+    Downloads and caches the route JSON if not already cached.
+    Updates LRU access time on cache hit.
+
     Args:
         url: The RideWithGPS route URL
         baseline_crr: The baseline crr value (from config/CLI) used for R=3 quality paved
@@ -474,7 +560,12 @@ def get_route_with_surface(url: str, baseline_crr: float) -> tuple[list[TrackPoi
     route_id = extract_route_id(url)
     privacy_code = extract_privacy_code(url)
 
-    route_data = _download_json(route_id, privacy_code)
+    # Check cache first
+    route_data = _load_cached_route_json(route_id)
+    if route_data is None:
+        route_data = _download_json(route_id, privacy_code)
+        _save_route_json_to_cache(route_id, route_data)
+
     points = parse_json_track_points(route_data, baseline_crr)
 
     # Extract useful metadata - handle both top-level and nested formats

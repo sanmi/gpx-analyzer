@@ -85,6 +85,13 @@
       "trip_url": "https://ridewithgps.com/trips/254094820",
       "tags": ["road", "hilly", "california"],
       "notes": "Road with climbing"
+    },
+    {
+      "name": "Mt Hamilton",
+      "route_url": "https://ridewithgps.com/routes/32758196",
+      "trip_url": "https://ridewithgps.com/trips/363889673",
+      "tags": ["road", "hilly", "california"],
+      "notes": "Road with climbing"
     }
   ]
 }
