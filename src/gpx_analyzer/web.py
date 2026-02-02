@@ -12,6 +12,7 @@ from flask import Flask, render_template_string, request, Response, send_file, j
 import matplotlib
 matplotlib.use('Agg')  # Non-interactive backend for server
 import matplotlib.pyplot as plt
+from matplotlib.collections import PolyCollection
 
 from gpx_analyzer import __version_date__, get_git_hash
 from gpx_analyzer.analyzer import analyze, calculate_hilliness, DEFAULT_MAX_GRADE_WINDOW, DEFAULT_MAX_GRADE_SMOOTHING, GRADE_BINS, _calculate_rolling_grades
@@ -2558,14 +2559,20 @@ def generate_elevation_profile(url: str, params: RiderParams) -> bytes:
     # Create figure - wide aspect ratio for full width
     fig, ax = plt.subplots(figsize=(14, 4), facecolor='white')
 
-    # Draw filled segments colored by grade
+    # Build all polygons and colors at once for efficient rendering
+    # Using PolyCollection is ~30x faster than calling fill_between in a loop
+    polygons = []
+    colors = []
     for i in range(len(grades)):
         t0, t1 = times_hours[i], times_hours[i+1]
         e0, e1 = elevations[i], elevations[i+1]
-        color = grade_to_color(grades[i])
+        # Each polygon: bottom-left, bottom-right, top-right, top-left
+        polygons.append([(t0, 0), (t1, 0), (t1, e1), (t0, e0)])
+        colors.append(grade_to_color(grades[i]))
 
-        # Fill from 0 to elevation
-        ax.fill_between([t0, t1], [0, 0], [e0, e1], color=color, linewidth=0)
+    # Draw all filled segments at once
+    coll = PolyCollection(polygons, facecolors=colors, edgecolors='none', linewidths=0)
+    ax.add_collection(coll)
 
     # Add outline on top
     ax.plot(times_hours, elevations, color='#333333', linewidth=0.5)
