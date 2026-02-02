@@ -328,6 +328,39 @@ Lexington, OSC, Loma    101W    86k  1794m   +24%  +10.5%    +20%
 
 The `Elev%` column shows the difference between route and actual trip elevation gain, helping identify routes with inaccurate elevation data.
 
+## Parameter Optimization
+
+Automatically tune model parameters to minimize prediction error across your training data:
+
+```bash
+python3 -m gpx_analyzer --optimize training-data.json
+```
+
+This uses differential evolution to find optimal values for:
+- **crr** — Rolling resistance coefficient
+- **cda** — Aerodynamic drag area
+- **coasting_grade** — Grade threshold for coasting
+- **max_coast_speed** — Maximum coasting speed
+- **climb_power_factor** — Power multiplier on climbs
+- **climb_threshold_grade** — Grade where climb power kicks in
+- **smoothing** — Elevation smoothing radius
+
+The optimizer minimizes weighted error across estimated work, time, and max grade for all routes in your training set.
+
+Progress is displayed during optimization:
+```
+  Gen  15/100 * error=0.0823  elapsed=2.5m  ETA=14.2m
+  Best: crr=0.008, cda=0.320, smoothing=45.0, ...
+```
+
+To save optimized parameters to a config file:
+
+```bash
+python3 -m gpx_analyzer --optimize training-data.json --optimize-output optimized.json
+```
+
+Note: The optimizer does **not** automatically update your config file. Use `--optimize-output` to save results, then copy the values you want to your `gpx-analyzer.json`.
+
 ## Configuration File
 
 Create `gpx-analyzer.json` in the project directory or `~/.config/gpx-analyzer/gpx-analyzer.json` for persistent settings:
