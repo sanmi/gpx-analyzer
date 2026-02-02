@@ -97,6 +97,13 @@ See README.md for detailed parameter descriptions.""",
         help="Run parameter optimization on training data JSON file.",
     )
     parser.add_argument(
+        "--optimize-mode",
+        type=str,
+        default="physics",
+        choices=["physics", "grade"],
+        help="Optimization mode: 'physics' (time/work) or 'grade' (max grade). Default: physics",
+    )
+    parser.add_argument(
         "--optimize-output",
         type=str,
         default=None,
@@ -484,8 +491,9 @@ def main(argv: list[str] | None = None) -> None:
             print(f"Error: Training data file not found: {args.optimize}", file=sys.stderr)
             sys.exit(1)
 
+        mode_desc = "physics (time & work)" if args.optimize_mode == "physics" else "grade (max grade)"
         print("=" * 60)
-        print("PARAMETER OPTIMIZATION")
+        print(f"PARAMETER OPTIMIZATION: {mode_desc}")
         print("=" * 60)
         print("")
 
@@ -494,9 +502,9 @@ def main(argv: list[str] | None = None) -> None:
                 training_file=optimize_path,
                 default_power=args.power,
                 default_mass=args.mass,
-                weights=(1.0, 1.0, 1.0),  # Equal weights for work, time, grade
                 max_iterations=100,
                 verbose=True,
+                mode=args.optimize_mode,
             )
 
             if args.optimize_output:

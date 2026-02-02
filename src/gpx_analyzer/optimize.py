@@ -5,6 +5,7 @@ across a set of training routes.
 """
 
 import json
+import os
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -47,15 +48,27 @@ class OptimizationResult:
 
 # Parameters to optimize with their bounds (min, max)
 # Note: elevation_scale is not optimized - we auto-scale using RWGPS API elevation data
-PARAM_BOUNDS = {
+
+# Physics parameters - affect time and work predictions
+PHYSICS_PARAM_BOUNDS = {
     "crr": (0.004, 0.015),           # Rolling resistance coefficient
     "cda": (0.25, 0.40),             # Aerodynamic drag area (m²)
     "coasting_grade": (-6.0, -2.0),  # Grade threshold for coasting (%)
     "max_coast_speed": (45.0, 60.0), # Max coasting speed on paved (km/h)
     "climb_power_factor": (1.2, 1.8), # Power multiplier on climbs
     "climb_threshold_grade": (3.0, 5.0), # Grade to start applying climb power (%)
-    "smoothing": (30.0, 80.0),       # Elevation smoothing radius (m)
+    "smoothing": (20.0, 80.0),       # Elevation smoothing radius (m)
 }
+
+# Grade parameters - affect max grade and grade profile calculations
+# Note: "smoothing" is in PHYSICS params since it affects time/work too
+GRADE_PARAM_BOUNDS = {
+    "max_grade_window_route": (100.0, 300.0), # Rolling window for max grade (m)
+    "max_grade_smoothing": (50.0, 200.0),     # Smoothing for max grade calc (m)
+}
+
+# Combined for backward compatibility
+PARAM_BOUNDS = {**PHYSICS_PARAM_BOUNDS, **GRADE_PARAM_BOUNDS}
 
 # Fixed parameters (not optimized)
 FIXED_PARAMS = {
@@ -175,8 +188,14 @@ def _build_rider_params(opt_values: np.ndarray, param_names: list[str],
 
 
 def _analyze_preloaded_route(route: PreloadedRoute, opt_values: np.ndarray,
-                              param_names: list[str], default_mass: float) -> dict | None:
-    """Analyze a pre-loaded route with given parameters."""
+                              param_names: list[str], default_mass: float,
+                              need_physics: bool = True, need_grade: bool = True) -> dict | None:
+    """Analyze a pre-loaded route with given parameters.
+
+    Args:
+        need_physics: If True, compute time/work (skip if only optimizing grade)
+        need_grade: If True, compute max grade (skip if only optimizing physics)
+    """
     try:
         params_dict = {name: val for name, val in zip(param_names, opt_values)}
         smoothing = params_dict.get("smoothing", 50.0)
@@ -186,16 +205,23 @@ def _analyze_preloaded_route(route: PreloadedRoute, opt_values: np.ndarray,
         # Apply smoothing with precomputed elevation scale (from API data)
         smoothed = smooth_elevations(route.route_points, smoothing, route.elevation_scale)
 
-        # Run analysis
-        analysis = analyze(smoothed, rider_params)
+        pred_time = 0.0
+        pred_work = 0.0
+        pred_max_grade = 0.0
 
-        pred_time = analysis.estimated_moving_time_at_power.total_seconds()
-        pred_work = analysis.estimated_work / 1000  # Convert to kJ
+        # Only run full analysis if we need time/work
+        if need_physics:
+            analysis = analyze(smoothed, rider_params)
+            pred_time = analysis.estimated_moving_time_at_power.total_seconds()
+            pred_work = analysis.estimated_work / 1000  # Convert to kJ
 
-        # Calculate max grade
-        hilliness = calculate_hilliness(smoothed, rider_params, route.route_points,
-                                        DEFAULT_MAX_GRADE_WINDOW, DEFAULT_MAX_GRADE_SMOOTHING)
-        pred_max_grade = hilliness.max_grade
+        # Only calculate hilliness if we need grade
+        if need_grade:
+            max_grade_window = params_dict.get("max_grade_window_route", DEFAULT_MAX_GRADE_WINDOW)
+            max_grade_smooth = params_dict.get("max_grade_smoothing", DEFAULT_MAX_GRADE_SMOOTHING)
+            hilliness = calculate_hilliness(smoothed, rider_params, route.route_points,
+                                            max_grade_window, max_grade_smooth)
+            pred_max_grade = hilliness.max_grade
 
         return {
             "name": route.name,
@@ -211,16 +237,49 @@ def _analyze_preloaded_route(route: PreloadedRoute, opt_values: np.ndarray,
         return None
 
 
+class _ObjectiveWrapper:
+    """Picklable wrapper for the objective function (needed for parallel workers)."""
+
+    def __init__(self, param_names: list[str], routes: list[PreloadedRoute],
+                 default_mass: float, weights: tuple[float, float, float],
+                 n_jobs: int = -1):
+        self.param_names = param_names
+        self.routes = routes
+        self.default_mass = default_mass
+        self.weights = weights
+        self.n_jobs = n_jobs
+
+    def __call__(self, opt_values: np.ndarray) -> float:
+        return _objective_function(opt_values, self.param_names, self.routes,
+                                   self.default_mass, self.weights, self.n_jobs)
+
+
 def _objective_function(opt_values: np.ndarray, param_names: list[str],
                         routes: list[PreloadedRoute], default_mass: float,
-                        weights: tuple[float, float, float]) -> float:
-    """Compute weighted error across all pre-loaded routes."""
+                        weights: tuple[float, float, float],
+                        n_jobs: int = -1) -> float:
+    """Compute weighted error across all pre-loaded routes.
+
+    Args:
+        n_jobs: Number of parallel jobs (-1 = all cores, 1 = sequential)
+    """
     w_work, w_time, w_grade = weights
+
+    # Skip unnecessary calculations based on weights
+    need_physics = (w_work > 0 or w_time > 0)
+    need_grade = (w_grade > 0)
+
+    # Sequential route analysis (parallel has too much overhead for this workload)
+    results = [
+        _analyze_preloaded_route(route, opt_values, param_names, default_mass,
+                                 need_physics, need_grade)
+        for route in routes
+    ]
+
     total_error = 0.0
     valid_routes = 0
 
-    for route in routes:
-        result = _analyze_preloaded_route(route, opt_values, param_names, default_mass)
+    for result in results:
         if result is None:
             continue
 
@@ -248,11 +307,13 @@ def optimize_parameters(
     training_file: Path | str,
     default_power: float = 100.0,
     default_mass: float = 84.0,
-    weights: tuple[float, float, float] = (1.0, 1.0, 1.0),
+    weights: tuple[float, float, float] | None = None,
     max_iterations: int = 50,
     population_size: int = 10,
     param_subset: list[str] | None = None,
     verbose: bool = True,
+    mode: str = "physics",
+    n_jobs: int = -1,
 ) -> OptimizationResult:
     """Run parameter optimization on training data.
 
@@ -260,21 +321,40 @@ def optimize_parameters(
         training_file: Path to training data JSON
         default_power: Default rider power (W) when not specified per-route
         default_mass: Rider + bike mass (kg)
-        weights: (work_weight, time_weight, grade_weight) for objective function
+        weights: (work_weight, time_weight, grade_weight) for objective function.
+                 If None, uses mode-appropriate defaults.
         max_iterations: Maximum optimization iterations
         population_size: Population size for differential evolution (smaller = faster)
-        param_subset: List of parameter names to optimize (None = all)
+        param_subset: List of parameter names to optimize (None = use mode default)
         verbose: Print progress
+        mode: "physics" (optimize time/work) or "grade" (optimize max grade)
+        n_jobs: Number of parallel jobs for route analysis (-1 = all cores)
 
     Returns:
         OptimizationResult with optimized parameters and final error
     """
+    # Set mode-appropriate defaults
+    if mode == "physics":
+        default_param_bounds = PHYSICS_PARAM_BOUNDS
+        default_weights = (1.0, 1.0, 0.0)  # work, time, no grade
+        mode_desc = "physics (time & work)"
+    elif mode == "grade":
+        default_param_bounds = GRADE_PARAM_BOUNDS
+        default_weights = (0.0, 0.0, 1.0)  # grade only
+        mode_desc = "grade (max grade)"
+    else:
+        raise ValueError(f"Unknown mode: {mode}. Use 'physics' or 'grade'.")
+
+    if weights is None:
+        weights = default_weights
+
     # Load training data
     routes = load_training_data(Path(training_file))
     if not routes:
         raise ValueError("No valid training routes found")
 
     if verbose:
+        print(f"Optimization mode: {mode_desc}")
         print(f"Loading {len(routes)} training routes...")
 
     # Pre-load all route/trip data
@@ -289,9 +369,9 @@ def optimize_parameters(
     if param_subset:
         param_names = [p for p in param_subset if p in PARAM_BOUNDS]
     else:
-        param_names = list(PARAM_BOUNDS.keys())
+        param_names = list(default_param_bounds.keys())
 
-    bounds = [PARAM_BOUNDS[name] for name in param_names]
+    bounds = [PARAM_BOUNDS.get(name, default_param_bounds.get(name)) for name in param_names]
 
     if verbose:
         print(f"Optimizing {len(param_names)} parameters: {param_names}")
@@ -327,7 +407,7 @@ def optimize_parameters(
         elapsed = now - start_time[0]
         last_time[0] = now
 
-        error = _objective_function(xk, param_names, preloaded, default_mass, weights)
+        error = _objective_function(xk, param_names, preloaded, default_mass, weights, n_jobs)
         improved = error < best_error[0]
         if improved:
             best_error[0] = error
@@ -339,18 +419,26 @@ def optimize_parameters(
             remaining_iters = max_iterations - iteration_count[0]
             eta = avg_iter_time * remaining_iters
 
-            # Build status line
-            marker = "*" if improved else " "
-            status = (f"  Gen {iteration_count[0]:3d}/{max_iterations} {marker} "
-                     f"error={best_error[0]:.4f}  "
-                     f"elapsed={format_time(elapsed)}  "
-                     f"ETA={format_time(eta)}")
-            print(status)
-
-            # Show best params every 10 iterations or on improvement
-            if improved and iteration_count[0] > 1:
-                params_str = "  Best: " + ", ".join(f"{k}={v:.3f}" for k, v in best_params[0].items())
+            # Build status line - show improvement marker and convergence info
+            if improved:
+                marker = "NEW BEST"
+                status = (f"  Gen {iteration_count[0]:3d}/{max_iterations}  {marker}  "
+                         f"error={error:.4f}  "
+                         f"elapsed={format_time(elapsed)}  "
+                         f"ETA={format_time(eta)}")
+                print(status)
+                # Show best params on improvement
+                params_str = "    " + ", ".join(f"{k}={v:.3f}" for k, v in best_params[0].items())
                 print(params_str)
+            else:
+                # Only show periodic updates (every 10 gens) when no improvement
+                if iteration_count[0] % 10 == 0 or iteration_count[0] == max_iterations:
+                    conv_str = f"conv={convergence:.3f}" if convergence is not None else ""
+                    status = (f"  Gen {iteration_count[0]:3d}/{max_iterations}  "
+                             f"(no improvement, best={best_error[0]:.4f})  "
+                             f"elapsed={format_time(elapsed)}  "
+                             f"{conv_str}")
+                    print(status)
 
     # Run optimization
     if verbose:
@@ -358,18 +446,21 @@ def optimize_parameters(
         print(f"Each generation evaluates ~{population_size * len(param_names)} parameter sets")
         print()
 
+    # Create picklable objective function for parallel workers
+    objective = _ObjectiveWrapper(param_names, preloaded, default_mass, weights, n_jobs)
+
     result: OptimizeResult = differential_evolution(
-        func=lambda x: _objective_function(x, param_names, preloaded, default_mass, weights),
+        func=objective,
         bounds=bounds,
         maxiter=max_iterations,
         popsize=population_size,
         callback=callback,
         seed=42,
         polish=True,
-        workers=1,
+        workers=1,  # Sequential (parallel hangs on macOS due to spawn-based multiprocessing)
         disp=False,
-        tol=0.01,
-        atol=0.001,
+        tol=0.02,   # Slightly relaxed for faster convergence
+        atol=0.002,
     )
 
     # Extract optimized parameters

@@ -55,13 +55,14 @@
       "route_url": "https://ridewithgps.com/routes/50532002",
       "trip_url": "https://ridewithgps.com/trips/276204729",
       "tags": ["road", "gravel", "flat", "france"],
+      "headwind": 5,
       "notes": "Road with some gravel with little climbing"
     },
     {
       "name": "Del Puerto Canyon",
       "route_url": "https://ridewithgps.com/routes/32159645",
       "trip_url": "https://ridewithgps.com/trips/50720949",
-      "headwind": -10,
+      "headwind": -5,
       "tags": ["road", "gravel", "hilly", "california"],
       "notes": "Road with climbing"
     },
@@ -91,6 +92,13 @@
       "route_url": "https://ridewithgps.com/routes/32758196",
       "trip_url": "https://ridewithgps.com/trips/363889673",
       "tags": ["road", "hilly", "california"],
+      "notes": "Road with climbing"
+    },
+    {
+      "name": "Narbonne to Canet-en-Roussillion",
+      "route_url": "https://ridewithgps.com/routes/53879476",
+      "trip_url": "https://ridewithgps.com/trips/280527062",
+      "tags": ["road", "flat", "gravel", "france"],
       "notes": "Road with climbing"
     }
   ]
