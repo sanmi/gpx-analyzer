@@ -270,6 +270,32 @@ def calculate_elevation_gain(points: list[TrackPoint]) -> float:
     return gain
 
 
+# Adaptive smoothing constants for high-noise DEM detection
+HIGH_NOISE_RATIO_THRESHOLD = 1.8  # raw_gain / api_gain ratio indicating noisy DEM
+HIGH_NOISE_SMOOTHING_RADIUS = 200.0  # meters, used when DEM is noisy
+
+
+def is_high_noise_dem(raw_gain: float, api_gain: float) -> bool:
+    """Detect if DEM data has high noise based on raw/API elevation ratio.
+
+    When the raw GPS track elevation gain is much higher than the API's
+    DEM-corrected elevation, it indicates noisy elevation data. In such cases,
+    aggressive smoothing without API scaling produces better results than
+    trusting the (also noisy) API elevation value.
+
+    Args:
+        raw_gain: Elevation gain from raw track points (no smoothing)
+        api_gain: Elevation gain from RideWithGPS API (DEM-corrected)
+
+    Returns:
+        True if the DEM data appears to have high noise (ratio > 1.8)
+    """
+    if api_gain <= 0 or raw_gain <= 0:
+        return False
+    ratio = raw_gain / api_gain
+    return ratio > HIGH_NOISE_RATIO_THRESHOLD
+
+
 def calculate_surface_breakdown(points: list[TrackPoint]) -> tuple[float, float] | None:
     """Calculate distance on paved vs unpaved surfaces.
 
@@ -344,18 +370,28 @@ def analyze_collection(
             # Calculate API-based elevation scale factor
             api_elevation_scale = 1.0
             api_elevation_gain = route_metadata.get("elevation_gain") if route_metadata else None
-            # Smooth without scaling first (for max grade calculation)
-            unscaled_points = smooth_elevations(points, smoothing_radius, 1.0)
 
-            if api_elevation_gain and api_elevation_gain > 0:
-                smoothed_gain = calculate_elevation_gain(unscaled_points)
-                if smoothed_gain > 0:
-                    api_elevation_scale = api_elevation_gain / smoothed_gain
+            # Calculate raw elevation gain to detect high-noise DEM
+            raw_gain = calculate_elevation_gain(points)
 
-            # Apply smoothing with combined scale factor
-            effective_scale = elevation_scale * api_elevation_scale
-            if smoothing_radius > 0 or effective_scale != 1.0:
-                points = smooth_elevations(points, smoothing_radius, effective_scale)
+            # Check for high-noise DEM data
+            if api_elevation_gain and is_high_noise_dem(raw_gain, api_elevation_gain):
+                # High noise: use aggressive smoothing without API scaling
+                unscaled_points = smooth_elevations(points, HIGH_NOISE_SMOOTHING_RADIUS, 1.0)
+                points = unscaled_points
+            else:
+                # Normal: smooth and scale to API elevation
+                unscaled_points = smooth_elevations(points, smoothing_radius, 1.0)
+
+                if api_elevation_gain and api_elevation_gain > 0:
+                    smoothed_gain = calculate_elevation_gain(unscaled_points)
+                    if smoothed_gain > 0:
+                        api_elevation_scale = api_elevation_gain / smoothed_gain
+
+                # Apply smoothing with combined scale factor
+                effective_scale = elevation_scale * api_elevation_scale
+                if smoothing_radius > 0 or effective_scale != 1.0:
+                    points = smooth_elevations(points, smoothing_radius, effective_scale)
 
             analysis = analyze(points, params)
             hilliness = calculate_hilliness(points, params, unscaled_points, max_grade_window, max_grade_smoothing)
@@ -611,28 +647,42 @@ def main(argv: list[str] | None = None) -> None:
 
     smoothing_radius = 0.0 if args.no_smoothing else args.smoothing
 
-    # Smooth without scaling first (for max grade calculation)
-    unscaled_points = smooth_elevations(points, smoothing_radius, 1.0)
-
     # Calculate API-based elevation scale factor for RideWithGPS routes
     api_elevation_scale = 1.0
     api_elevation_gain = None
     raw_elevation_gain = None
+    high_noise_detected = False
+
     if (route_metadata
         and route_metadata.get("elevation_gain")
         and not args.no_api_elevation):
         api_elevation_gain = route_metadata["elevation_gain"]
         # Calculate raw elevation gain before any smoothing
         raw_elevation_gain = calculate_elevation_gain(points)
-        if raw_elevation_gain > 0:
-            smoothed_gain = calculate_elevation_gain(unscaled_points)
-            if smoothed_gain > 0:
-                api_elevation_scale = api_elevation_gain / smoothed_gain
 
-    # Apply smoothing with combined scale factor
-    effective_scale = args.elevation_scale * api_elevation_scale
-    if smoothing_radius > 0 or effective_scale != 1.0:
-        points = smooth_elevations(points, smoothing_radius, effective_scale)
+        # Check for high-noise DEM data
+        if is_high_noise_dem(raw_elevation_gain, api_elevation_gain):
+            # High noise: use aggressive smoothing without API scaling
+            high_noise_detected = True
+            unscaled_points = smooth_elevations(points, HIGH_NOISE_SMOOTHING_RADIUS, 1.0)
+            points = unscaled_points
+        else:
+            # Normal: smooth and scale to API elevation
+            unscaled_points = smooth_elevations(points, smoothing_radius, 1.0)
+            if raw_elevation_gain > 0:
+                smoothed_gain = calculate_elevation_gain(unscaled_points)
+                if smoothed_gain > 0:
+                    api_elevation_scale = api_elevation_gain / smoothed_gain
+
+            # Apply smoothing with combined scale factor
+            effective_scale = args.elevation_scale * api_elevation_scale
+            if smoothing_radius > 0 or effective_scale != 1.0:
+                points = smooth_elevations(points, smoothing_radius, effective_scale)
+    else:
+        # No API elevation data - just smooth without scaling
+        unscaled_points = smooth_elevations(points, smoothing_radius, 1.0)
+        if smoothing_radius > 0:
+            points = unscaled_points
 
     result = analyze(points, params)
     max_grade_window_route = config.get("max_grade_window_route", DEFAULTS["max_grade_window_route"])
@@ -676,8 +726,10 @@ def main(argv: list[str] | None = None) -> None:
     dist = result.total_distance / 1000 * dist_factor
     print(f"Distance:       {dist:.2f} {dist_unit}")
     gain = result.elevation_gain * elev_factor
-    # Only show scale factor if it's a significant adjustment (>5%)
-    if abs(api_elevation_scale - 1.0) > 0.05:
+    # Show scaling info or high-noise detection
+    if high_noise_detected:
+        print(f"Elevation Gain: {gain:.0f} {elev_unit} [high-noise DEM, {HIGH_NOISE_SMOOTHING_RADIUS:.0f}m smoothing]")
+    elif abs(api_elevation_scale - 1.0) > 0.05:
         print(f"Elevation Gain: {gain:.0f} {elev_unit} [scaled {api_elevation_scale:.2f}x]")
     else:
         print(f"Elevation Gain: {gain:.0f} {elev_unit}")

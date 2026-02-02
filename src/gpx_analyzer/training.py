@@ -78,6 +78,19 @@ def _calculate_elevation_gain(points: list) -> float:
     return gain
 
 
+# Adaptive smoothing constants for high-noise DEM detection
+HIGH_NOISE_RATIO_THRESHOLD = 1.8  # raw_gain / api_gain ratio indicating noisy DEM
+HIGH_NOISE_SMOOTHING_RADIUS = 200.0  # meters, used when DEM is noisy
+
+
+def _is_high_noise_dem(raw_gain: float, api_gain: float) -> bool:
+    """Detect if DEM data has high noise based on raw/API elevation ratio."""
+    if api_gain <= 0 or raw_gain <= 0:
+        return False
+    ratio = raw_gain / api_gain
+    return ratio > HIGH_NOISE_RATIO_THRESHOLD
+
+
 def _calculate_trip_max_grade(points: list[TripPoint], window: float = 50.0) -> float:
     """Calculate max grade from trip points using rolling average over distance window.
 
@@ -240,14 +253,17 @@ def analyze_training_route(
         api_elevation_gain = route_metadata.get("elevation_gain")  # DEM-derived from RWGPS
         trip_elevation_gain = trip_metadata.get("elevation_gain")
 
-        # First pass: smooth with base elevation_scale to get route elevation
-        smoothed = smooth_elevations(route_points, smoothing_radius, elevation_scale)
+        # Calculate raw elevation gain to detect high-noise DEM
+        raw_elevation_gain = _calculate_elevation_gain(route_points)
 
-        # Calculate elevation correction factor using RWGPS API elevation (DEM-derived)
-        # This matches real-world usage where we have route data but no trip data yet
+        # Check for high-noise DEM data
         effective_scale = elevation_scale
-        if use_trip_elevation and api_elevation_gain and api_elevation_gain > 0:
-            # Calculate route elevation gain after smoothing
+        if api_elevation_gain and _is_high_noise_dem(raw_elevation_gain, api_elevation_gain):
+            # High noise: use aggressive smoothing without API scaling
+            smoothed = smooth_elevations(route_points, HIGH_NOISE_SMOOTHING_RADIUS, elevation_scale)
+        elif use_trip_elevation and api_elevation_gain and api_elevation_gain > 0:
+            # Normal: smooth and scale to API elevation
+            smoothed = smooth_elevations(route_points, smoothing_radius, elevation_scale)
             route_gain_smoothed = _calculate_elevation_gain(smoothed)
             if route_gain_smoothed > 0:
                 # Scale factor to make route elevation match API elevation
@@ -255,6 +271,9 @@ def analyze_training_route(
                 # Re-smooth with corrected scale
                 effective_scale = elevation_scale * correction_factor
                 smoothed = smooth_elevations(route_points, smoothing_radius, effective_scale)
+        else:
+            # No API elevation - just smooth
+            smoothed = smooth_elevations(route_points, smoothing_radius, elevation_scale)
 
         analysis = analyze(smoothed, route_params)
 
