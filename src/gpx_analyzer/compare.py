@@ -121,24 +121,54 @@ def _build_grade_buckets(
     """
     from gpx_analyzer.distance import haversine_distance
 
-    # Build a simple spatial index for route points to find nearest curvature
-    route_curvatures = [(p.lat, p.lon, p.curvature, p.unpaved) for p in route_points]
+    # Build list of route point data for nearest-neighbor lookup
+    route_data = [(p.lat, p.lon, p.curvature, p.unpaved) for p in route_points]
+    n_route = len(route_data)
+
+    # Track last found index for sliding window optimization
+    # Since trip points follow the same path, nearest route point moves forward
+    last_idx = 0
 
     def find_nearest_route_info(lat: float, lon: float) -> tuple[float, bool]:
-        """Find curvature and unpaved status from nearest route point."""
-        min_dist = float('inf')
-        nearest_curv = 0.0
-        nearest_unpaved = False
-        for rlat, rlon, curv, unpaved in route_curvatures:
-            # Quick distance approximation (good enough for nearest neighbor)
-            dlat = abs(lat - rlat)
-            dlon = abs(lon - rlon)
-            dist_sq = dlat * dlat + dlon * dlon
-            if dist_sq < min_dist:
-                min_dist = dist_sq
-                nearest_curv = curv
-                nearest_unpaved = unpaved
-        return nearest_curv, nearest_unpaved
+        """Find curvature and unpaved status from nearest route point.
+
+        Uses sliding window from last found index for O(1) amortized lookup.
+        """
+        nonlocal last_idx
+
+        if n_route == 0:
+            return 0.0, False
+
+        def dist_sq(idx: int) -> float:
+            rlat, rlon = route_data[idx][0], route_data[idx][1]
+            dlat = lat - rlat
+            dlon = lon - rlon
+            return dlat * dlat + dlon * dlon
+
+        # Start from last index and search outward (forward-biased)
+        best_idx = last_idx
+        best_dist = dist_sq(last_idx)
+
+        # Search forward first (most likely direction)
+        for i in range(last_idx + 1, min(last_idx + 200, n_route)):
+            d = dist_sq(i)
+            if d < best_dist:
+                best_dist = d
+                best_idx = i
+            elif d > best_dist * 4:  # Stop if distance is growing significantly
+                break
+
+        # Search backward (less likely, smaller window)
+        for i in range(last_idx - 1, max(last_idx - 50, -1), -1):
+            d = dist_sq(i)
+            if d < best_dist:
+                best_dist = d
+                best_idx = i
+            elif d > best_dist * 4:
+                break
+
+        last_idx = best_idx
+        return route_data[best_idx][2], route_data[best_idx][3]
 
     buckets: dict[int, GradeBucket] = {}
 
