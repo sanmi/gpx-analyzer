@@ -1185,18 +1185,25 @@ HTML_TEMPLATE = """
             </ul>
 
             <h4>Descent Model</h4>
+            <p style="margin-bottom: 0.5em; font-size: 0.9em;">Descent speed is limited by gradient steepness AND road curvature (the more restrictive wins).</p>
+            <p style="margin: 0.5em 0; font-size: 0.85em;"><strong>Gradient-based:</strong></p>
             <ul class="param-list">
-                <li><span class="param-name">Max coasting speed</span> — Speed limit when coasting downhill on paved roads. Models braking for safety/comfort.</li>
+                <li><span class="param-name">Max coasting speed</span> — Speed limit when coasting downhill on paved roads.</li>
                 <li><span class="param-name">Max coasting speed unpaved</span> — Lower speed limit for gravel/dirt descents.</li>
-                <li><span class="param-name">Steep descent speed</span> — Even slower limit for very steep descents (technical terrain).</li>
+                <li><span class="param-name">Steep descent speed</span> — Even slower limit for very steep descents.</li>
                 <li><span class="param-name">Steep descent grade</span> — Grade threshold where steep descent speed applies.</li>
                 <li><span class="param-name">Coasting grade threshold</span> — Grade where you stop pedaling entirely and coast.</li>
+            </ul>
+            <p style="margin: 0.5em 0; font-size: 0.85em;"><strong>Curvature-based:</strong></p>
+            <ul class="param-list">
+                <li><span class="param-name">Straight descent speed</span> — Max speed on straight sections (low curvature).</li>
+                <li><span class="param-name">Hairpin speed</span> — Max speed through tight switchbacks (high curvature).</li>
             </ul>
 
             <h4>Data Processing</h4>
             <ul class="param-list">
-                <li><span class="param-name">Smoothing radius (m)</span> — Gaussian smoothing applied to elevation data to reduce GPS noise.</li>
-                <li><span class="param-name">Elevation scale</span> — Multiplier for elevation changes. Auto-calculated from RideWithGPS API data when available.</li>
+                <li><span class="param-name">Smoothing radius (m)</span> — Gaussian smoothing applied to elevation data. Reduces GPS noise and unrealistic grade spikes while preserving overall climb profile.</li>
+                <li><span class="param-name">Elevation scale</span> — Multiplier applied after smoothing. Auto-calculated from RideWithGPS API (DEM-corrected) elevation when available.</li>
                 <li><span class="param-name">Surface Crr deltas</span> — Per-surface-type rolling resistance adjustments based on RideWithGPS surface data.</li>
             </ul>
 
