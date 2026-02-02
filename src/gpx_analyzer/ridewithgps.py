@@ -400,10 +400,12 @@ SURFACE_CRR_DELTAS: dict[int, float] = {
     25: 0.008,  # Rough gravel
 }
 
-# S values >= this threshold indicate unpaved surfaces
-UNPAVED_S_THRESHOLD = 50
+# S values that indicate unpaved surfaces (based on RideWithGPS data)
+# Values 50-89 appear to be unpaved surface types
+# S=95 appears to mean "unknown/no data" and should not be treated as unpaved
+UNPAVED_S_VALUES = set(range(50, 90))
 
-# Additional crr delta for unpaved surfaces (S >= threshold)
+# Additional crr delta for unpaved surfaces
 UNPAVED_CRR_DELTA = 0.005
 
 
@@ -439,13 +441,14 @@ def _surface_type_to_crr(
 
     Args:
         r_value: The R surface type value from RideWithGPS (road quality)
-        s_value: The S surface value from RideWithGPS (S >= 50 indicates unpaved)
+        s_value: The S surface value from RideWithGPS (unpaved if in UNPAVED_S_VALUES)
         baseline_crr: The baseline crr (used for R=3 quality paved)
 
     Returns:
         The effective crr = baseline_crr + R_delta + unpaved_delta.
         Unknown R values use delta=0 (baseline).
-        S values >= 50 add an additional unpaved penalty.
+        S values in UNPAVED_S_VALUES (50-89) add an additional unpaved penalty.
+        S=95 means "unknown" and does not add penalty.
     """
     # Start with baseline
     crr = baseline_crr
@@ -455,16 +458,20 @@ def _surface_type_to_crr(
         deltas = _get_surface_crr_deltas()
         crr += deltas.get(r_value, 0.0)
 
-    # Add unpaved penalty if S >= threshold
-    if s_value is not None and s_value >= UNPAVED_S_THRESHOLD:
+    # Add unpaved penalty if S indicates unpaved surface
+    if s_value is not None and s_value in UNPAVED_S_VALUES:
         crr += _get_unpaved_crr_delta()
 
     return crr
 
 
 def is_unpaved(s_value: int | None) -> bool:
-    """Check if an S value indicates an unpaved surface."""
-    return s_value is not None and s_value >= UNPAVED_S_THRESHOLD
+    """Check if an S value indicates an unpaved surface.
+
+    S values 50-89 indicate unpaved surfaces.
+    S=95 means "unknown/no data" and is treated as paved.
+    """
+    return s_value is not None and s_value in UNPAVED_S_VALUES
 
 
 def _download_json(route_id: int, privacy_code: str | None = None) -> dict:
@@ -586,7 +593,40 @@ def get_route_with_surface(url: str, baseline_crr: float) -> tuple[list[TrackPoi
         "surface": route_info.get("surface"),
     }
 
+    # Check for surface data inconsistency
+    _check_surface_consistency(points, metadata)
+
     return points, metadata
+
+
+def _check_surface_consistency(points: list, metadata: dict) -> None:
+    """Warn if per-point surface data differs significantly from route metadata.
+
+    This can indicate data quality issues, such as S=95 being misclassified.
+    """
+    if not points:
+        return
+
+    # Calculate unpaved percentage from per-point data
+    unpaved_count = sum(1 for p in points if p.unpaved)
+    calculated_pct = 100 * unpaved_count / len(points)
+
+    # Get metadata unpaved percentage
+    metadata_pct = metadata.get("unpaved_pct")
+    if metadata_pct is None:
+        return
+
+    # Warn if difference is significant (>10 percentage points)
+    diff = abs(calculated_pct - metadata_pct)
+    if diff > 10:
+        import sys
+        route_name = metadata.get("name", "Unknown")
+        print(
+            f"Warning: Surface data inconsistency for '{route_name}': "
+            f"per-point data shows {calculated_pct:.0f}% unpaved, "
+            f"but route metadata shows {metadata_pct:.0f}% unpaved.",
+            file=sys.stderr
+        )
 
 
 def is_ridewithgps_trip_url(path: str) -> bool:

@@ -757,10 +757,16 @@ class TestIsUnpaved:
     def test_s_at_threshold_is_unpaved(self):
         assert ridewithgps.is_unpaved(50) is True
 
-    def test_s_above_threshold_is_unpaved(self):
+    def test_s_in_unpaved_range_is_unpaved(self):
         assert ridewithgps.is_unpaved(56) is True
         assert ridewithgps.is_unpaved(63) is True
-        assert ridewithgps.is_unpaved(99) is True
+        assert ridewithgps.is_unpaved(89) is True
+
+    def test_s_above_unpaved_range_is_paved(self):
+        # S >= 90 is treated as "unknown/no data" and defaults to paved
+        assert ridewithgps.is_unpaved(90) is False
+        assert ridewithgps.is_unpaved(95) is False
+        assert ridewithgps.is_unpaved(99) is False
 
     def test_none_is_paved(self):
         assert ridewithgps.is_unpaved(None) is False
