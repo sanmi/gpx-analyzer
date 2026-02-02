@@ -27,11 +27,22 @@ Speed is calculated by solving the power balance equation: your power output equ
 
 ### Descent Model
 
+Descent speed is limited by two factors: gradient steepness and road curvature.
+
+**Gradient-based limits:**
 - **Max coasting speed** — Speed limit when coasting downhill on paved roads. Models braking for safety/comfort.
 - **Max coasting speed unpaved** — Lower speed limit for gravel/dirt descents.
 - **Steep descent speed** — Even slower limit for very steep descents (technical terrain).
 - **Steep descent grade** — Grade threshold where steep descent speed applies.
 - **Coasting grade threshold** — Grade where you stop pedaling entirely and coast.
+
+**Curvature-based limits:**
+Road curvature is calculated as heading change rate (degrees per meter) using GPS coordinates. On descents, the model limits speed based on how twisty the road is:
+- **Straight descent speed** — Max speed on straight sections (curvature ≤ straight threshold).
+- **Hairpin speed** — Max speed through tight switchbacks (curvature ≥ hairpin threshold).
+- Between these thresholds, speed is interpolated linearly.
+
+The final descent speed is the more restrictive of gradient and curvature limits. This models real-world behavior: you brake harder on steep grades AND through tight turns.
 
 ### Data Processing
 
