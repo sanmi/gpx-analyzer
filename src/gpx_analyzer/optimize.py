@@ -5,6 +5,7 @@ across a set of training routes.
 """
 
 import json
+import time
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -297,21 +298,65 @@ def optimize_parameters(
         print(f"Weights: work={weights[0]}, time={weights[1]}, grade={weights[2]}")
         print(f"Population size: {population_size}, Max iterations: {max_iterations}")
 
-    # Track iteration progress
+    # Track iteration progress with timing
     iteration_count = [0]
     best_error = [float('inf')]
+    best_params = [None]
+    start_time = [None]
+    last_time = [None]
+    eval_count = [0]
+
+    def format_time(seconds: float) -> str:
+        """Format seconds as human-readable time."""
+        if seconds < 60:
+            return f"{seconds:.0f}s"
+        elif seconds < 3600:
+            return f"{seconds/60:.1f}m"
+        else:
+            return f"{seconds/3600:.1f}h"
 
     def callback(xk, convergence=None):
         iteration_count[0] += 1
+        now = time.time()
+
+        if start_time[0] is None:
+            start_time[0] = now
+            last_time[0] = now
+
+        iter_time = now - last_time[0]
+        elapsed = now - start_time[0]
+        last_time[0] = now
+
         error = _objective_function(xk, param_names, preloaded, default_mass, weights)
-        if error < best_error[0]:
+        improved = error < best_error[0]
+        if improved:
             best_error[0] = error
+            best_params[0] = {name: val for name, val in zip(param_names, xk)}
+
         if verbose:
-            print(f"  Gen {iteration_count[0]}: error = {best_error[0]:.4f}")
+            # Estimate remaining time based on average iteration time
+            avg_iter_time = elapsed / iteration_count[0]
+            remaining_iters = max_iterations - iteration_count[0]
+            eta = avg_iter_time * remaining_iters
+
+            # Build status line
+            marker = "*" if improved else " "
+            status = (f"  Gen {iteration_count[0]:3d}/{max_iterations} {marker} "
+                     f"error={best_error[0]:.4f}  "
+                     f"elapsed={format_time(elapsed)}  "
+                     f"ETA={format_time(eta)}")
+            print(status)
+
+            # Show best params every 10 iterations or on improvement
+            if improved and iteration_count[0] > 1:
+                params_str = "  Best: " + ", ".join(f"{k}={v:.3f}" for k, v in best_params[0].items())
+                print(params_str)
 
     # Run optimization
     if verbose:
-        print("\nStarting optimization...")
+        print(f"\nStarting optimization (max {max_iterations} generations)...")
+        print(f"Each generation evaluates ~{population_size * len(param_names)} parameter sets")
+        print()
 
     result: OptimizeResult = differential_evolution(
         func=lambda x: _objective_function(x, param_names, preloaded, default_mass, weights),
@@ -331,7 +376,9 @@ def optimize_parameters(
     opt_params = {name: val for name, val in zip(param_names, result.x)}
 
     if verbose:
+        total_time = time.time() - start_time[0] if start_time[0] else 0
         print(f"\nOptimization complete!")
+        print(f"Total time: {format_time(total_time)}")
         print(f"Final error: {result.fun:.4f}")
         print(f"Generations: {iteration_count[0]}")
         print("\nOptimized parameters:")
