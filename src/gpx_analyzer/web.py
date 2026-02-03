@@ -1065,13 +1065,24 @@ HTML_TEMPLATE = """
         .comparison-table tr.primary td {
             font-weight: 600;
         }
-        /* Steep comparison table - wider columns for route names */
+        /* Steep comparison table - wider columns for route names on desktop */
         .steep-comparison-table th:not(:first-child) {
-            min-width: 180px;
-            white-space: nowrap;
+            min-width: 140px;
         }
         .steep-comparison-table th:first-child {
-            width: 120px;
+            width: 100px;
+        }
+        @media (max-width: 600px) {
+            .steep-comparison-table th:not(:first-child) {
+                min-width: auto;
+            }
+            .steep-comparison-table th:first-child {
+                width: auto;
+            }
+            .steep-comparison-table th .result-badge {
+                display: block;
+                margin-top: 4px;
+            }
         }
         /* Comparison histograms */
         .histogram-bars.comparison-mode {
