@@ -81,7 +81,7 @@ class TestIndexPostSingleRoute:
             "headwind": "0",
         })
         html = response.data.decode()
-        assert "Invalid RideWithGPS route URL" in html
+        assert "Invalid RideWithGPS URL" in html
 
     def test_empty_url_shows_error(self, client, no_config):
         response = client.post("/", data={
@@ -569,3 +569,156 @@ class TestElevationScaling:
         html = response.data.decode()
 
         assert "Elevation scaled" in html
+
+
+class TestTripSupport:
+    """Tests for trip URL support."""
+
+    def test_is_valid_rwgps_url_accepts_trips(self):
+        """_is_valid_rwgps_url should accept trip URLs."""
+        assert web._is_valid_rwgps_url("https://ridewithgps.com/trips/12345")
+        assert web._is_valid_rwgps_url("https://www.ridewithgps.com/trips/12345")
+
+    def test_is_valid_rwgps_url_accepts_routes(self):
+        """_is_valid_rwgps_url should accept route URLs."""
+        assert web._is_valid_rwgps_url("https://ridewithgps.com/routes/12345")
+
+    def test_is_valid_rwgps_url_rejects_invalid(self):
+        """_is_valid_rwgps_url should reject non-RWGPS URLs."""
+        assert not web._is_valid_rwgps_url("https://example.com/trips/12345")
+        assert not web._is_valid_rwgps_url("https://example.com/routes/12345")
+
+    def test_extract_trip_id(self):
+        """extract_trip_id should extract trip ID from URL."""
+        assert web.extract_trip_id("https://ridewithgps.com/trips/12345") == "12345"
+        assert web.extract_trip_id("https://www.ridewithgps.com/trips/67890") == "67890"
+        assert web.extract_trip_id("https://ridewithgps.com/routes/12345") is None
+        assert web.extract_trip_id(None) is None
+
+    def test_extract_id_from_url_routes(self):
+        """_extract_id_from_url should extract route IDs."""
+        assert web._extract_id_from_url("https://ridewithgps.com/routes/12345") == "12345"
+
+    def test_extract_id_from_url_trips(self):
+        """_extract_id_from_url should extract trip IDs."""
+        assert web._extract_id_from_url("https://ridewithgps.com/trips/67890") == "67890"
+
+    def test_trip_url_shows_error_for_invalid_trip(self, client, no_config):
+        """Trip URL with example.com should show error."""
+        response = client.post("/", data={
+            "url": "https://example.com/trips/123",
+            "mode": "route",
+            "power": "100",
+            "mass": "85",
+            "headwind": "0",
+        })
+        html = response.data.decode()
+        assert "Invalid RideWithGPS URL" in html
+
+    @patch.object(web, "get_trip_data")
+    def test_trip_url_shows_trip_badge(self, mock_get_trip, client, no_config):
+        """Trip URLs should show 'Recorded Ride' badge."""
+        from gpx_analyzer.ridewithgps import TripPoint
+
+        mock_get_trip.return_value = (
+            [
+                TripPoint(lat=37.7749, lon=-122.4194, elevation=10.0, distance=0, speed=5.0, timestamp=1000, power=150, heart_rate=None, cadence=None),
+                TripPoint(lat=37.7758, lon=-122.4183, elevation=15.0, distance=100, speed=5.0, timestamp=1020, power=150, heart_rate=None, cadence=None),
+                TripPoint(lat=37.7767, lon=-122.4172, elevation=20.0, distance=200, speed=5.0, timestamp=1040, power=150, heart_rate=None, cadence=None),
+            ],
+            {"name": "Test Trip", "distance": 1000, "elevation_gain": 100, "moving_time": 3600, "avg_speed": 5.0, "avg_watts": 150},
+        )
+
+        response = client.post("/", data={
+            "url": "https://ridewithgps.com/trips/12345",
+            "mode": "route",
+            "power": "100",
+            "mass": "85",
+            "headwind": "0",
+        })
+        html = response.data.decode()
+
+        assert "Recorded Ride" in html
+        assert "trip-badge" in html
+        assert "trip-results" in html
+
+    @patch.object(web, "get_trip_data")
+    def test_trip_shows_moving_time_not_estimated(self, mock_get_trip, client, no_config):
+        """Trip should show 'Moving Time' not 'Estimated Moving Time' in results."""
+        from gpx_analyzer.ridewithgps import TripPoint
+
+        mock_get_trip.return_value = (
+            [
+                TripPoint(lat=37.7749, lon=-122.4194, elevation=10.0, distance=0, speed=5.0, timestamp=1000, power=150, heart_rate=None, cadence=None),
+                TripPoint(lat=37.7758, lon=-122.4183, elevation=15.0, distance=100, speed=5.0, timestamp=1020, power=150, heart_rate=None, cadence=None),
+                TripPoint(lat=37.7767, lon=-122.4172, elevation=20.0, distance=200, speed=5.0, timestamp=1040, power=150, heart_rate=None, cadence=None),
+            ],
+            {"name": "Test Trip", "distance": 1000, "elevation_gain": 100, "moving_time": 3600, "avg_speed": 5.0, "avg_watts": 150},
+        )
+
+        response = client.post("/", data={
+            "url": "https://ridewithgps.com/trips/12345",
+            "mode": "route",
+            "power": "100",
+            "mass": "85",
+            "headwind": "0",
+        })
+        html = response.data.decode()
+
+        # Should show "Moving Time" label in the results section
+        # The label appears with info button like: "Moving Time <button..."
+        assert 'Moving Time <button type="button" class="info-btn"' in html
+        # The results section should NOT have "Estimated Moving Time" as the label
+        # (note: it will still appear in the modal explanation text, so we check the label context)
+        assert 'result-label label-with-info">Moving Time' in html or '>Moving Time <button' in html
+
+    @patch.object(web, "get_trip_data")
+    def test_trip_shows_avg_power_when_available(self, mock_get_trip, client, no_config):
+        """Trip with power data should show Avg Power."""
+        from gpx_analyzer.ridewithgps import TripPoint
+
+        mock_get_trip.return_value = (
+            [
+                TripPoint(lat=37.7749, lon=-122.4194, elevation=10.0, distance=0, speed=5.0, timestamp=1000, power=150, heart_rate=None, cadence=None),
+                TripPoint(lat=37.7758, lon=-122.4183, elevation=15.0, distance=100, speed=5.0, timestamp=1020, power=150, heart_rate=None, cadence=None),
+                TripPoint(lat=37.7767, lon=-122.4172, elevation=20.0, distance=200, speed=5.0, timestamp=1040, power=150, heart_rate=None, cadence=None),
+            ],
+            {"name": "Test Trip", "distance": 1000, "elevation_gain": 100, "moving_time": 3600, "avg_speed": 5.0, "avg_watts": 175},
+        )
+
+        response = client.post("/", data={
+            "url": "https://ridewithgps.com/trips/12345",
+            "mode": "route",
+            "power": "100",
+            "mass": "85",
+            "headwind": "0",
+        })
+        html = response.data.decode()
+
+        assert "Avg Power" in html
+        assert "175 W" in html
+
+    @patch.object(web, "get_route_with_surface")
+    def test_route_shows_planned_route_badge(self, mock_get_route, client, no_config):
+        """Route URLs should show 'Planned Route' badge."""
+        mock_get_route.return_value = (
+            [
+                TrackPoint(lat=37.7749, lon=-122.4194, elevation=10.0, time=None),
+                TrackPoint(lat=37.7758, lon=-122.4183, elevation=15.0, time=None),
+                TrackPoint(lat=37.7767, lon=-122.4172, elevation=20.0, time=None),
+            ],
+            {"name": "Test Route", "elevation_gain": 100},
+        )
+
+        response = client.post("/", data={
+            "url": "https://ridewithgps.com/routes/12345",
+            "mode": "route",
+            "power": "100",
+            "mass": "85",
+            "headwind": "0",
+        })
+        html = response.data.decode()
+
+        assert "Planned Route" in html
+        assert "route-badge" in html
+        assert "route-results" in html

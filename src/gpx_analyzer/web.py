@@ -15,16 +15,21 @@ import matplotlib.pyplot as plt
 from matplotlib.collections import PolyCollection
 
 from gpx_analyzer import __version_date__, get_git_hash
-from gpx_analyzer.analyzer import analyze, calculate_hilliness, DEFAULT_MAX_GRADE_WINDOW, DEFAULT_MAX_GRADE_SMOOTHING, GRADE_BINS, _calculate_rolling_grades
+from gpx_analyzer.analyzer import analyze, calculate_hilliness, DEFAULT_MAX_GRADE_WINDOW, DEFAULT_MAX_GRADE_SMOOTHING, GRADE_BINS, GRADE_LABELS, STEEP_GRADE_BINS, STEEP_GRADE_LABELS, _calculate_rolling_grades
+from gpx_analyzer.distance import haversine_distance
 from gpx_analyzer.physics import calculate_segment_work
 from gpx_analyzer.cli import calculate_elevation_gain, calculate_surface_breakdown, DEFAULTS
-from gpx_analyzer.models import RiderParams
+from gpx_analyzer.models import RiderParams, TrackPoint
 from gpx_analyzer.ridewithgps import (
     _load_config,
+    extract_privacy_code,
     get_collection_route_ids,
     get_route_with_surface,
+    get_trip_data,
     is_ridewithgps_collection_url,
     is_ridewithgps_url,
+    is_ridewithgps_trip_url,
+    TripPoint,
 )
 from gpx_analyzer.smoothing import smooth_elevations
 
@@ -176,8 +181,12 @@ HTML_TEMPLATE = """
     {% set base_url = request.url_root | replace('http://', 'https://') %}
     <meta property="og:site_name" content="Reality Check my Route">
     {% if result %}
-    <meta property="og:title" content="Reality Check: {{ result.name or 'Route Analysis' }}">
+    <meta property="og:title" content="Reality Check: {{ result.name or ('Trip Analysis' if is_trip else 'Route Analysis') }}">
+    {% if is_trip %}
+    <meta property="og:description" content="{{ result.time_str }}{% if result.work_kj is not none %} • {{ '%.0f'|format(result.work_kj) }} kJ{% endif %} | {{ '%.0f'|format(result.distance_km) }} km • {{ '%.0f'|format(result.elevation_m) }}m{% if result.avg_watts is not none %} @ {{ result.avg_watts|int }}W{% endif %}">
+    {% else %}
     <meta property="og:description" content="{{ result.time_str }} • {{ '%.0f'|format(result.work_kj) }} kJ | {{ '%.0f'|format(result.distance_km) }} km • {{ '%.0f'|format(result.elevation_m) }}m @ {{ power|int }}W">
+    {% endif %}
     <meta property="og:image" content="{{ base_url }}og-image?url={{ url|urlencode }}&power={{ power }}&mass={{ mass }}&headwind={{ headwind }}">
     <meta property="og:type" content="website">
     {% else %}
@@ -261,6 +270,29 @@ HTML_TEMPLATE = """
             border-radius: 8px;
             margin-top: 20px;
             box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .results.route-results {
+            border-left: 4px solid #4CAF50;
+        }
+        .results.trip-results {
+            border-left: 4px solid #2196F3;
+        }
+        .result-badge {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        .route-badge {
+            background: #E8F5E9;
+            color: #2E7D32;
+        }
+        .trip-badge {
+            background: #E3F2FD;
+            color: #1565C0;
         }
         .results h2 { margin-top: 0; font-size: 1.2em; color: #333; }
         .results h2 a { color: inherit; text-decoration: none; }
@@ -1183,7 +1215,7 @@ HTML_TEMPLATE = """
 
     <form method="POST" id="analyzeForm">
         <div class="label-row">
-            <label for="url">RideWithGPS URL (route or collection)</label>
+            <label for="url">RideWithGPS URL (route, trip, or collection)</label>
             <button type="button" class="info-btn" onclick="showModal('urlModal')">?</button>
         </div>
         <div class="url-input-wrapper">
@@ -1503,13 +1535,16 @@ HTML_TEMPLATE = """
             populateRecentUrls();
         }
 
-        function populateRecentUrls(dropdownId, inputId, routesOnly) {
+        function populateRecentUrls(dropdownId, inputId, excludeCurrentUrl) {
             var dropdown = document.getElementById(dropdownId);
             if (!dropdown) return;  // Guard against missing element
             var urls = getRecentUrls();
-            // Filter to routes only for the compare dropdown
-            if (routesOnly) {
-                urls = urls.filter(function(item) { return item.url.includes('/routes/'); });
+            // For compare dropdown, exclude the URL already in the primary input
+            if (excludeCurrentUrl) {
+                var primaryUrl = document.getElementById('url').value;
+                if (primaryUrl) {
+                    urls = urls.filter(function(item) { return item.url !== primaryUrl; });
+                }
             }
             if (urls.length === 0) {
                 dropdown.innerHTML = '';
@@ -2236,15 +2271,20 @@ HTML_TEMPLATE = """
     {% endif %}
 
     {% if result %}
-    <div class="results" id="singleRouteResults">
+    <div class="results {% if is_trip %}trip-results{% else %}route-results{% endif %}" id="singleRouteResults">
         {% if share_url %}
         <input type="hidden" id="shareUrl" value="{{ share_url }}">
         {% endif %}
         <div class="results-header">
             {% if compare_mode and result2 %}
-            <h2>Route Comparison</h2>
+            <h2>Comparison</h2>
             {% else %}
-            <h2>{{ result.name or 'Route Analysis' }}</h2>
+            <h2>{{ result.name or ('Trip Analysis' if is_trip else 'Route Analysis') }}</h2>
+            {% endif %}
+            {% if not compare_mode %}
+            <span class="result-badge {% if is_trip %}trip-badge{% else %}route-badge{% endif %}">
+                {% if is_trip %}Recorded Ride{% else %}Planned Route{% endif %}
+            </span>
             {% endif %}
             {% if share_url %}
             <button type="button" class="share-btn" onclick="copyShareLink('shareUrl', this)" title="Copy link to share">
@@ -2261,24 +2301,34 @@ HTML_TEMPLATE = """
                 <thead>
                     <tr>
                         <th>Metric</th>
-                        <th class="route-col">{{ (result.name or 'Route 1')|truncate(25) }}</th>
-                        <th class="route-col">{{ (result2.name or 'Route 2')|truncate(25) }}</th>
+                        <th class="route-col">{{ (result.name or ('Trip 1' if is_trip else 'Route 1'))|truncate(25) }} <span class="result-badge {% if is_trip %}trip-badge{% else %}route-badge{% endif %}">{% if is_trip %}Ride{% else %}Route{% endif %}</span></th>
+                        <th class="route-col">{{ (result2.name or ('Trip 2' if is_trip2 else 'Route 2'))|truncate(25) }} <span class="result-badge {% if is_trip2 %}trip-badge{% else %}route-badge{% endif %}">{% if is_trip2 %}Ride{% else %}Route{% endif %}</span></th>
                         <th class="diff-col">Difference</th>
                     </tr>
                 </thead>
                 <tbody>
                     <tr class="primary">
-                        <td><span class="label-with-info">Est. Moving Time <button type="button" class="info-btn" onclick="showModal('timeModal')">?</button></span></td>
+                        <td><span class="label-with-info">{% if is_trip and is_trip2 %}Moving Time{% else %}Est. Moving Time{% endif %} <button type="button" class="info-btn" onclick="showModal('timeModal')">?</button></span></td>
                         <td class="route-col">{{ result.time_str }}</td>
                         <td class="route-col">{{ result2.time_str }}</td>
                         <td class="diff-col">{{ format_time_diff(result.time_seconds, result2.time_seconds) }}</td>
                     </tr>
+                    {% if (not is_trip or result.work_kj is not none) and (not is_trip2 or result2.work_kj is not none) %}
                     <tr class="primary">
-                        <td><span class="label-with-info">Est. Work <button type="button" class="info-btn" onclick="showModal('workModal')">?</button></span></td>
-                        <td class="route-col">{{ "%.0f"|format(result.work_kj) }} kJ</td>
-                        <td class="route-col">{{ "%.0f"|format(result2.work_kj) }} kJ</td>
-                        <td class="diff-col">{{ format_diff(result.work_kj, result2.work_kj, 'kJ') }}</td>
+                        <td><span class="label-with-info">{% if is_trip and is_trip2 %}Work{% else %}Est. Work{% endif %} <button type="button" class="info-btn" onclick="showModal('workModal')">?</button></span></td>
+                        <td class="route-col">{% if result.work_kj is not none %}{{ "%.0f"|format(result.work_kj) }} kJ{% else %}-{% endif %}</td>
+                        <td class="route-col">{% if result2.work_kj is not none %}{{ "%.0f"|format(result2.work_kj) }} kJ{% else %}-{% endif %}</td>
+                        <td class="diff-col">{% if result.work_kj is not none and result2.work_kj is not none %}{{ format_diff(result.work_kj, result2.work_kj, 'kJ') }}{% else %}-{% endif %}</td>
                     </tr>
+                    {% endif %}
+                    {% if (is_trip and result.has_power) or (is_trip2 and result2.has_power) %}
+                    <tr class="primary">
+                        <td>Avg Power</td>
+                        <td class="route-col">{% if result.avg_watts is not none %}{{ result.avg_watts|int }} W{% else %}-{% endif %}</td>
+                        <td class="route-col">{% if result2.avg_watts is not none %}{{ result2.avg_watts|int }} W{% else %}-{% endif %}</td>
+                        <td class="diff-col">{% if result.avg_watts is not none and result2.avg_watts is not none %}{{ format_diff(result.avg_watts, result2.avg_watts, 'W') }}{% else %}-{% endif %}</td>
+                    </tr>
+                    {% endif %}
                     <tr>
                         <td>Distance</td>
                         <td class="route-col" id="cmpDist1" data-km="{{ result.distance_km }}">{{ "%.1f"|format(result.distance_km) }} km</td>
@@ -2321,16 +2371,24 @@ HTML_TEMPLATE = """
             </table>
         </div>
         {% else %}
-        <!-- Single route results -->
+        <!-- Single route/trip results -->
         <div class="primary-results">
             <div class="result-row primary">
-                <span class="result-label label-with-info">Estimated Moving Time <button type="button" class="info-btn" onclick="showModal('timeModal')">?</button></span>
+                <span class="result-label label-with-info">{% if is_trip %}Moving Time{% else %}Estimated Moving Time{% endif %} <button type="button" class="info-btn" onclick="showModal('timeModal')">?</button></span>
                 <span class="result-value">{{ result.time_str }}</span>
             </div>
+            {% if not is_trip or result.work_kj is not none %}
             <div class="result-row primary">
-                <span class="result-label label-with-info">Estimated Work <button type="button" class="info-btn" onclick="showModal('workModal')">?</button></span>
-                <span class="result-value">{{ "%.0f"|format(result.work_kj) }} kJ</span>
+                <span class="result-label label-with-info">{% if is_trip %}Work{% else %}Estimated Work{% endif %} <button type="button" class="info-btn" onclick="showModal('workModal')">?</button></span>
+                <span class="result-value">{% if result.work_kj is not none %}{{ "%.0f"|format(result.work_kj) }} kJ{% else %}-{% endif %}</span>
             </div>
+            {% endif %}
+            {% if is_trip and result.has_power %}
+            <div class="result-row primary">
+                <span class="result-label">Avg Power</span>
+                <span class="result-value">{{ result.avg_watts|int }} W</span>
+            </div>
+            {% endif %}
         </div>
 
         <div class="result-row">
@@ -2652,30 +2710,50 @@ HTML_TEMPLATE = """
         {% endif %}
 
         {% if compare_mode and route_id and route_id2 %}
-        <!-- Side-by-side RWGPS embeds for comparison -->
+        <!-- Side-by-side RWGPS embeds for comparison (only for routes, trips don't support embeds) -->
+        {% if not is_trip and not is_trip2 %}
         <div class="route-maps-comparison">
             <div class="route-map">
                 <h4>{{ (result.name or 'Route 1')|truncate(30) }}</h4>
-                <iframe src="https://ridewithgps.com/embeds?type=route&id={{ route_id }}&sampleGraph=true"
+                <iframe src="https://ridewithgps.com/embeds?type=route&id={{ route_id }}&sampleGraph=true{% if privacy_code %}&privacy_code={{ privacy_code }}{% endif %}"
                         scrolling="no"></iframe>
             </div>
             <div class="route-map">
                 <h4>{{ (result2.name or 'Route 2')|truncate(30) }}</h4>
-                <iframe src="https://ridewithgps.com/embeds?type=route&id={{ route_id2 }}&sampleGraph=true"
+                <iframe src="https://ridewithgps.com/embeds?type=route&id={{ route_id2 }}&sampleGraph=true{% if privacy_code2 %}&privacy_code={{ privacy_code2 }}{% endif %}"
                         scrolling="no"></iframe>
             </div>
         </div>
-        {% elif route_id %}
-        <!-- Single RWGPS embed -->
+        {% elif not is_trip and is_trip2 %}
+        <!-- Only first is a route -->
         <div class="route-map">
-            <iframe src="https://ridewithgps.com/embeds?type=route&id={{ route_id }}&sampleGraph=true"
+            <h4>{{ (result.name or 'Route')|truncate(30) }}</h4>
+            <iframe src="https://ridewithgps.com/embeds?type=route&id={{ route_id }}&sampleGraph=true{% if privacy_code %}&privacy_code={{ privacy_code }}{% endif %}"
+                    scrolling="no"></iframe>
+        </div>
+        {% elif is_trip and not is_trip2 %}
+        <!-- Only second is a route -->
+        <div class="route-map">
+            <h4>{{ (result2.name or 'Route')|truncate(30) }}</h4>
+            <iframe src="https://ridewithgps.com/embeds?type=route&id={{ route_id2 }}&sampleGraph=true{% if privacy_code2 %}&privacy_code={{ privacy_code2 }}{% endif %}"
+                    scrolling="no"></iframe>
+        </div>
+        {% endif %}
+        {% elif route_id and not is_trip %}
+        <!-- Single RWGPS embed (only for routes) -->
+        <div class="route-map">
+            <iframe src="https://ridewithgps.com/embeds?type=route&id={{ route_id }}&sampleGraph=true{% if privacy_code %}&privacy_code={{ privacy_code }}{% endif %}"
                     scrolling="no"></iframe>
         </div>
         {% endif %}
     </div>
     <script>
-        // Save URL with route name for recent URLs dropdown
+        // Save URL with route/trip name for recent URLs dropdown
         saveRecentUrl('{{ url }}', '{{ result.name|e if result.name else '' }}');
+        {% if compare_mode and url2 and result2 %}
+        // Also save the second URL when comparing
+        saveRecentUrl('{{ url2 }}', '{{ result2.name|e if result2.name else '' }}');
+        {% endif %}
         // Initialize units display
         updateSingleRouteUnits();
         updateComparisonTableUnits();
@@ -2958,6 +3036,8 @@ def analyze_single_route(url: str, params: RiderParams) -> dict:
         "avg_speed_kmh": analysis.avg_speed * 3.6,
         "avg_speed_mph": analysis.avg_speed * 3.6 * 0.621371,
         "work_kj": analysis.estimated_work / 1000,
+        "avg_watts": None,  # Routes don't have recorded power
+        "has_power": False,
         "unpaved_pct": unpaved_pct,
         "elevation_scale": api_elevation_scale,
         "elevation_scaled": abs(api_elevation_scale - 1.0) > 0.05,
@@ -2978,6 +3058,198 @@ def analyze_single_route(url: str, params: RiderParams) -> dict:
     _analysis_cache.set(
         url, params.assumed_avg_power, params.total_mass, params.headwind, result
     )
+
+    return result
+
+
+def analyze_trip(url: str) -> dict:
+    """Analyze a recorded trip - actual values, no estimation needed.
+
+    Args:
+        url: RideWithGPS trip URL
+
+    Returns:
+        Dict with trip analysis results including actual recorded time and power.
+    """
+    config = _load_config() or {}
+    smoothing_radius = config.get("smoothing", DEFAULTS["smoothing"])
+    max_grade_window = config.get("max_grade_window_route", DEFAULTS["max_grade_window_route"])
+    max_grade_smoothing = config.get("max_grade_smoothing", DEFAULTS["max_grade_smoothing"])
+
+    trip_points, trip_metadata = get_trip_data(url)
+
+    if len(trip_points) < 2:
+        raise ValueError("Trip contains fewer than 2 track points")
+
+    # Convert TripPoints to TrackPoints for grade calculation
+    track_points = []
+    for tp in trip_points:
+        track_points.append(TrackPoint(
+            lat=tp.lat,
+            lon=tp.lon,
+            elevation=tp.elevation,
+            time=tp.timestamp,
+        ))
+
+    # Apply smoothing for elevation profile and grade calculations
+    api_elevation_gain = trip_metadata.get("elevation_gain")
+    api_elevation_scale = 1.0
+    if api_elevation_gain and api_elevation_gain > 0:
+        unscaled = smooth_elevations(track_points, smoothing_radius, 1.0)
+        smoothed_gain = calculate_elevation_gain(unscaled)
+        if smoothed_gain > 0:
+            api_elevation_scale = api_elevation_gain / smoothed_gain
+
+    smoothed_points = smooth_elevations(track_points, smoothing_radius, api_elevation_scale)
+
+    # Calculate rolling grades for max grade (filters GPS noise)
+    unscaled_points = smooth_elevations(track_points, smoothing_radius, 1.0)
+    if max_grade_smoothing > 0:
+        grade_points = smooth_elevations(unscaled_points, max_grade_smoothing, 1.0)
+    else:
+        grade_points = unscaled_points
+    rolling_grades = _calculate_rolling_grades(grade_points, max_grade_window)
+    max_grade = max(rolling_grades) if rolling_grades else 0.0
+
+    # Calculate grade histograms using actual timestamps from trip
+    grade_times = {label: 0.0 for label in GRADE_LABELS}
+    grade_distances = {label: 0.0 for label in GRADE_LABELS}
+    steep_times = {label: 0.0 for label in STEEP_GRADE_LABELS}
+    steep_distances = {label: 0.0 for label in STEEP_GRADE_LABELS}
+
+    total_distance = 0.0
+    elevation_gain = 0.0
+    elevation_loss = 0.0
+    steep_distance = 0.0
+    very_steep_distance = 0.0
+
+    # For steepness calculation (effort-weighted using time instead of work for trips)
+    weighted_grade_sum = 0.0
+    climbing_time_sum = 0.0
+
+    for i in range(1, len(trip_points)):
+        prev, curr = trip_points[i - 1], trip_points[i]
+        prev_smooth, curr_smooth = smoothed_points[i - 1], smoothed_points[i]
+
+        # Distance between consecutive points
+        dist = curr.distance - prev.distance if curr.distance is not None and prev.distance is not None else 0.0
+        if dist <= 0:
+            # Fall back to haversine distance
+            dist = haversine_distance(prev.lat, prev.lon, curr.lat, curr.lon)
+
+        if dist < 0.1:
+            continue
+
+        total_distance += dist
+
+        # Time delta from actual timestamps
+        if curr.timestamp is not None and prev.timestamp is not None:
+            time_delta = curr.timestamp - prev.timestamp
+        else:
+            time_delta = 0.0
+
+        # Elevation change from smoothed data
+        elev_prev = prev_smooth.elevation if prev_smooth.elevation is not None else 0.0
+        elev_curr = curr_smooth.elevation if curr_smooth.elevation is not None else 0.0
+        elev_change = elev_curr - elev_prev
+
+        if elev_change > 0:
+            elevation_gain += elev_change
+        else:
+            elevation_loss += abs(elev_change)
+
+        # Use rolling grade for histogram binning
+        rolling_grade = rolling_grades[i - 1] if i - 1 < len(rolling_grades) else 0.0
+
+        # Bin the grade
+        for j in range(len(GRADE_BINS) - 1):
+            if GRADE_BINS[j] <= rolling_grade < GRADE_BINS[j + 1]:
+                grade_times[GRADE_LABELS[j]] += time_delta
+                grade_distances[GRADE_LABELS[j]] += dist
+                break
+
+        # Track steep distances
+        if rolling_grade >= 10:
+            steep_distance += dist
+        if rolling_grade >= 15:
+            very_steep_distance += dist
+
+        # Bin steep grades (>= 10%)
+        if rolling_grade >= 10:
+            for j in range(len(STEEP_GRADE_BINS) - 1):
+                if STEEP_GRADE_BINS[j] <= rolling_grade < STEEP_GRADE_BINS[j + 1]:
+                    steep_times[STEEP_GRADE_LABELS[j]] += time_delta
+                    steep_distances[STEEP_GRADE_LABELS[j]] += dist
+                    break
+
+        # Accumulate steepness data for climbing segments >= 2%
+        if rolling_grade >= 2 and time_delta > 0:
+            weighted_grade_sum += rolling_grade * time_delta
+            climbing_time_sum += time_delta
+
+    # Hilliness score: meters gained per km
+    hilliness_score = (elevation_gain / (total_distance / 1000)) if total_distance > 0 else 0.0
+
+    # Steepness score: time-weighted average climbing grade
+    steepness_score = (weighted_grade_sum / climbing_time_sum) if climbing_time_sum > 0 else 0.0
+
+    # Calculate total time from timestamps (sum of all time deltas in grade histogram)
+    calculated_moving_time = sum(grade_times.values())
+
+    # Calculate avg_watts from track points if not in metadata
+    points_with_power = [p for p in trip_points if p.power is not None]
+    if points_with_power:
+        calculated_avg_watts = sum(p.power for p in points_with_power) / len(points_with_power)
+    else:
+        calculated_avg_watts = None
+
+    # Get metadata values, fall back to calculated values
+    moving_time = trip_metadata.get("moving_time") or calculated_moving_time
+    distance = trip_metadata.get("distance") or total_distance
+    avg_speed = trip_metadata.get("avg_speed")  # m/s
+    avg_watts = trip_metadata.get("avg_watts") or calculated_avg_watts
+
+    # Calculate avg_speed from distance/time if not in metadata
+    if avg_speed is None and moving_time > 0:
+        avg_speed = distance / moving_time  # m/s
+
+    # Calculate work if we have power and time
+    work_kj = None
+    if avg_watts is not None and moving_time > 0:
+        work_kj = (avg_watts * moving_time) / 1000  # kJ
+
+    result = {
+        "name": trip_metadata.get("name"),
+        "distance_km": distance / 1000,
+        "distance_mi": distance / 1000 * 0.621371,
+        "elevation_m": trip_metadata.get("elevation_gain") or elevation_gain,
+        "elevation_ft": (trip_metadata.get("elevation_gain") or elevation_gain) * 3.28084,
+        "elevation_loss_m": elevation_loss,
+        "elevation_loss_ft": elevation_loss * 3.28084,
+        "time_str": format_duration_long(moving_time),
+        "time_seconds": moving_time,
+        "avg_speed_kmh": (avg_speed * 3.6) if avg_speed else 0,
+        "avg_speed_mph": (avg_speed * 3.6 * 0.621371) if avg_speed else 0,
+        "work_kj": work_kj,
+        "avg_watts": avg_watts,
+        "has_power": avg_watts is not None,
+        "unpaved_pct": None,  # Trips don't have surface data
+        "elevation_scale": api_elevation_scale,
+        "elevation_scaled": abs(api_elevation_scale - 1.0) > 0.05,
+        "hilliness_score": hilliness_score,
+        "steepness_score": steepness_score,
+        "grade_histogram": grade_times,
+        "grade_distance_histogram": grade_distances,
+        "max_grade": max_grade,
+        "steep_distance": steep_distance,
+        "very_steep_distance": very_steep_distance,
+        "steep_time_histogram": steep_times,
+        "steep_distance_histogram": steep_distances,
+        "hilliness_total_time": sum(grade_times.values()),
+        "hilliness_total_distance": total_distance,
+        # Trip-specific flags
+        "is_trip": True,
+    }
 
     return result
 
@@ -3229,6 +3501,72 @@ def _calculate_elevation_profile_data(url: str, params: RiderParams) -> dict:
     }
 
 
+def _calculate_trip_elevation_profile_data(url: str) -> dict:
+    """Calculate elevation profile data for a trip using actual timestamps.
+
+    Returns dict with times_hours, elevations, grades, and route_name.
+    """
+    config = _load_config() or {}
+    smoothing_radius = config.get("smoothing", DEFAULTS["smoothing"])
+    max_grade_window = config.get("max_grade_window_route", DEFAULT_MAX_GRADE_WINDOW)
+
+    trip_points, trip_metadata = get_trip_data(url)
+
+    if len(trip_points) < 2:
+        raise ValueError("Trip contains fewer than 2 track points")
+
+    # Convert TripPoints to TrackPoints for smoothing
+    track_points = []
+    for tp in trip_points:
+        track_points.append(TrackPoint(
+            lat=tp.lat,
+            lon=tp.lon,
+            elevation=tp.elevation,
+            time=tp.timestamp,
+        ))
+
+    # Apply smoothing with elevation scaling
+    api_elevation_gain = trip_metadata.get("elevation_gain")
+    api_elevation_scale = 1.0
+    if api_elevation_gain and api_elevation_gain > 0:
+        unscaled = smooth_elevations(track_points, smoothing_radius, 1.0)
+        smoothed_gain = calculate_elevation_gain(unscaled)
+        if smoothed_gain > 0:
+            api_elevation_scale = api_elevation_gain / smoothed_gain
+
+    smoothed_points = smooth_elevations(track_points, smoothing_radius, api_elevation_scale)
+
+    # Calculate rolling grades
+    rolling_grades = _calculate_rolling_grades(smoothed_points, max_grade_window)
+
+    # Use actual timestamps for x-axis
+    if trip_points[0].timestamp is None:
+        raise ValueError("Trip has no timestamp data")
+
+    base_time = trip_points[0].timestamp
+    times_hours = []
+    elevations = []
+
+    for i, (tp, sp) in enumerate(zip(trip_points, smoothed_points)):
+        if tp.timestamp is not None:
+            hours = (tp.timestamp - base_time) / 3600
+        else:
+            hours = times_hours[-1] if times_hours else 0.0
+        times_hours.append(hours)
+        elevations.append(sp.elevation or 0.0)
+
+    grades = rolling_grades if rolling_grades else [0.0] * (len(trip_points) - 1)
+
+    trip_name = trip_metadata.get("name", "Trip Profile") if trip_metadata else "Trip Profile"
+
+    return {
+        "times_hours": times_hours,
+        "elevations": elevations,
+        "grades": grades,
+        "route_name": trip_name,
+    }
+
+
 def generate_elevation_profile(url: str, params: RiderParams, title_time_hours: float | None = None) -> bytes:
     """Generate elevation profile image with grade-based coloring.
 
@@ -3323,18 +3661,97 @@ def generate_elevation_profile(url: str, params: RiderParams, title_time_hours: 
     return buf.getvalue()
 
 
+def generate_trip_elevation_profile(url: str, title_time_hours: float | None = None) -> bytes:
+    """Generate elevation profile image for a trip with grade-based coloring.
+
+    Args:
+        url: RideWithGPS trip URL
+        title_time_hours: Optional time to display in title.
+
+    Returns PNG image as bytes.
+    """
+    data = _calculate_trip_elevation_profile_data(url)
+    times_hours = data["times_hours"]
+    elevations = data["elevations"]
+    grades = data["grades"]
+    route_name = data["route_name"]
+
+    # Reuse the same grade-to-color mapping from route profile
+    main_colors = [
+        '#4a90d9', '#5a9fd9', '#6aaee0', '#7abde7', '#8acbef', '#9adaf6',
+        '#cccccc',
+        '#ffb399', '#ff9966', '#ff7f33', '#ff6600', '#e55a00'
+    ]
+    steep_colors = ['#e55a00', '#cc4400', '#b33300', '#992200', '#801100', '#660000']
+
+    def grade_to_color(g):
+        if g >= 10:
+            if g < 12:
+                return steep_colors[0]
+            elif g < 14:
+                return steep_colors[1]
+            elif g < 16:
+                return steep_colors[2]
+            elif g < 18:
+                return steep_colors[3]
+            elif g < 20:
+                return steep_colors[4]
+            else:
+                return steep_colors[5]
+        for i, threshold in enumerate(GRADE_BINS[1:]):
+            if g < threshold:
+                return main_colors[i]
+        return main_colors[-1]
+
+    fig, ax = plt.subplots(figsize=(14, 4), facecolor='white')
+
+    polygons = []
+    colors = []
+    for i in range(len(grades)):
+        t0, t1 = times_hours[i], times_hours[i+1]
+        e0, e1 = elevations[i], elevations[i+1]
+        polygons.append([(t0, 0), (t1, 0), (t1, e1), (t0, e0)])
+        colors.append(grade_to_color(grades[i]))
+
+    coll = PolyCollection(polygons, facecolors=colors, edgecolors='none', linewidths=0)
+    ax.add_collection(coll)
+
+    ax.plot(times_hours, elevations, color='#333333', linewidth=0.5)
+
+    ax.set_xlim(0, times_hours[-1])
+    ax.set_ylim(0, max(elevations) * 1.1)
+    ax.set_xlabel('Time (hours)', fontsize=10)
+    ax.set_ylabel('Elevation (m)', fontsize=10)
+
+    display_time = title_time_hours if title_time_hours is not None else times_hours[-1]
+    ax.set_title(f"{route_name} - {display_time:.1f}h", fontsize=12, fontweight='bold')
+
+    ax.spines['top'].set_visible(False)
+    ax.spines['right'].set_visible(False)
+    ax.grid(axis='y', alpha=0.3, linestyle='-', linewidth=0.5)
+
+    plt.tight_layout()
+
+    buf = io.BytesIO()
+    fig.savefig(buf, format='png', dpi=100, bbox_inches='tight',
+                facecolor='white', edgecolor='none')
+    plt.close(fig)
+    buf.seek(0)
+    return buf.getvalue()
+
+
 @app.route("/elevation-profile")
 def elevation_profile():
-    """Serve elevation profile image for a route."""
+    """Serve elevation profile image for a route or trip."""
     url = request.args.get("url", "")
     power = float(request.args.get("power", DEFAULTS["power"]))
     mass = float(request.args.get("mass", DEFAULTS["mass"]))
     headwind = float(request.args.get("headwind", DEFAULTS["headwind"]))
 
-    if not url or not is_ridewithgps_url(url):
+    if not url or not (is_ridewithgps_url(url) or is_ridewithgps_trip_url(url)):
         # Return a placeholder image
         fig, ax = plt.subplots(figsize=(14, 4), facecolor='white')
-        ax.text(0.5, 0.5, 'No route selected', ha='center', va='center', fontsize=14, color='#999')
+        ax.text(0.5, 0.5, 'No route or trip selected', ha='center', va='center', fontsize=14, color='#999')
         ax.axis('off')
         buf = io.BytesIO()
         fig.savefig(buf, format='png', dpi=100, bbox_inches='tight', facecolor='white')
@@ -3349,11 +3766,17 @@ def elevation_profile():
         return send_file(io.BytesIO(cached_bytes), mimetype='image/png')
 
     try:
-        params = build_params(power, mass, headwind)
-        # Get calibrated time from analysis (cached, so fast)
-        analysis = analyze_single_route(url, params)
-        title_time_hours = analysis["time_seconds"] / 3600
-        img_bytes = generate_elevation_profile(url, params, title_time_hours)
+        if is_ridewithgps_trip_url(url):
+            # Trip: use actual timestamps, no physics params needed
+            trip_result = analyze_trip(url)
+            title_time_hours = trip_result["time_seconds"] / 3600
+            img_bytes = generate_trip_elevation_profile(url, title_time_hours)
+        else:
+            # Route: use physics estimation
+            params = build_params(power, mass, headwind)
+            analysis = analyze_single_route(url, params)
+            title_time_hours = analysis["time_seconds"] / 3600
+            img_bytes = generate_elevation_profile(url, params, title_time_hours)
         # Save to disk cache
         _save_profile_to_cache(cache_key, img_bytes)
         return send_file(io.BytesIO(img_bytes), mimetype='image/png')
@@ -3377,12 +3800,17 @@ def elevation_profile_data():
     mass = float(request.args.get("mass", DEFAULTS["mass"]))
     headwind = float(request.args.get("headwind", DEFAULTS["headwind"]))
 
-    if not url or not is_ridewithgps_url(url):
+    if not url or not (is_ridewithgps_url(url) or is_ridewithgps_trip_url(url)):
         return jsonify({"error": "Invalid URL"}), 400
 
     try:
-        params = build_params(power, mass, headwind)
-        data = _calculate_elevation_profile_data(url, params)
+        if is_ridewithgps_trip_url(url):
+            # Trip: use actual timestamps
+            data = _calculate_trip_elevation_profile_data(url)
+        else:
+            # Route: use physics estimation
+            params = build_params(power, mass, headwind)
+            data = _calculate_elevation_profile_data(url, params)
 
         # Downsample data if too many points (for performance)
         max_points = 500
@@ -3415,20 +3843,65 @@ def extract_route_id(url: str) -> str | None:
     return match.group(1) if match else None
 
 
+def extract_trip_id(url: str) -> str | None:
+    """Extract trip ID from a RideWithGPS trip URL."""
+    if not url:
+        return None
+    import re
+    match = re.search(r'/trips/(\d+)', url)
+    return match.group(1) if match else None
+
+
+def _analyze_url(url: str, params: RiderParams) -> tuple[dict, bool]:
+    """Analyze a URL (route or trip) and return result and is_trip flag.
+
+    Args:
+        url: RideWithGPS route or trip URL
+        params: Rider parameters (only used for routes)
+
+    Returns:
+        Tuple of (analysis result dict, is_trip flag)
+    """
+    if is_ridewithgps_trip_url(url):
+        result = analyze_trip(url)
+        return result, True
+    else:
+        result = analyze_single_route(url, params)
+        result["is_trip"] = False
+        return result, False
+
+
+def _is_valid_rwgps_url(url: str) -> bool:
+    """Check if URL is a valid RideWithGPS route or trip URL."""
+    return is_ridewithgps_url(url) or is_ridewithgps_trip_url(url)
+
+
+def _extract_id_from_url(url: str) -> str | None:
+    """Extract route or trip ID from a RideWithGPS URL."""
+    route_id = extract_route_id(url)
+    if route_id:
+        return route_id
+    return extract_trip_id(url)
+
+
 @app.route("/", methods=["GET", "POST"])
 def index():
     defaults = get_defaults()
     error = None
     result = None
-    result2 = None  # Second route for comparison
+    result2 = None  # Second route/trip for comparison
     url = None
-    url2 = None  # Second route URL for comparison
+    url2 = None  # Second route/trip URL for comparison
     mode = "route"
     imperial = False
     route_id = None
-    route_id2 = None  # Second route ID for comparison
+    route_id2 = None  # Second route/trip ID for comparison
+    privacy_code = None
+    privacy_code2 = None
     share_url = None
     compare_mode = False  # Flag for comparison mode
+    is_trip = False  # Flag for trip vs route
+    is_trip2 = False  # Flag for second URL trip vs route
 
     power = defaults["power"]
     mass = defaults["mass"]
@@ -3437,7 +3910,7 @@ def index():
     # Check for GET parameters (shared link)
     if request.method == "GET" and request.args.get("url"):
         url = request.args.get("url", "").strip()
-        url2 = request.args.get("url2", "").strip()  # Second route for comparison
+        url2 = request.args.get("url2", "").strip()  # Second route/trip for comparison
         imperial = request.args.get("imperial") == "1"
 
         try:
@@ -3451,30 +3924,32 @@ def index():
             if is_ridewithgps_collection_url(url):
                 # Collection - set mode and let JavaScript handle it
                 mode = "collection"
-            elif is_ridewithgps_url(url):
-                # Single route - analyze server-side
+            elif _is_valid_rwgps_url(url):
+                # Single route or trip - analyze server-side
                 try:
                     params = build_params(power, mass, headwind)
-                    result = analyze_single_route(url, params)
-                    route_id = extract_route_id(url)
+                    result, is_trip = _analyze_url(url, params)
+                    route_id = _extract_id_from_url(url)
+                    privacy_code = extract_privacy_code(url)
                 except Exception as e:
-                    error = f"Error analyzing route: {e}"
+                    error = f"Error analyzing {'trip' if is_ridewithgps_trip_url(url) else 'route'}: {e}"
 
-                # Handle second route for comparison
+                # Handle second route/trip for comparison
                 if url2 and not error:
-                    if is_ridewithgps_url(url2):
+                    if _is_valid_rwgps_url(url2):
                         compare_mode = True
                         try:
-                            result2 = analyze_single_route(url2, params)
-                            route_id2 = extract_route_id(url2)
+                            result2, is_trip2 = _analyze_url(url2, params)
+                            route_id2 = _extract_id_from_url(url2)
+                            privacy_code2 = extract_privacy_code(url2)
                         except Exception as e:
-                            error = f"Error analyzing second route: {e}"
+                            error = f"Error analyzing second {'trip' if is_ridewithgps_trip_url(url2) else 'route'}: {e}"
                     else:
-                        error = "Invalid second RideWithGPS route URL"
+                        error = "Invalid second RideWithGPS URL"
 
     elif request.method == "POST":
         url = request.form.get("url", "").strip()
-        url2 = request.form.get("url2", "").strip()  # Second route for comparison
+        url2 = request.form.get("url2", "").strip()  # Second route/trip for comparison
         compare_enabled = request.form.get("compare") == "on"  # Check if compare checkbox is on
         mode = request.form.get("mode", "route")
         imperial = request.form.get("imperial") == "on"
@@ -3490,27 +3965,29 @@ def index():
             if not url:
                 error = "Please enter a RideWithGPS URL"
             elif mode == "route":
-                if not is_ridewithgps_url(url):
-                    error = "Invalid RideWithGPS route URL. Expected format: https://ridewithgps.com/routes/XXXXX"
+                if not _is_valid_rwgps_url(url):
+                    error = "Invalid RideWithGPS URL. Expected format: https://ridewithgps.com/routes/XXXXX or /trips/XXXXX"
                 else:
                     try:
                         params = build_params(power, mass, headwind)
-                        result = analyze_single_route(url, params)
-                        route_id = extract_route_id(url)
+                        result, is_trip = _analyze_url(url, params)
+                        route_id = _extract_id_from_url(url)
+                        privacy_code = extract_privacy_code(url)
                     except Exception as e:
-                        error = f"Error analyzing route: {e}"
+                        error = f"Error analyzing {'trip' if is_ridewithgps_trip_url(url) else 'route'}: {e}"
 
-                    # Handle second route for comparison (only if checkbox is checked)
+                    # Handle second route/trip for comparison (only if checkbox is checked)
                     if url2 and compare_enabled and not error:
-                        if is_ridewithgps_url(url2):
+                        if _is_valid_rwgps_url(url2):
                             compare_mode = True
                             try:
-                                result2 = analyze_single_route(url2, params)
-                                route_id2 = extract_route_id(url2)
+                                result2, is_trip2 = _analyze_url(url2, params)
+                                route_id2 = _extract_id_from_url(url2)
+                                privacy_code2 = extract_privacy_code(url2)
                             except Exception as e:
-                                error = f"Error analyzing second route: {e}"
+                                error = f"Error analyzing second {'trip' if is_ridewithgps_trip_url(url2) else 'route'}: {e}"
                         else:
-                            error = "Invalid second RideWithGPS route URL"
+                            error = "Invalid second RideWithGPS URL"
             # Collection mode is handled by JavaScript + SSE
 
     # Build share URL if we have results
@@ -3534,6 +4011,8 @@ def index():
         url=url,
         url2=url2,
         compare_mode=compare_mode,
+        is_trip=is_trip,
+        is_trip2=is_trip2,
         mode=mode,
         power=power,
         mass=mass,
@@ -3544,6 +4023,8 @@ def index():
         result2=result2,
         route_id=route_id,
         route_id2=route_id2,
+        privacy_code=privacy_code,
+        privacy_code2=privacy_code2,
         share_url=share_url,
         version_date=__version_date__,
         git_hash=get_git_hash(),
