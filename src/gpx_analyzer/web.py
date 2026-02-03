@@ -952,19 +952,180 @@ HTML_TEMPLATE = """
             overflow: hidden;
             text-overflow: ellipsis;
         }
-        .mode-indicator {
+        /* Compare mode styles */
+        .compare-toggle {
+            margin-top: 8px;
+            margin-bottom: 5px;
+        }
+        .compare-toggle label {
             display: flex;
             align-items: center;
-            gap: 6px;
-            margin-top: 8px;
-            font-size: 0.85em;
+            gap: 8px;
+            cursor: pointer;
+            font-size: 0.9em;
+            font-weight: normal;
+            color: #555;
+        }
+        .compare-toggle input[type="checkbox"] {
+            width: 16px;
+            height: 16px;
+            cursor: pointer;
+            accent-color: var(--primary);
+        }
+        #compareUrlWrapper {
+            margin-top: 10px;
+        }
+        #compareUrlWrapper.hidden {
+            display: none;
+        }
+        .compare-label {
+            display: block;
+            font-size: 0.9em;
+            color: #555;
+            margin-bottom: 4px;
+        }
+        /* Comparison table styles */
+        .comparison-table-wrapper {
+            margin: 20px 0;
+            overflow-x: auto;
+        }
+        .comparison-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.95em;
+        }
+        .comparison-table th,
+        .comparison-table td {
+            padding: 10px 12px;
+            text-align: left;
+            border-bottom: 1px solid #eee;
+        }
+        .comparison-table th {
+            background: #f5f5f5;
+            font-weight: 600;
+        }
+        .comparison-table .route-col {
+            text-align: right;
+            min-width: 100px;
+        }
+        .comparison-table .diff-col {
+            text-align: right;
             color: #666;
+            font-size: 0.9em;
+            min-width: 80px;
         }
-        .mode-indicator.route {
-            color: var(--primary);
+        .comparison-table tr.primary {
+            background: #f0f7ff;
         }
-        .mode-indicator.collection {
-            color: #34a853;
+        .comparison-table tr.primary td {
+            font-weight: 600;
+        }
+        /* Comparison histograms */
+        .histogram-bars.comparison-mode {
+            gap: 12px;  /* spacing between grade bins */
+        }
+        .histogram-bars.comparison-mode .histogram-bar {
+            flex: 1;
+            min-width: 0;
+        }
+        .histogram-bars.comparison-mode .bar-container {
+            display: flex;
+            gap: 2px;
+            align-items: flex-end;
+        }
+        .histogram-bars.comparison-mode .bar {
+            flex: 1;
+        }
+        .histogram-bars.comparison-mode .bar.route2 {
+            background-image: repeating-linear-gradient(
+                45deg,
+                transparent,
+                transparent 2px,
+                rgba(255,255,255,0.4) 2px,
+                rgba(255,255,255,0.4) 4px
+            ) !important;
+        }
+        /* Histogram tooltip */
+        .bar-tooltip {
+            position: fixed;
+            background: rgba(0, 0, 0, 0.85);
+            color: white;
+            padding: 8px 12px;
+            border-radius: 6px;
+            font-size: 0.85em;
+            pointer-events: none;
+            z-index: 1000;
+            white-space: nowrap;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+        }
+        .bar-tooltip .tooltip-title {
+            font-weight: 600;
+            margin-bottom: 4px;
+            border-bottom: 1px solid rgba(255,255,255,0.3);
+            padding-bottom: 4px;
+        }
+        .bar-tooltip .tooltip-row {
+            display: flex;
+            justify-content: space-between;
+            gap: 12px;
+        }
+        .bar-tooltip .tooltip-label {
+            color: #aaa;
+        }
+        .histogram-legend {
+            display: flex;
+            justify-content: center;
+            gap: 20px;
+            margin-top: 10px;
+            font-size: 0.8em;
+        }
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+        .legend-color {
+            width: 12px;
+            height: 12px;
+            border-radius: 2px;
+        }
+        .legend-color.striped {
+            background-image: repeating-linear-gradient(
+                45deg,
+                transparent,
+                transparent 2px,
+                rgba(255,255,255,0.4) 2px,
+                rgba(255,255,255,0.4) 4px
+            );
+        }
+        /* Stacked elevation profiles */
+        .elevation-profiles-stacked .elevation-profile {
+            margin-bottom: 15px;
+        }
+        .elevation-profiles-stacked .elevation-profile:last-child {
+            margin-bottom: 0;
+        }
+        /* Side-by-side RWGPS embeds */
+        .route-maps-comparison {
+            display: flex;
+            gap: 15px;
+            margin-top: 20px;
+        }
+        .route-maps-comparison .route-map {
+            flex: 1;
+        }
+        .route-maps-comparison .route-map h4 {
+            margin: 0 0 10px 0;
+            font-size: 0.9em;
+            color: #555;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        @media (max-width: 768px) {
+            .route-maps-comparison {
+                flex-direction: column;
+            }
         }
     </style>
 </head>
@@ -1019,10 +1180,23 @@ HTML_TEMPLATE = """
                    autocomplete="off">
             <div id="recentUrlsDropdown" class="recent-urls-dropdown hidden"></div>
         </div>
-        <div class="mode-indicator">
-            <span id="modeText">Enter a route or collection URL</span>
-        </div>
         <input type="hidden" id="mode" name="mode" value="route">
+
+        <div class="compare-toggle">
+            <label>
+                <input type="checkbox" id="compareCheckbox" {{ 'checked' if compare_mode else '' }} onchange="toggleCompareMode()">
+                Compare with another route
+            </label>
+            <input type="hidden" id="compareMode" name="compare" value="{{ 'on' if compare_mode else '' }}">
+        </div>
+        <div id="compareUrlWrapper" class="url-input-wrapper{{ '' if compare_mode else ' hidden' }}">
+            <label for="url2" class="compare-label">Second Route URL</label>
+            <input type="text" id="url2" name="url2"
+                   placeholder="https://ridewithgps.com/routes/..."
+                   value="{{ url2 or '' }}"
+                   autocomplete="off">
+            <div id="recentUrlsDropdown2" class="recent-urls-dropdown hidden"></div>
+        </div>
 
         <div class="param-row">
             <div>
@@ -1316,16 +1490,19 @@ HTML_TEMPLATE = """
             populateRecentUrls();
         }
 
-        function populateRecentUrls() {
-            var dropdown = document.getElementById('recentUrlsDropdown');
+        function populateRecentUrls(dropdownId, inputId, routesOnly) {
+            var dropdown = document.getElementById(dropdownId);
             var urls = getRecentUrls();
+            // Filter to routes only for the compare dropdown
+            if (routesOnly) {
+                urls = urls.filter(function(item) { return item.url.includes('/routes/'); });
+            }
             if (urls.length === 0) {
                 dropdown.innerHTML = '';
                 return;
             }
             var html = '<div class="recent-urls-header">Recent</div>';
             urls.forEach(function(item) {
-                var displayName = item.name || item.url;
                 var urlPreview = item.url.replace('https://ridewithgps.com/', '');
                 if (item.name) {
                     html += '<div class="recent-url-item" data-url="' + item.url + '">' +
@@ -1343,39 +1520,57 @@ HTML_TEMPLATE = """
             // Add click handlers
             dropdown.querySelectorAll('.recent-url-item').forEach(function(item) {
                 item.addEventListener('click', function() {
-                    document.getElementById('url').value = this.getAttribute('data-url');
+                    document.getElementById(inputId).value = this.getAttribute('data-url');
                     dropdown.classList.add('hidden');
-                    updateModeIndicator();
+                    if (inputId === 'url') {
+                        updateModeIndicator();
+                    }
                 });
             });
         }
 
         function setupUrlDropdown() {
+            // Setup primary URL input
             var urlInput = document.getElementById('url');
             var dropdown = document.getElementById('recentUrlsDropdown');
 
             urlInput.addEventListener('focus', function() {
                 if (getRecentUrls().length > 0) {
-                    populateRecentUrls();
+                    populateRecentUrls('recentUrlsDropdown', 'url', false);
                     dropdown.classList.remove('hidden');
                 }
             });
 
-            // Update mode indicator when URL changes
             urlInput.addEventListener('input', updateModeIndicator);
 
-            // Hide dropdown when clicking outside
+            // Setup secondary URL input (compare mode)
+            var url2Input = document.getElementById('url2');
+            var dropdown2 = document.getElementById('recentUrlsDropdown2');
+
+            url2Input.addEventListener('focus', function() {
+                var urls = getRecentUrls().filter(function(item) { return item.url.includes('/routes/'); });
+                if (urls.length > 0) {
+                    populateRecentUrls('recentUrlsDropdown2', 'url2', true);
+                    dropdown2.classList.remove('hidden');
+                }
+            });
+
+            // Hide dropdowns when clicking outside
             document.addEventListener('click', function(e) {
                 if (!urlInput.contains(e.target) && !dropdown.contains(e.target)) {
                     dropdown.classList.add('hidden');
                 }
+                if (!url2Input.contains(e.target) && !dropdown2.contains(e.target)) {
+                    dropdown2.classList.add('hidden');
+                }
             });
 
-            // Hide dropdown on escape
+            // Hide dropdowns on escape
             urlInput.addEventListener('keydown', function(e) {
-                if (e.key === 'Escape') {
-                    dropdown.classList.add('hidden');
-                }
+                if (e.key === 'Escape') dropdown.classList.add('hidden');
+            });
+            url2Input.addEventListener('keydown', function(e) {
+                if (e.key === 'Escape') dropdown2.classList.add('hidden');
             });
 
             // Initialize mode indicator
@@ -1402,6 +1597,20 @@ HTML_TEMPLATE = """
 
         function hideModal(id) {
             document.getElementById(id).classList.remove('active');
+        }
+
+        function toggleCompareMode() {
+            var wrapper = document.getElementById('compareUrlWrapper');
+            var checkbox = document.getElementById('compareCheckbox');
+            var hiddenInput = document.getElementById('compareMode');
+
+            if (checkbox.checked) {
+                wrapper.classList.remove('hidden');
+                hiddenInput.value = 'on';
+            } else {
+                wrapper.classList.add('hidden');
+                hiddenInput.value = '';
+            }
         }
 
         function copyShareLink(inputId, btn) {
@@ -1432,22 +1641,11 @@ HTML_TEMPLATE = """
         function updateModeIndicator() {
             var url = document.getElementById('url').value;
             var mode = detectModeFromUrl(url);
-            var indicator = document.querySelector('.mode-indicator');
-            var modeText = document.getElementById('modeText');
             var modeInput = document.getElementById('mode');
 
-            indicator.classList.remove('route', 'collection');
-
             if (mode === 'collection') {
-                modeText.textContent = 'Collection detected — will analyze all routes';
-                indicator.classList.add('collection');
                 modeInput.value = 'collection';
-            } else if (mode === 'route') {
-                modeText.textContent = 'Single route detected';
-                indicator.classList.add('route');
-                modeInput.value = 'route';
             } else {
-                modeText.textContent = 'Enter a route or collection URL';
                 modeInput.value = 'route';
             }
         }
@@ -1761,30 +1959,80 @@ HTML_TEMPLATE = """
                     hillyEl.textContent = Math.round(mkm) + ' m/km';
                 }
             }
-            // Steep distance stats
-            var steep10 = document.getElementById('steepDist10');
-            var steep15 = document.getElementById('steepDist15');
-            if (steep10) {
-                var m = parseFloat(steep10.dataset.m);
-                if (imperial) {
-                    steep10.textContent = (m * 0.000621371).toFixed(2) + ' mi';
-                } else {
-                    steep10.textContent = (m / 1000).toFixed(2) + ' km';
+            // Steep distance stats (including comparison mode _2 variants)
+            ['steepDist10', 'steepDist15', 'steepDist10_2', 'steepDist15_2'].forEach(function(id) {
+                var el = document.getElementById(id);
+                if (el && el.dataset.m) {
+                    var m = parseFloat(el.dataset.m);
+                    if (imperial) {
+                        el.textContent = (m * 0.000621371).toFixed(2) + ' mi';
+                    } else {
+                        el.textContent = (m / 1000).toFixed(2) + ' km';
+                    }
                 }
-            }
-            if (steep15) {
-                var m = parseFloat(steep15.dataset.m);
-                if (imperial) {
-                    steep15.textContent = (m * 0.000621371).toFixed(2) + ' mi';
-                } else {
-                    steep15.textContent = (m / 1000).toFixed(2) + ' km';
+            });
+        }
+
+        function updateComparisonTableUnits() {
+            var imperial = isImperial();
+            // Distance columns
+            ['cmpDist1', 'cmpDist2', 'cmpDistDiff'].forEach(function(id) {
+                var el = document.getElementById(id);
+                if (el && el.dataset.km) {
+                    var km = parseFloat(el.dataset.km);
+                    var sign = (id.includes('Diff') && km > 0) ? '+' : '';
+                    if (imperial) {
+                        el.textContent = sign + (km * 0.621371).toFixed(1) + ' mi';
+                    } else {
+                        el.textContent = sign + km.toFixed(1) + ' km';
+                    }
                 }
-            }
+            });
+            // Elevation columns
+            ['cmpElev1', 'cmpElev2', 'cmpElevDiff'].forEach(function(id) {
+                var el = document.getElementById(id);
+                if (el && el.dataset.m) {
+                    var m = parseFloat(el.dataset.m);
+                    var sign = (id.includes('Diff') && m > 0) ? '+' : '';
+                    if (imperial) {
+                        el.textContent = sign + Math.round(m * 3.28084) + ' ft';
+                    } else {
+                        el.textContent = sign + Math.round(m) + ' m';
+                    }
+                }
+            });
+            // Speed columns
+            ['cmpSpeed1', 'cmpSpeed2', 'cmpSpeedDiff'].forEach(function(id) {
+                var el = document.getElementById(id);
+                if (el && el.dataset.kmh) {
+                    var kmh = parseFloat(el.dataset.kmh);
+                    var sign = (id.includes('Diff') && kmh > 0) ? '+' : '';
+                    if (imperial) {
+                        el.textContent = sign + (kmh * 0.621371).toFixed(1) + ' mph';
+                    } else {
+                        el.textContent = sign + kmh.toFixed(1) + ' km/h';
+                    }
+                }
+            });
+            // Hilliness columns
+            ['cmpHilly1', 'cmpHilly2', 'cmpHillyDiff'].forEach(function(id) {
+                var el = document.getElementById(id);
+                if (el && el.dataset.mkm) {
+                    var mkm = parseFloat(el.dataset.mkm);
+                    var sign = (id.includes('Diff') && mkm > 0) ? '+' : '';
+                    if (imperial) {
+                        el.textContent = sign + Math.round(mkm * 5.28) + ' ft/mi';
+                    } else {
+                        el.textContent = sign + Math.round(mkm) + ' m/km';
+                    }
+                }
+            });
         }
 
         document.getElementById('imperial').addEventListener('change', function() {
             rerenderCollectionTable();
             updateSingleRouteUnits();
+            updateComparisonTableUnits();
         });
 
         // Auto-trigger collection analysis when loaded via shared link
@@ -1799,6 +2047,107 @@ HTML_TEMPLATE = """
             }
         })();
 
+        // Histogram bar tooltips (touch-friendly)
+        (function() {
+            var tooltip = null;
+
+            function formatTime(seconds) {
+                var hours = Math.floor(seconds / 3600);
+                var mins = Math.floor((seconds % 3600) / 60);
+                if (hours > 0) {
+                    return hours + 'h ' + mins + 'm';
+                }
+                return mins + 'm';
+            }
+
+            function formatDistance(meters) {
+                var imperial = isImperial();
+                if (imperial) {
+                    var miles = meters * 0.000621371;
+                    return miles.toFixed(2) + ' mi';
+                } else {
+                    var km = meters / 1000;
+                    return km.toFixed(2) + ' km';
+                }
+            }
+
+            function showTooltip(bar, x, y) {
+                if (!tooltip) {
+                    tooltip = document.createElement('div');
+                    tooltip.className = 'bar-tooltip';
+                    document.body.appendChild(tooltip);
+                }
+
+                var name = bar.dataset.name || 'Route';
+                var pct = parseFloat(bar.dataset.pct) || 0;
+                var type = bar.dataset.type;
+                var absValue = '';
+
+                if (type === 'time') {
+                    var seconds = parseFloat(bar.dataset.seconds) || 0;
+                    absValue = formatTime(seconds);
+                } else if (type === 'distance') {
+                    var meters = parseFloat(bar.dataset.meters) || 0;
+                    absValue = formatDistance(meters);
+                }
+
+                tooltip.innerHTML = '<div class="tooltip-title">' + name + '</div>' +
+                    '<div class="tooltip-row"><span class="tooltip-label">Percent:</span><span>' + pct.toFixed(1) + '%</span></div>' +
+                    '<div class="tooltip-row"><span class="tooltip-label">' + (type === 'time' ? 'Time:' : 'Distance:') + '</span><span>' + absValue + '</span></div>';
+
+                tooltip.style.display = 'block';
+
+                // Position tooltip
+                var rect = tooltip.getBoundingClientRect();
+                var left = x - rect.width / 2;
+                var top = y - rect.height - 10;
+
+                // Keep tooltip on screen
+                if (left < 5) left = 5;
+                if (left + rect.width > window.innerWidth - 5) left = window.innerWidth - rect.width - 5;
+                if (top < 5) top = y + 20;
+
+                tooltip.style.left = left + 'px';
+                tooltip.style.top = top + 'px';
+            }
+
+            function hideTooltip() {
+                if (tooltip) {
+                    tooltip.style.display = 'none';
+                }
+            }
+
+            // Event delegation for all bar-hover elements
+            document.addEventListener('mouseover', function(e) {
+                if (e.target.classList.contains('bar-hover')) {
+                    var rect = e.target.getBoundingClientRect();
+                    showTooltip(e.target, rect.left + rect.width / 2, rect.top);
+                }
+            });
+
+            document.addEventListener('mouseout', function(e) {
+                if (e.target.classList.contains('bar-hover')) {
+                    hideTooltip();
+                }
+            });
+
+            // Touch support
+            document.addEventListener('touchstart', function(e) {
+                if (e.target.classList.contains('bar-hover')) {
+                    e.preventDefault();
+                    var touch = e.touches[0];
+                    showTooltip(e.target, touch.clientX, touch.clientY - 50);
+                } else {
+                    hideTooltip();
+                }
+            }, { passive: false });
+
+            document.addEventListener('touchend', function(e) {
+                // Keep tooltip visible briefly after touch
+                setTimeout(hideTooltip, 1500);
+            });
+        })();
+
     </script>
 
     {% if error %}
@@ -1811,7 +2160,11 @@ HTML_TEMPLATE = """
         <input type="hidden" id="shareUrl" value="{{ share_url }}">
         {% endif %}
         <div class="results-header">
+            {% if compare_mode and result2 %}
+            <h2>Route Comparison</h2>
+            {% else %}
             <h2>{{ result.name or 'Route Analysis' }}</h2>
+            {% endif %}
             {% if share_url %}
             <button type="button" class="share-btn" onclick="copyShareLink('shareUrl', this)" title="Copy link to share">
                 <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81 1.66 0 3-1.34 3-3s-1.34-3-3-3-3 1.34-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9c-1.66 0-3 1.34-3 3s1.34 3 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.16c-.05.21-.08.43-.08.65 0 1.61 1.31 2.92 2.92 2.92s2.92-1.31 2.92-2.92-1.31-2.92-2.92-2.92z"/></svg>
@@ -1820,6 +2173,74 @@ HTML_TEMPLATE = """
             {% endif %}
         </div>
 
+        {% if compare_mode and result2 %}
+        <!-- Comparison table -->
+        <div class="comparison-table-wrapper">
+            <table class="comparison-table">
+                <thead>
+                    <tr>
+                        <th>Metric</th>
+                        <th class="route-col">{{ (result.name or 'Route 1')|truncate(25) }}</th>
+                        <th class="route-col">{{ (result2.name or 'Route 2')|truncate(25) }}</th>
+                        <th class="diff-col">Difference</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr class="primary">
+                        <td><span class="label-with-info">Est. Moving Time <button type="button" class="info-btn" onclick="showModal('timeModal')">?</button></span></td>
+                        <td class="route-col">{{ result.time_str }}</td>
+                        <td class="route-col">{{ result2.time_str }}</td>
+                        <td class="diff-col">{{ format_time_diff(result.time_seconds, result2.time_seconds) }}</td>
+                    </tr>
+                    <tr class="primary">
+                        <td><span class="label-with-info">Est. Work <button type="button" class="info-btn" onclick="showModal('workModal')">?</button></span></td>
+                        <td class="route-col">{{ "%.0f"|format(result.work_kj) }} kJ</td>
+                        <td class="route-col">{{ "%.0f"|format(result2.work_kj) }} kJ</td>
+                        <td class="diff-col">{{ format_diff(result.work_kj, result2.work_kj, 'kJ') }}</td>
+                    </tr>
+                    <tr>
+                        <td>Distance</td>
+                        <td class="route-col" id="cmpDist1" data-km="{{ result.distance_km }}"></td>
+                        <td class="route-col" id="cmpDist2" data-km="{{ result2.distance_km }}"></td>
+                        <td class="diff-col" id="cmpDistDiff" data-km="{{ result.distance_km - result2.distance_km }}"></td>
+                    </tr>
+                    <tr>
+                        <td>Elevation Gain</td>
+                        <td class="route-col" id="cmpElev1" data-m="{{ result.elevation_m }}"></td>
+                        <td class="route-col" id="cmpElev2" data-m="{{ result2.elevation_m }}"></td>
+                        <td class="diff-col" id="cmpElevDiff" data-m="{{ result.elevation_m - result2.elevation_m }}"></td>
+                    </tr>
+                    <tr>
+                        <td>Avg Speed</td>
+                        <td class="route-col" id="cmpSpeed1" data-kmh="{{ result.avg_speed_kmh }}"></td>
+                        <td class="route-col" id="cmpSpeed2" data-kmh="{{ result2.avg_speed_kmh }}"></td>
+                        <td class="diff-col" id="cmpSpeedDiff" data-kmh="{{ result.avg_speed_kmh - result2.avg_speed_kmh }}"></td>
+                    </tr>
+                    <tr>
+                        <td><span class="label-with-info">Hilliness <button type="button" class="info-btn" onclick="showModal('hillyModal')">?</button></span></td>
+                        <td class="route-col" id="cmpHilly1" data-mkm="{{ result.hilliness_score }}"></td>
+                        <td class="route-col" id="cmpHilly2" data-mkm="{{ result2.hilliness_score }}"></td>
+                        <td class="diff-col" id="cmpHillyDiff" data-mkm="{{ result.hilliness_score - result2.hilliness_score }}"></td>
+                    </tr>
+                    <tr>
+                        <td><span class="label-with-info">Steepness <button type="button" class="info-btn" onclick="showModal('steepModal')">?</button></span></td>
+                        <td class="route-col">{{ "%.1f"|format(result.steepness_score) }}%</td>
+                        <td class="route-col">{{ "%.1f"|format(result2.steepness_score) }}%</td>
+                        <td class="diff-col">{{ format_pct_diff(result.steepness_score, result2.steepness_score) }}</td>
+                    </tr>
+                    {% if result.unpaved_pct is not none and result2.unpaved_pct is not none %}
+                    <tr>
+                        <td>Unpaved</td>
+                        <td class="route-col">{{ "%.0f"|format(result.unpaved_pct) }}%</td>
+                        <td class="route-col">{{ "%.0f"|format(result2.unpaved_pct) }}%</td>
+                        <td class="diff-col">{{ format_pct_diff(result.unpaved_pct, result2.unpaved_pct) }}</td>
+                    </tr>
+                    {% endif %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <!-- Single route results -->
         <div class="primary-results">
             <div class="result-row primary">
                 <span class="result-label label-with-info">Estimated Moving Time <button type="button" class="info-btn" onclick="showModal('timeModal')">?</button></span>
@@ -1861,55 +2282,130 @@ HTML_TEMPLATE = """
             <span class="result-label label-with-info">Steepness <button type="button" class="info-btn" onclick="showModal('steepModal')">?</button></span>
             <span class="result-value">{{ "%.1f"|format(result.steepness_score) }}%</span>
         </div>
+        {% endif %}
 
         {% if result.grade_histogram %}
         {% set labels = ['<-10', '-10', '-8', '-6', '-4', '-2', '0', '+2', '+4', '+6', '+8', '>10'] %}
         {% set bar_colors = ['#4a90d9', '#5a9fd9', '#6aaee0', '#7abde7', '#8acbef', '#9adaf6', '#cccccc', '#ffb399', '#ff9966', '#ff7f33', '#ff6600', '#e55a00'] %}
         <div class="histograms-container">
             <div class="grade-histogram">
-                <h4>Time at Grade</h4>
-                <div class="histogram-bars">
+                <h4>Time at Grade{% if compare_mode and result2 %} (Comparison){% endif %}</h4>
+                <div class="histogram-bars{% if compare_mode and result2 %} comparison-mode{% endif %}">
                     {% set total_time = result.grade_histogram.values() | sum %}
                     {% set max_seconds = result.grade_histogram.values() | max %}
+                    {% if compare_mode and result2 %}
+                        {% set total_time_2 = result2.grade_histogram.values() | sum %}
+                        {% set max_seconds_2 = result2.grade_histogram.values() | max %}
+                        {% set max_seconds_both = [max_seconds, max_seconds_2] | max %}
+                    {% endif %}
                     {% for label in result.grade_histogram.keys() %}
                     {% set seconds = result.grade_histogram[label] %}
                     {% set pct = (seconds / total_time * 100) if total_time > 0 else 0 %}
-                    {% set bar_height = (seconds / max_seconds * 100) if max_seconds > 0 else 0 %}
+                    {% if compare_mode and result2 %}
+                        {% set bar_height = (seconds / max_seconds_both * 100) if max_seconds_both > 0 else 0 %}
+                    {% else %}
+                        {% set bar_height = (seconds / max_seconds * 100) if max_seconds > 0 else 0 %}
+                    {% endif %}
                     <div class="histogram-bar">
                         <div class="bar-container">
-                            <div class="bar" style="height: {{ bar_height }}%; background: {{ bar_colors[loop.index0] }};"></div>
+                            <div class="bar bar-hover" style="height: {{ bar_height }}%; background: {{ bar_colors[loop.index0] }};" data-name="{{ (result.name or 'Route 1')|truncate(25) }}" data-pct="{{ '%.1f'|format(pct) }}" data-seconds="{{ seconds }}" data-type="time"></div>
+                            {% if compare_mode and result2 %}
+                            {% set seconds_2 = result2.grade_histogram[label] %}
+                            {% set pct_2 = (seconds_2 / total_time_2 * 100) if total_time_2 > 0 else 0 %}
+                            {% set bar_height_2 = (seconds_2 / max_seconds_both * 100) if max_seconds_both > 0 else 0 %}
+                            <div class="bar route2 bar-hover" style="height: {{ bar_height_2 }}%; background: {{ bar_colors[loop.index0] }};" data-name="{{ (result2.name or 'Route 2')|truncate(25) }}" data-pct="{{ '%.1f'|format(pct_2) }}" data-seconds="{{ seconds_2 }}" data-type="time"></div>
+                            {% endif %}
                         </div>
                         <span class="label">{{ labels[loop.index0] }}</span>
+                        {% if not (compare_mode and result2) %}
                         <span class="pct">{% if pct >= 1 %}{{ "%.0f"|format(pct) }}%{% else %}&nbsp;{% endif %}</span>
+                        {% endif %}
                     </div>
                     {% endfor %}
                 </div>
+                {% if compare_mode and result2 %}
+                <div class="histogram-legend">
+                    <span class="legend-item"><span class="legend-color" style="background-color: #ff6600;"></span>{{ (result.name or 'Route 1')|truncate(20) }}</span>
+                    <span class="legend-item"><span class="legend-color striped" style="background-color: #ff6600;"></span>{{ (result2.name or 'Route 2')|truncate(20) }}</span>
+                </div>
+                {% endif %}
             </div>
             <div class="grade-histogram">
-                <h4>Distance at Grade</h4>
-                <div class="histogram-bars">
+                <h4>Distance at Grade{% if compare_mode and result2 %} (Comparison){% endif %}</h4>
+                <div class="histogram-bars{% if compare_mode and result2 %} comparison-mode{% endif %}">
                     {% set total_dist = result.grade_distance_histogram.values() | sum %}
                     {% set max_dist = result.grade_distance_histogram.values() | max %}
+                    {% if compare_mode and result2 %}
+                        {% set total_dist_2 = result2.grade_distance_histogram.values() | sum %}
+                        {% set max_dist_2 = result2.grade_distance_histogram.values() | max %}
+                        {% set max_dist_both = [max_dist, max_dist_2] | max %}
+                    {% endif %}
                     {% for label in result.grade_distance_histogram.keys() %}
                     {% set meters = result.grade_distance_histogram[label] %}
                     {% set pct = (meters / total_dist * 100) if total_dist > 0 else 0 %}
-                    {% set bar_height = (meters / max_dist * 100) if max_dist > 0 else 0 %}
+                    {% if compare_mode and result2 %}
+                        {% set bar_height = (meters / max_dist_both * 100) if max_dist_both > 0 else 0 %}
+                    {% else %}
+                        {% set bar_height = (meters / max_dist * 100) if max_dist > 0 else 0 %}
+                    {% endif %}
                     <div class="histogram-bar">
                         <div class="bar-container">
-                            <div class="bar" style="height: {{ bar_height }}%; background: {{ bar_colors[loop.index0] }};"></div>
+                            <div class="bar bar-hover" style="height: {{ bar_height }}%; background: {{ bar_colors[loop.index0] }};" data-name="{{ (result.name or 'Route 1')|truncate(25) }}" data-pct="{{ '%.1f'|format(pct) }}" data-meters="{{ meters }}" data-type="distance"></div>
+                            {% if compare_mode and result2 %}
+                            {% set meters_2 = result2.grade_distance_histogram[label] %}
+                            {% set pct_2 = (meters_2 / total_dist_2 * 100) if total_dist_2 > 0 else 0 %}
+                            {% set bar_height_2 = (meters_2 / max_dist_both * 100) if max_dist_both > 0 else 0 %}
+                            <div class="bar route2 bar-hover" style="height: {{ bar_height_2 }}%; background: {{ bar_colors[loop.index0] }};" data-name="{{ (result2.name or 'Route 2')|truncate(25) }}" data-pct="{{ '%.1f'|format(pct_2) }}" data-meters="{{ meters_2 }}" data-type="distance"></div>
+                            {% endif %}
                         </div>
                         <span class="label">{{ labels[loop.index0] }}</span>
+                        {% if not (compare_mode and result2) %}
                         <span class="pct">{% if pct >= 1 %}{{ "%.0f"|format(pct) }}%{% else %}&nbsp;{% endif %}</span>
+                        {% endif %}
                     </div>
                     {% endfor %}
                 </div>
+                {% if compare_mode and result2 %}
+                <div class="histogram-legend">
+                    <span class="legend-item"><span class="legend-color" style="background-color: #ff6600;"></span>{{ (result.name or 'Route 1')|truncate(20) }}</span>
+                    <span class="legend-item"><span class="legend-color striped" style="background-color: #ff6600;"></span>{{ (result2.name or 'Route 2')|truncate(20) }}</span>
+                </div>
+                {% endif %}
             </div>
         </div>
         {% endif %}
 
-        {% if result.max_grade >= 10 %}
+        {% if result.max_grade >= 10 or (compare_mode and result2 and result2.max_grade >= 10) %}
         <div class="steep-section">
             <h4><span class="th-with-info">Steep Climbs <button type="button" class="info-btn" onclick="showModal('steepClimbsModal')">?</button></span></h4>
+            {% if compare_mode and result2 %}
+            <table class="comparison-table steep-comparison-table">
+                <thead>
+                    <tr>
+                        <th>Metric</th>
+                        <th>{{ (result.name or 'Route 1')|truncate(15) }}</th>
+                        <th>{{ (result2.name or 'Route 2')|truncate(15) }}</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>Max Grade</td>
+                        <td>{{ "%.1f"|format(result.max_grade) }}%</td>
+                        <td>{{ "%.1f"|format(result2.max_grade) }}%</td>
+                    </tr>
+                    <tr>
+                        <td>Distance ≥10%</td>
+                        <td id="steepDist10" data-m="{{ result.steep_distance }}"></td>
+                        <td id="steepDist10_2" data-m="{{ result2.steep_distance }}"></td>
+                    </tr>
+                    <tr>
+                        <td>Distance ≥15%</td>
+                        <td id="steepDist15" data-m="{{ result.very_steep_distance }}"></td>
+                        <td id="steepDist15_2" data-m="{{ result2.very_steep_distance }}"></td>
+                    </tr>
+                </tbody>
+            </table>
+            {% else %}
             <div class="steep-stats">
                 <div class="steep-stat">
                     <span class="steep-label">Max Grade</span>
@@ -1924,44 +2420,89 @@ HTML_TEMPLATE = """
                     <span class="steep-value" id="steepDist15" data-m="{{ result.very_steep_distance }}"></span>
                 </div>
             </div>
+            {% endif %}
             {% set steep_labels = ['10-12', '12-14', '14-16', '16-18', '18-20', '>20'] %}
             {% set steep_colors = ['#e55a00', '#cc4400', '#b33300', '#992200', '#801100', '#660000'] %}
             <div class="histograms-container">
                 <div class="grade-histogram">
-                    <h4>Time at Steep Grade</h4>
-                    <div class="histogram-bars">
+                    <h4>Time at Steep Grade{% if compare_mode and result2 %} (Comparison){% endif %}</h4>
+                    <div class="histogram-bars{% if compare_mode and result2 %} comparison-mode{% endif %}">
                         {% set max_steep_time = result.steep_time_histogram.values() | max %}
+                        {% if compare_mode and result2 %}
+                            {% set max_steep_time_2 = result2.steep_time_histogram.values() | max %}
+                            {% set max_steep_time_both = [max_steep_time, max_steep_time_2] | max %}
+                        {% endif %}
                         {% for label in result.steep_time_histogram.keys() %}
                         {% set seconds = result.steep_time_histogram[label] %}
                         {% set pct = (seconds / result.hilliness_total_time * 100) if result.hilliness_total_time > 0 else 0 %}
-                        {% set bar_height = (seconds / max_steep_time * 100) if max_steep_time > 0 else 0 %}
+                        {% if compare_mode and result2 %}
+                            {% set bar_height = (seconds / max_steep_time_both * 100) if max_steep_time_both > 0 else 0 %}
+                        {% else %}
+                            {% set bar_height = (seconds / max_steep_time * 100) if max_steep_time > 0 else 0 %}
+                        {% endif %}
                         <div class="histogram-bar">
                             <div class="bar-container">
-                                <div class="bar" style="height: {{ bar_height }}%; background: {{ steep_colors[loop.index0] }};"></div>
+                                <div class="bar bar-hover" style="height: {{ bar_height }}%; background: {{ steep_colors[loop.index0] }};" data-name="{{ (result.name or 'Route 1')|truncate(25) }}" data-pct="{{ '%.1f'|format(pct) }}" data-seconds="{{ seconds }}" data-type="time"></div>
+                                {% if compare_mode and result2 %}
+                                {% set seconds_2 = result2.steep_time_histogram[label] %}
+                                {% set pct_2 = (seconds_2 / result2.hilliness_total_time * 100) if result2.hilliness_total_time > 0 else 0 %}
+                                {% set bar_height_2 = (seconds_2 / max_steep_time_both * 100) if max_steep_time_both > 0 else 0 %}
+                                <div class="bar route2 bar-hover" style="height: {{ bar_height_2 }}%; background: {{ steep_colors[loop.index0] }};" data-name="{{ (result2.name or 'Route 2')|truncate(25) }}" data-pct="{{ '%.1f'|format(pct_2) }}" data-seconds="{{ seconds_2 }}" data-type="time"></div>
+                                {% endif %}
                             </div>
                             <span class="label">{{ steep_labels[loop.index0] }}</span>
+                            {% if not (compare_mode and result2) %}
                             <span class="pct">{% if pct >= 0.5 %}{{ "%.0f"|format(pct) }}%{% elif seconds > 0 %}<1%{% else %}&nbsp;{% endif %}</span>
+                            {% endif %}
                         </div>
                         {% endfor %}
                     </div>
+                    {% if compare_mode and result2 %}
+                    <div class="histogram-legend">
+                        <span class="legend-item"><span class="legend-color" style="background-color: #cc4400;"></span>{{ (result.name or 'Route 1')|truncate(20) }}</span>
+                        <span class="legend-item"><span class="legend-color striped" style="background-color: #cc4400;"></span>{{ (result2.name or 'Route 2')|truncate(20) }}</span>
+                    </div>
+                    {% endif %}
                 </div>
                 <div class="grade-histogram">
-                    <h4>Distance at Steep Grade</h4>
-                    <div class="histogram-bars">
+                    <h4>Distance at Steep Grade{% if compare_mode and result2 %} (Comparison){% endif %}</h4>
+                    <div class="histogram-bars{% if compare_mode and result2 %} comparison-mode{% endif %}">
                         {% set max_steep_dist = result.steep_distance_histogram.values() | max %}
+                        {% if compare_mode and result2 %}
+                            {% set max_steep_dist_2 = result2.steep_distance_histogram.values() | max %}
+                            {% set max_steep_dist_both = [max_steep_dist, max_steep_dist_2] | max %}
+                        {% endif %}
                         {% for label in result.steep_distance_histogram.keys() %}
                         {% set meters = result.steep_distance_histogram[label] %}
                         {% set pct = (meters / result.hilliness_total_distance * 100) if result.hilliness_total_distance > 0 else 0 %}
-                        {% set bar_height = (meters / max_steep_dist * 100) if max_steep_dist > 0 else 0 %}
+                        {% if compare_mode and result2 %}
+                            {% set bar_height = (meters / max_steep_dist_both * 100) if max_steep_dist_both > 0 else 0 %}
+                        {% else %}
+                            {% set bar_height = (meters / max_steep_dist * 100) if max_steep_dist > 0 else 0 %}
+                        {% endif %}
                         <div class="histogram-bar">
                             <div class="bar-container">
-                                <div class="bar" style="height: {{ bar_height }}%; background: {{ steep_colors[loop.index0] }};"></div>
+                                <div class="bar bar-hover" style="height: {{ bar_height }}%; background: {{ steep_colors[loop.index0] }};" data-name="{{ (result.name or 'Route 1')|truncate(25) }}" data-pct="{{ '%.1f'|format(pct) }}" data-meters="{{ meters }}" data-type="distance"></div>
+                                {% if compare_mode and result2 %}
+                                {% set meters_2 = result2.steep_distance_histogram[label] %}
+                                {% set pct_2 = (meters_2 / result2.hilliness_total_distance * 100) if result2.hilliness_total_distance > 0 else 0 %}
+                                {% set bar_height_2 = (meters_2 / max_steep_dist_both * 100) if max_steep_dist_both > 0 else 0 %}
+                                <div class="bar route2 bar-hover" style="height: {{ bar_height_2 }}%; background: {{ steep_colors[loop.index0] }};" data-name="{{ (result2.name or 'Route 2')|truncate(25) }}" data-pct="{{ '%.1f'|format(pct_2) }}" data-meters="{{ meters_2 }}" data-type="distance"></div>
+                                {% endif %}
                             </div>
                             <span class="label">{{ steep_labels[loop.index0] }}</span>
+                            {% if not (compare_mode and result2) %}
                             <span class="pct">{% if pct >= 0.5 %}{{ "%.0f"|format(pct) }}%{% elif meters > 0 %}<1%{% else %}&nbsp;{% endif %}</span>
+                            {% endif %}
                         </div>
                         {% endfor %}
                     </div>
+                    {% if compare_mode and result2 %}
+                    <div class="histogram-legend">
+                        <span class="legend-item"><span class="legend-color" style="background-color: #cc4400;"></span>{{ (result.name or 'Route 1')|truncate(20) }}</span>
+                        <span class="legend-item"><span class="legend-color striped" style="background-color: #cc4400;"></span>{{ (result2.name or 'Route 2')|truncate(20) }}</span>
+                    </div>
+                    {% endif %}
                 </div>
             </div>
         </div>
@@ -1973,6 +2514,44 @@ HTML_TEMPLATE = """
         </div>
         {% endif %}
 
+        {% if compare_mode and result2 %}
+        <!-- Stacked elevation profiles for comparison -->
+        <div class="elevation-profiles-stacked">
+            <div class="elevation-profile">
+                <h4>{{ (result.name or 'Route 1')|truncate(40) }}</h4>
+                <div class="elevation-profile-container" id="elevationContainer1" data-url="{{ url|urlencode }}">
+                    <div class="elevation-loading" id="elevationLoading1">
+                        <div class="elevation-spinner"></div>
+                    </div>
+                    <img src="/elevation-profile?url={{ url|urlencode }}&power={{ power }}&mass={{ mass }}&headwind={{ headwind }}"
+                         alt="Elevation profile - Route 1" id="elevationImg1" class="loading"
+                         onload="document.getElementById('elevationLoading1').classList.add('hidden'); this.classList.remove('loading');">
+                    <div class="elevation-cursor" id="elevationCursor1"></div>
+                    <div class="elevation-tooltip" id="elevationTooltip1">
+                        <div class="grade">--</div>
+                        <div class="elev">--</div>
+                    </div>
+                </div>
+            </div>
+            <div class="elevation-profile">
+                <h4>{{ (result2.name or 'Route 2')|truncate(40) }}</h4>
+                <div class="elevation-profile-container" id="elevationContainer2" data-url="{{ url2|urlencode }}">
+                    <div class="elevation-loading" id="elevationLoading2">
+                        <div class="elevation-spinner"></div>
+                    </div>
+                    <img src="/elevation-profile?url={{ url2|urlencode }}&power={{ power }}&mass={{ mass }}&headwind={{ headwind }}"
+                         alt="Elevation profile - Route 2" id="elevationImg2" class="loading"
+                         onload="document.getElementById('elevationLoading2').classList.add('hidden'); this.classList.remove('loading');">
+                    <div class="elevation-cursor" id="elevationCursor2"></div>
+                    <div class="elevation-tooltip" id="elevationTooltip2">
+                        <div class="grade">--</div>
+                        <div class="elev">--</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        {% else %}
+        <!-- Single elevation profile -->
         <div class="elevation-profile">
             <h4>Time-Based Elevation Profile</h4>
             <div class="elevation-profile-container" id="elevationContainer">
@@ -1989,8 +2568,24 @@ HTML_TEMPLATE = """
                 </div>
             </div>
         </div>
+        {% endif %}
 
-        {% if route_id %}
+        {% if compare_mode and route_id and route_id2 %}
+        <!-- Side-by-side RWGPS embeds for comparison -->
+        <div class="route-maps-comparison">
+            <div class="route-map">
+                <h4>{{ (result.name or 'Route 1')|truncate(30) }}</h4>
+                <iframe src="https://ridewithgps.com/embeds?type=route&id={{ route_id }}&sampleGraph=true"
+                        scrolling="no"></iframe>
+            </div>
+            <div class="route-map">
+                <h4>{{ (result2.name or 'Route 2')|truncate(30) }}</h4>
+                <iframe src="https://ridewithgps.com/embeds?type=route&id={{ route_id2 }}&sampleGraph=true"
+                        scrolling="no"></iframe>
+            </div>
+        </div>
+        {% elif route_id %}
+        <!-- Single RWGPS embed -->
         <div class="route-map">
             <iframe src="https://ridewithgps.com/embeds?type=route&id={{ route_id }}&sampleGraph=true"
                     scrolling="no"></iframe>
@@ -2002,120 +2597,136 @@ HTML_TEMPLATE = """
         saveRecentUrl('{{ url }}', '{{ result.name|e if result.name else '' }}');
         // Initialize units display
         updateSingleRouteUnits();
+        updateComparisonTableUnits();
 
         // Elevation profile hover interaction
         (function() {
-            const container = document.getElementById('elevationContainer');
-            const img = document.getElementById('elevationImg');
-            const tooltip = document.getElementById('elevationTooltip');
-            const cursor = document.getElementById('elevationCursor');
-            if (!container || !img || !tooltip || !cursor) return;
+            // Setup function for a single profile
+            function setupElevationProfile(containerId, imgId, tooltipId, cursorId, dataUrl) {
+                const container = document.getElementById(containerId);
+                const img = document.getElementById(imgId);
+                const tooltip = document.getElementById(tooltipId);
+                const cursor = document.getElementById(cursorId);
+                if (!container || !img || !tooltip || !cursor) return;
 
-            let profileData = null;
+                let profileData = null;
 
-            // Fetch profile data
-            fetch('/elevation-profile-data?url={{ url|urlencode }}&power={{ power }}&mass={{ mass }}&headwind={{ headwind }}')
-                .then(r => r.json())
-                .then(data => {
-                    if (!data.error) profileData = data;
-                })
-                .catch(() => {});
+                // Fetch profile data
+                fetch(dataUrl)
+                    .then(r => r.json())
+                    .then(data => {
+                        if (!data.error) profileData = data;
+                    })
+                    .catch(() => {});
 
-            // The plot area is approximately 85% of image width (matplotlib default margins)
-            // Left margin ~12%, right margin ~3%
-            const plotLeftPct = 0.10;
-            const plotRightPct = 0.98;
+                // The plot area is approximately 85% of image width (matplotlib default margins)
+                const plotLeftPct = 0.10;
+                const plotRightPct = 0.98;
 
-            function getGradeAtPosition(xPct) {
-                if (!profileData || !profileData.times || profileData.times.length < 2) return null;
+                function getGradeAtPosition(xPct) {
+                    if (!profileData || !profileData.times || profileData.times.length < 2) return null;
 
-                // Map x position to time
-                const plotXPct = (xPct - plotLeftPct) / (plotRightPct - plotLeftPct);
-                if (plotXPct < 0 || plotXPct > 1) return null;
+                    const plotXPct = (xPct - plotLeftPct) / (plotRightPct - plotLeftPct);
+                    if (plotXPct < 0 || plotXPct > 1) return null;
 
-                const time = plotXPct * profileData.total_time;
+                    const time = plotXPct * profileData.total_time;
 
-                // Find the segment
-                for (let i = 0; i < profileData.times.length - 1; i++) {
-                    if (time >= profileData.times[i] && time < profileData.times[i + 1]) {
-                        return {
-                            grade: profileData.grades[i] || 0,
-                            elevation: profileData.elevations[i] || 0,
-                            time: time
-                        };
+                    for (let i = 0; i < profileData.times.length - 1; i++) {
+                        if (time >= profileData.times[i] && time < profileData.times[i + 1]) {
+                            return {
+                                grade: profileData.grades[i] || 0,
+                                elevation: profileData.elevations[i] || 0,
+                                time: time
+                            };
+                        }
+                    }
+                    const lastIdx = profileData.grades.length - 1;
+                    return {
+                        grade: profileData.grades[lastIdx] || 0,
+                        elevation: profileData.elevations[lastIdx + 1] || 0,
+                        time: time
+                    };
+                }
+
+                function formatGrade(g) {
+                    const sign = g >= 0 ? '+' : '';
+                    return sign + g.toFixed(1) + '%';
+                }
+
+                function formatTime(hours) {
+                    const h = Math.floor(hours);
+                    const m = Math.floor((hours - h) * 60);
+                    return h + 'h ' + m.toString().padStart(2, '0') + 'm';
+                }
+
+                function handleMove(e) {
+                    if (!profileData) return;
+
+                    const rect = img.getBoundingClientRect();
+                    let clientX;
+
+                    if (e.touches) {
+                        clientX = e.touches[0].clientX;
+                    } else {
+                        clientX = e.clientX;
+                    }
+
+                    const xPct = (clientX - rect.left) / rect.width;
+                    const data = getGradeAtPosition(xPct);
+
+                    if (data) {
+                        tooltip.querySelector('.grade').textContent = formatGrade(data.grade);
+                        const elevUnit = isImperial() ? 'ft' : 'm';
+                        const elevVal = isImperial() ? data.elevation * 3.28084 : data.elevation;
+                        tooltip.querySelector('.elev').textContent = Math.round(elevVal) + ' ' + elevUnit + ' | ' + formatTime(data.time);
+
+                        const xPos = clientX - rect.left;
+                        tooltip.style.left = xPos + 'px';
+                        tooltip.style.bottom = '60px';
+                        tooltip.classList.add('visible');
+
+                        cursor.style.left = xPos + 'px';
+                        cursor.classList.add('visible');
+                    } else {
+                        tooltip.classList.remove('visible');
+                        cursor.classList.remove('visible');
                     }
                 }
-                // Return last segment if at end
-                const lastIdx = profileData.grades.length - 1;
-                return {
-                    grade: profileData.grades[lastIdx] || 0,
-                    elevation: profileData.elevations[lastIdx + 1] || 0,
-                    time: time
-                };
-            }
 
-            function formatGrade(g) {
-                const sign = g >= 0 ? '+' : '';
-                return sign + g.toFixed(1) + '%';
-            }
-
-            function formatTime(hours) {
-                const h = Math.floor(hours);
-                const m = Math.floor((hours - h) * 60);
-                return h + 'h ' + m.toString().padStart(2, '0') + 'm';
-            }
-
-            function handleMove(e) {
-                if (!profileData) return;
-
-                const rect = img.getBoundingClientRect();
-                let clientX;
-
-                if (e.touches) {
-                    clientX = e.touches[0].clientX;
-                } else {
-                    clientX = e.clientX;
-                }
-
-                const xPct = (clientX - rect.left) / rect.width;
-                const data = getGradeAtPosition(xPct);
-
-                if (data) {
-                    tooltip.querySelector('.grade').textContent = formatGrade(data.grade);
-                    const elevUnit = isImperial() ? 'ft' : 'm';
-                    const elevVal = isImperial() ? data.elevation * 3.28084 : data.elevation;
-                    tooltip.querySelector('.elev').textContent = Math.round(elevVal) + ' ' + elevUnit + ' | ' + formatTime(data.time);
-
-                    // Position tooltip
-                    const xPos = clientX - rect.left;
-                    tooltip.style.left = xPos + 'px';
-                    tooltip.style.bottom = '60px';
-                    tooltip.classList.add('visible');
-
-                    // Position cursor
-                    cursor.style.left = xPos + 'px';
-                    cursor.classList.add('visible');
-                } else {
+                function handleLeave() {
                     tooltip.classList.remove('visible');
                     cursor.classList.remove('visible');
                 }
+
+                container.addEventListener('mousemove', handleMove);
+                container.addEventListener('mouseleave', handleLeave);
+                container.addEventListener('touchmove', function(e) {
+                    e.preventDefault();
+                    handleMove(e);
+                }, { passive: false });
+                container.addEventListener('touchend', handleLeave);
             }
 
-            function handleLeave() {
-                tooltip.classList.remove('visible');
-                cursor.classList.remove('visible');
+            // Check for comparison mode (two profiles)
+            var container1 = document.getElementById('elevationContainer1');
+            var container2 = document.getElementById('elevationContainer2');
+            if (container1 && container2) {
+                // Comparison mode - setup both profiles
+                setupElevationProfile(
+                    'elevationContainer1', 'elevationImg1', 'elevationTooltip1', 'elevationCursor1',
+                    '/elevation-profile-data?url={{ url|urlencode }}&power={{ power }}&mass={{ mass }}&headwind={{ headwind }}'
+                );
+                setupElevationProfile(
+                    'elevationContainer2', 'elevationImg2', 'elevationTooltip2', 'elevationCursor2',
+                    '/elevation-profile-data?url={{ url2|urlencode if url2 else "" }}&power={{ power }}&mass={{ mass }}&headwind={{ headwind }}'
+                );
+            } else {
+                // Single route mode
+                setupElevationProfile(
+                    'elevationContainer', 'elevationImg', 'elevationTooltip', 'elevationCursor',
+                    '/elevation-profile-data?url={{ url|urlencode }}&power={{ power }}&mass={{ mass }}&headwind={{ headwind }}'
+                );
             }
-
-            // Mouse events
-            container.addEventListener('mousemove', handleMove);
-            container.addEventListener('mouseleave', handleLeave);
-
-            // Touch events
-            container.addEventListener('touchmove', function(e) {
-                e.preventDefault();
-                handleMove(e);
-            }, { passive: false });
-            container.addEventListener('touchend', handleLeave);
         })();
     </script>
     {% endif %}
@@ -2179,6 +2790,29 @@ def format_duration_long(seconds: float) -> str:
     minutes = int((seconds % 3600) // 60)
     secs = int(seconds % 60)
     return f"{hours}h {minutes:02d}m {secs:02d}s"
+
+
+def format_time_diff(seconds1: float, seconds2: float) -> str:
+    """Format time difference as +/- Xh Ym."""
+    diff = seconds1 - seconds2
+    sign = "+" if diff > 0 else ""
+    return sign + format_duration(abs(diff))
+
+
+def format_diff(val1: float, val2: float, unit: str, decimals: int = 0) -> str:
+    """Format numeric difference with sign and unit."""
+    diff = val1 - val2
+    sign = "+" if diff > 0 else ""
+    if decimals == 0:
+        return f"{sign}{diff:.0f} {unit}"
+    return f"{sign}{diff:.{decimals}f} {unit}"
+
+
+def format_pct_diff(val1: float, val2: float) -> str:
+    """Format percentage point difference."""
+    diff = val1 - val2
+    sign = "+" if diff > 0 else ""
+    return f"{sign}{diff:.1f}%"
 
 
 def analyze_single_route(url: str, params: RiderParams) -> dict:
@@ -2705,11 +3339,15 @@ def index():
     defaults = get_defaults()
     error = None
     result = None
+    result2 = None  # Second route for comparison
     url = None
+    url2 = None  # Second route URL for comparison
     mode = "route"
     imperial = False
     route_id = None
+    route_id2 = None  # Second route ID for comparison
     share_url = None
+    compare_mode = False  # Flag for comparison mode
 
     power = defaults["power"]
     mass = defaults["mass"]
@@ -2718,6 +3356,7 @@ def index():
     # Check for GET parameters (shared link)
     if request.method == "GET" and request.args.get("url"):
         url = request.args.get("url", "").strip()
+        url2 = request.args.get("url2", "").strip()  # Second route for comparison
         imperial = request.args.get("imperial") == "1"
 
         try:
@@ -2740,8 +3379,22 @@ def index():
                 except Exception as e:
                     error = f"Error analyzing route: {e}"
 
+                # Handle second route for comparison
+                if url2 and not error:
+                    if is_ridewithgps_url(url2):
+                        compare_mode = True
+                        try:
+                            result2 = analyze_single_route(url2, params)
+                            route_id2 = extract_route_id(url2)
+                        except Exception as e:
+                            error = f"Error analyzing second route: {e}"
+                    else:
+                        error = "Invalid second RideWithGPS route URL"
+
     elif request.method == "POST":
         url = request.form.get("url", "").strip()
+        url2 = request.form.get("url2", "").strip()  # Second route for comparison
+        compare_enabled = request.form.get("compare") == "on"  # Check if compare checkbox is on
         mode = request.form.get("mode", "route")
         imperial = request.form.get("imperial") == "on"
 
@@ -2765,6 +3418,18 @@ def index():
                         route_id = extract_route_id(url)
                     except Exception as e:
                         error = f"Error analyzing route: {e}"
+
+                    # Handle second route for comparison (only if checkbox is checked)
+                    if url2 and compare_enabled and not error:
+                        if is_ridewithgps_url(url2):
+                            compare_mode = True
+                            try:
+                                result2 = analyze_single_route(url2, params)
+                                route_id2 = extract_route_id(url2)
+                            except Exception as e:
+                                error = f"Error analyzing second route: {e}"
+                        else:
+                            error = "Invalid second RideWithGPS route URL"
             # Collection mode is handled by JavaScript + SSE
 
     # Build share URL if we have results
@@ -2776,6 +3441,8 @@ def index():
             "mass": mass,
             "headwind": headwind,
         }
+        if url2 and compare_mode:
+            share_params["url2"] = url2
         if imperial:
             share_params["imperial"] = "1"
         base_url = request.url_root.replace('http://', 'https://')
@@ -2784,6 +3451,8 @@ def index():
     return render_template_string(
         HTML_TEMPLATE,
         url=url,
+        url2=url2,
+        compare_mode=compare_mode,
         mode=mode,
         power=power,
         mass=mass,
@@ -2791,10 +3460,16 @@ def index():
         imperial=imperial,
         error=error,
         result=result,
+        result2=result2,
         route_id=route_id,
+        route_id2=route_id2,
         share_url=share_url,
         version_date=__version_date__,
         git_hash=get_git_hash(),
+        # Helper functions for comparison formatting
+        format_time_diff=format_time_diff,
+        format_diff=format_diff,
+        format_pct_diff=format_pct_diff,
     )
 
 

@@ -48,12 +48,12 @@ class TestIndexGet:
         html = response.data.decode()
         assert "Reality Check my Route" in html
 
-    def test_contains_mode_indicator(self, client):
+    def test_contains_compare_checkbox(self, client):
         response = client.get("/")
         html = response.data.decode()
         assert 'name="mode"' in html  # Hidden input for mode
-        assert 'class="mode-indicator"' in html
-        assert "route or collection" in html
+        assert 'id="compareCheckbox"' in html
+        assert "Compare with another route" in html
 
     def test_contains_imperial_toggle(self, client):
         response = client.get("/")
@@ -124,7 +124,7 @@ class TestIndexPostSingleRoute:
         assert response.status_code == 200
         assert "Test Route" in html
         assert "Distance" in html
-        assert "Estimated Time" in html
+        assert "Estimated Moving Time" in html
         assert "Estimated Work" in html
 
     @patch.object(web, "get_route_with_surface")
