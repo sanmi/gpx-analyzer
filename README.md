@@ -52,6 +52,8 @@ The final descent speed is the more restrictive of gradient and curvature limits
 
 - **Surface Crr deltas** — Per-surface-type rolling resistance adjustments based on RideWithGPS surface data. The S field indicates surface type (50-89 = unpaved, others = paved/unknown).
 
+- **Tunnel correction** — Automatic detection and correction of tunnel artifacts in elevation data. DEM (Digital Elevation Model) data shows the mountain surface above tunnels rather than the tunnel floor, creating artificial elevation spikes. The algorithm detects "Λ" shaped patterns (steep up, peak, steep down, returning near entry elevation) and replaces them with linear interpolation. Corrected tunnels are highlighted with yellow bands in the elevation profile. Typical savings: 5-10% reduction in estimated time/work for routes with tunnels.
+
 ### Terrain Metrics
 
 - **Hilliness** — Total elevation gain per unit distance (m/km or ft/mi). Measures *how much* climbing a route has, normalized by length. Typical values: flat (0-5), rolling (5-15), hilly (15-25), mountainous (25+).

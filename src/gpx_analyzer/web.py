@@ -32,6 +32,7 @@ from gpx_analyzer.ridewithgps import (
     TripPoint,
 )
 from gpx_analyzer.smoothing import smooth_elevations
+from gpx_analyzer.tunnel import detect_and_correct_tunnels
 
 
 # Simple LRU cache for route analysis results
@@ -376,6 +377,21 @@ HTML_TEMPLATE = """
             padding: 10px;
             background: #f9f9f9;
             border-radius: 4px;
+        }
+        .tunnel-note {
+            background: #FFF3E0;
+            border-left: 3px solid #FF9800;
+            color: #5D4037;
+        }
+        .tunnel-note strong {
+            color: #E65100;
+        }
+        .tunnel-item {
+            display: inline-block;
+            background: #FFE0B2;
+            padding: 2px 6px;
+            border-radius: 3px;
+            margin: 2px 0;
         }
         .histograms-container {
             display: flex;
@@ -1444,6 +1460,7 @@ HTML_TEMPLATE = """
                 <li><span class="param-name">Smoothing radius (m)</span> — Gaussian smoothing applied to elevation data. Reduces GPS noise and unrealistic grade spikes while preserving overall climb profile.</li>
                 <li><span class="param-name">Elevation scale</span> — Multiplier applied after smoothing. Auto-calculated from RideWithGPS API (DEM-corrected) elevation when available.</li>
                 <li><span class="param-name">Surface Crr deltas</span> — Per-surface-type rolling resistance adjustments based on RideWithGPS surface data.</li>
+                <li><span class="param-name">Tunnel correction</span> — Automatic detection of tunnel artifacts in DEM elevation data. Tunnels appear as artificial spikes (DEM shows mountain surface, not tunnel floor). Detected tunnels are corrected by linear interpolation and highlighted with yellow bands in the elevation profile.</li>
             </ul>
 
             <button class="modal-close" onclick="hideModal('physicsModal')">Got it</button>
@@ -2672,6 +2689,15 @@ HTML_TEMPLATE = """
         </div>
         {% endif %}
 
+        {% if result.tunnels_corrected > 0 %}
+        <div class="note tunnel-note">
+            <strong>{{ result.tunnels_corrected }} tunnel{{ 's' if result.tunnels_corrected > 1 else '' }} detected and corrected:</strong>
+            {% for t in result.tunnel_corrections %}
+            <span class="tunnel-item">{{ "%.1f"|format(t.start_km) }}-{{ "%.1f"|format(t.end_km) }} km ({{ "%.0f"|format(t.artificial_gain) }}m artificial gain removed)</span>{% if not loop.last %}, {% endif %}
+            {% endfor %}
+        </div>
+        {% endif %}
+
         {% if compare_mode and result2 %}
         <!-- Stacked elevation profiles for comparison -->
         <div class="elevation-profiles-stacked">
@@ -3014,6 +3040,9 @@ def analyze_single_route(url: str, params: RiderParams) -> dict:
     if len(points) < 2:
         raise ValueError("Route contains fewer than 2 track points")
 
+    # Detect and correct tunnel artifacts in raw elevation data
+    points, tunnel_corrections = detect_and_correct_tunnels(points)
+
     # Smooth without scaling first (for max grade calculation)
     unscaled_points = smooth_elevations(points, smoothing_radius, 1.0)
 
@@ -3071,6 +3100,16 @@ def analyze_single_route(url: str, params: RiderParams) -> dict:
         "steep_distance_histogram": hilliness.steep_distance_histogram,
         "hilliness_total_time": hilliness.total_time,
         "hilliness_total_distance": hilliness.total_distance,
+        # Tunnel corrections
+        "tunnels_corrected": len(tunnel_corrections),
+        "tunnel_corrections": [
+            {
+                "start_km": t.start_km,
+                "end_km": t.end_km,
+                "artificial_gain": t.artificial_gain,
+            }
+            for t in tunnel_corrections
+        ],
     }
 
     # Store in cache
@@ -3109,6 +3148,9 @@ def analyze_trip(url: str) -> dict:
             elevation=tp.elevation,
             time=tp.timestamp,
         ))
+
+    # Detect and correct tunnel artifacts in elevation data
+    track_points, tunnel_corrections = detect_and_correct_tunnels(track_points)
 
     # Apply smoothing for elevation profile and grade calculations
     api_elevation_gain = trip_metadata.get("elevation_gain")
@@ -3268,6 +3310,16 @@ def analyze_trip(url: str) -> dict:
         "hilliness_total_distance": total_distance,
         # Trip-specific flags
         "is_trip": True,
+        # Tunnel corrections
+        "tunnels_corrected": len(tunnel_corrections),
+        "tunnel_corrections": [
+            {
+                "start_km": t.start_km,
+                "end_km": t.end_km,
+                "artificial_gain": t.artificial_gain,
+            }
+            for t in tunnel_corrections
+        ],
     }
 
     return result
@@ -3470,7 +3522,7 @@ def generate_histogram_image(result: dict):
 def _calculate_elevation_profile_data(url: str, params: RiderParams) -> dict:
     """Calculate elevation profile data for a route.
 
-    Returns dict with times_hours, elevations, grades, and route_name.
+    Returns dict with times_hours, elevations, grades, route_name, and tunnel_corrections.
     """
     config = _load_config() or {}
     smoothing_radius = config.get("smoothing", DEFAULTS["smoothing"])
@@ -3479,6 +3531,9 @@ def _calculate_elevation_profile_data(url: str, params: RiderParams) -> dict:
 
     if len(points) < 2:
         raise ValueError("Route contains fewer than 2 track points")
+
+    # Detect and correct tunnel artifacts
+    points, tunnel_corrections = detect_and_correct_tunnels(points)
 
     # Apply smoothing
     api_elevation_scale = 1.0
@@ -3512,11 +3567,19 @@ def _calculate_elevation_profile_data(url: str, params: RiderParams) -> dict:
 
     route_name = route_metadata.get("name", "Elevation Profile") if route_metadata else "Elevation Profile"
 
+    # Convert tunnel corrections to time ranges for highlighting
+    tunnel_time_ranges = []
+    for tc in tunnel_corrections:
+        start_time = times_hours[tc.start_idx] if tc.start_idx < len(times_hours) else 0
+        end_time = times_hours[tc.end_idx] if tc.end_idx < len(times_hours) else times_hours[-1]
+        tunnel_time_ranges.append((start_time, end_time))
+
     return {
         "times_hours": times_hours,
         "elevations": elevations,
         "grades": grades,
         "route_name": route_name,
+        "tunnel_time_ranges": tunnel_time_ranges,
     }
 
 
@@ -3543,6 +3606,9 @@ def _calculate_trip_elevation_profile_data(url: str) -> dict:
             elevation=tp.elevation,
             time=tp.timestamp,
         ))
+
+    # Detect and correct tunnel artifacts
+    track_points, tunnel_corrections = detect_and_correct_tunnels(track_points)
 
     # Apply smoothing with elevation scaling
     api_elevation_gain = trip_metadata.get("elevation_gain")
@@ -3578,11 +3644,19 @@ def _calculate_trip_elevation_profile_data(url: str) -> dict:
 
     trip_name = trip_metadata.get("name", "Trip Profile") if trip_metadata else "Trip Profile"
 
+    # Convert tunnel corrections to time ranges for highlighting
+    tunnel_time_ranges = []
+    for tc in tunnel_corrections:
+        start_time = times_hours[tc.start_idx] if tc.start_idx < len(times_hours) else 0
+        end_time = times_hours[tc.end_idx] if tc.end_idx < len(times_hours) else times_hours[-1]
+        tunnel_time_ranges.append((start_time, end_time))
+
     return {
         "times_hours": times_hours,
         "elevations": elevations,
         "grades": grades,
         "route_name": trip_name,
+        "tunnel_time_ranges": tunnel_time_ranges,
     }
 
 
@@ -3602,6 +3676,7 @@ def generate_elevation_profile(url: str, params: RiderParams, title_time_hours: 
     elevations = data["elevations"]
     grades = data["grades"]
     route_name = data["route_name"]
+    tunnel_time_ranges = data.get("tunnel_time_ranges", [])
 
     # Grade to color mapping - matches histogram colors exactly
     # Main histogram colors: <-10, -10, -8, -6, -4, -2, 0, +2, +4, +6, +8, >10
@@ -3656,6 +3731,11 @@ def generate_elevation_profile(url: str, params: RiderParams, title_time_hours: 
     # Add outline on top
     ax.plot(times_hours, elevations, color='#333333', linewidth=0.5)
 
+    # Highlight tunnel-corrected regions with vertical bands
+    for start_time, end_time in tunnel_time_ranges:
+        ax.axvspan(start_time, end_time, alpha=0.25, color='#FFC107', zorder=0.5,
+                   label='Tunnel corrected' if start_time == tunnel_time_ranges[0][0] else None)
+
     # Style the plot
     ax.set_xlim(0, times_hours[-1])
     ax.set_ylim(0, max(elevations) * 1.1)
@@ -3694,6 +3774,7 @@ def generate_trip_elevation_profile(url: str, title_time_hours: float | None = N
     elevations = data["elevations"]
     grades = data["grades"]
     route_name = data["route_name"]
+    tunnel_time_ranges = data.get("tunnel_time_ranges", [])
 
     # Reuse the same grade-to-color mapping from route profile
     main_colors = [
@@ -3736,6 +3817,11 @@ def generate_trip_elevation_profile(url: str, title_time_hours: float | None = N
     ax.add_collection(coll)
 
     ax.plot(times_hours, elevations, color='#333333', linewidth=0.5)
+
+    # Highlight tunnel-corrected regions with vertical bands
+    for start_time, end_time in tunnel_time_ranges:
+        ax.axvspan(start_time, end_time, alpha=0.25, color='#FFC107', zorder=0.5,
+                   label='Tunnel corrected' if start_time == tunnel_time_ranges[0][0] else None)
 
     ax.set_xlim(0, times_hours[-1])
     ax.set_ylim(0, max(elevations) * 1.1)
