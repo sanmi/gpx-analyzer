@@ -423,11 +423,24 @@ HTML_TEMPLATE = """
             height: 60px;
             display: flex;
             align-items: flex-end;
+            cursor: pointer;
+            /* Extend touch target area */
+            padding: 10px 2px 0 2px;
+            margin: -10px -2px 0 -2px;
         }
         .histogram-bar .bar {
             width: 100%;
             border-radius: 2px 2px 0 0;
-            min-height: 2px;
+            min-height: 4px;  /* Larger minimum for touch */
+        }
+        /* Make entire histogram-bar touchable on mobile */
+        @media (pointer: coarse) {
+            .histogram-bar {
+                cursor: pointer;
+            }
+            .histogram-bar .bar {
+                min-height: 8px;  /* Even larger on touch devices */
+            }
         }
         .histogram-bar .label {
             font-size: 0.6em;
@@ -2097,15 +2110,34 @@ HTML_TEMPLATE = """
 
                 tooltip.style.display = 'block';
 
-                // Position tooltip
-                var rect = tooltip.getBoundingClientRect();
-                var left = x - rect.width / 2;
-                var top = y - rect.height - 10;
+                // Position tooltip - use bar's position for pinch-zoom compatibility
+                var barRect = bar.getBoundingClientRect();
+                var tooltipRect = tooltip.getBoundingClientRect();
 
-                // Keep tooltip on screen
-                if (left < 5) left = 5;
-                if (left + rect.width > window.innerWidth - 5) left = window.innerWidth - rect.width - 5;
-                if (top < 5) top = y + 20;
+                // Account for pinch-zoom using visualViewport if available
+                var vv = window.visualViewport;
+                var offsetX = vv ? vv.offsetLeft : 0;
+                var offsetY = vv ? vv.offsetTop : 0;
+                var scale = vv ? vv.scale : 1;
+
+                // Calculate position relative to bar, adjusted for zoom
+                var left = barRect.left + barRect.width / 2 - tooltipRect.width / 2 + offsetX;
+                var top = barRect.top - tooltipRect.height - 10 + offsetY;
+
+                // Get visible viewport bounds
+                var viewWidth = vv ? vv.width : window.innerWidth;
+                var viewHeight = vv ? vv.height : window.innerHeight;
+                var viewLeft = offsetX;
+                var viewTop = offsetY;
+
+                // Keep tooltip within visible viewport
+                if (left < viewLeft + 5) left = viewLeft + 5;
+                if (left + tooltipRect.width > viewLeft + viewWidth - 5) {
+                    left = viewLeft + viewWidth - tooltipRect.width - 5;
+                }
+                if (top < viewTop + 5) {
+                    top = barRect.bottom + 10 + offsetY;  // Show below bar instead
+                }
 
                 tooltip.style.left = left + 'px';
                 tooltip.style.top = top + 'px';
@@ -2114,6 +2146,25 @@ HTML_TEMPLATE = """
             function hideTooltip() {
                 if (tooltip) {
                     tooltip.style.display = 'none';
+                }
+            }
+
+            // Find nearest bar in a container given touch X position
+            function findNearestBar(container, touchX) {
+                var bars = container.querySelectorAll('.bar-hover');
+                if (bars.length === 0) return null;
+                if (bars.length === 1) return bars[0];
+
+                // Find which bar is closest to touch point
+                var containerRect = container.getBoundingClientRect();
+                var relativeX = touchX - containerRect.left;
+                var containerWidth = containerRect.width;
+
+                // In comparison mode, left half = first bar, right half = second bar
+                if (relativeX < containerWidth / 2) {
+                    return bars[0];
+                } else {
+                    return bars[1] || bars[0];
                 }
             }
 
@@ -2131,20 +2182,49 @@ HTML_TEMPLATE = """
                 }
             });
 
-            // Touch support
+            // Touch support - enhanced for better mobile UX
             document.addEventListener('touchstart', function(e) {
-                if (e.target.classList.contains('bar-hover')) {
+                var target = e.target;
+                var touch = e.touches[0];
+
+                // Direct touch on bar
+                if (target.classList.contains('bar-hover')) {
                     e.preventDefault();
-                    var touch = e.touches[0];
-                    showTooltip(e.target, touch.clientX, touch.clientY - 50);
-                } else {
-                    hideTooltip();
+                    showTooltip(target, touch.clientX, touch.clientY - 50);
+                    return;
                 }
+
+                // Touch on bar-container - find nearest bar
+                var container = target.closest('.bar-container');
+                if (container) {
+                    var bar = findNearestBar(container, touch.clientX);
+                    if (bar) {
+                        e.preventDefault();
+                        showTooltip(bar, touch.clientX, touch.clientY - 50);
+                        return;
+                    }
+                }
+
+                // Touch on histogram-bar (includes label area) - find bar in that group
+                var histogramBar = target.closest('.histogram-bar');
+                if (histogramBar) {
+                    var barContainer = histogramBar.querySelector('.bar-container');
+                    if (barContainer) {
+                        var bar = findNearestBar(barContainer, touch.clientX);
+                        if (bar) {
+                            e.preventDefault();
+                            showTooltip(bar, touch.clientX, touch.clientY - 50);
+                            return;
+                        }
+                    }
+                }
+
+                hideTooltip();
             }, { passive: false });
 
             document.addEventListener('touchend', function(e) {
-                // Keep tooltip visible briefly after touch
-                setTimeout(hideTooltip, 1500);
+                // Hide tooltip immediately when finger is lifted
+                hideTooltip();
             });
         })();
 
