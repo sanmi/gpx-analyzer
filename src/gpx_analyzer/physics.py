@@ -11,33 +11,34 @@ def effective_power(slope_angle: float, params: RiderParams) -> float:
 
     Models how riders modulate power based on terrain:
     - Steep descents (beyond coasting threshold): zero power (coasting/braking)
-    - Gentle descents (threshold to 0): linearly ramps from 0 to base power
-    - Flat (0 degrees): base power (assumed_avg_power)
-    - Climbs (0 to climb threshold): linearly increases to climb_power_factor * base
+    - Gentle descents (threshold to 0): linearly ramps from 0 to flat power
+    - Flat (0 degrees): base power * flat_power_factor
+    - Climbs (0 to climb threshold): linearly increases from flat power to climb power
     - Steep climbs (beyond climb threshold): plateau at climb_power_factor * base
     """
     coasting_threshold_rad = math.radians(params.coasting_grade_threshold)
     climb_threshold_rad = math.radians(params.climb_threshold_grade)
     base_power = params.assumed_avg_power
+    flat_power = base_power * params.flat_power_factor
 
     # Steep descent: coasting/braking
     if slope_angle <= coasting_threshold_rad:
         return 0.0
 
-    # Gentle descent: ramp from 0 to base power
+    # Gentle descent: ramp from 0 to flat power
     if slope_angle < 0:
-        # Linear interpolation: 0 at coasting threshold, base power at 0
+        # Linear interpolation: 0 at coasting threshold, flat power at 0
         fraction = slope_angle / coasting_threshold_rad  # 1 at threshold, 0 at flat
-        return base_power * (1.0 - fraction)
+        return flat_power * (1.0 - fraction)
 
     # Steep climb: plateau at max climb power
     if slope_angle >= climb_threshold_rad:
         return base_power * params.climb_power_factor
 
-    # Moderate climb: ramp from base power to climb power
-    # Linear interpolation: base at 0, climb_factor * base at climb_threshold
+    # Moderate climb: ramp from flat power to climb power
+    # Linear interpolation: flat_power at 0, climb_factor * base at climb_threshold
     fraction = slope_angle / climb_threshold_rad  # 0 at flat, 1 at threshold
-    power_factor = 1.0 + (params.climb_power_factor - 1.0) * fraction
+    power_factor = params.flat_power_factor + (params.climb_power_factor - params.flat_power_factor) * fraction
     return base_power * power_factor
 
 

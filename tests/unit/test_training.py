@@ -291,3 +291,88 @@ class TestFormatTrainingSummary:
         assert "My Test Route" in report
         assert "75k" in report
         assert "1500m" in report
+
+
+class TestVerboseMetrics:
+    """Tests for verbose metrics calculation."""
+
+    def test_estimated_verbose_metrics_imports_correctly(self):
+        """Ensure the estimated verbose metrics function can be imported and called."""
+        from gpx_analyzer.training import _calculate_estimated_verbose_metrics
+        from gpx_analyzer.models import TrackPoint
+
+        # Create simple track points with varying grades
+        points = [
+            TrackPoint(lat=45.0, lon=6.0, elevation=100.0, time=None),
+            TrackPoint(lat=45.001, lon=6.0, elevation=110.0, time=None),  # Uphill
+            TrackPoint(lat=45.002, lon=6.0, elevation=110.0, time=None),  # Flat
+            TrackPoint(lat=45.003, lon=6.0, elevation=100.0, time=None),  # Downhill
+        ]
+
+        params = RiderParams(
+            total_mass=80.0,
+            assumed_avg_power=150.0,
+            climb_power_factor=1.5,
+        )
+
+        # This should not raise an ImportError
+        result = _calculate_estimated_verbose_metrics(points, params)
+
+        # Basic checks
+        assert result is not None
+        assert result.avg_power_climbing == 150.0 * 1.5  # base_power * climb_power_factor
+        assert result.avg_power_flat == 150.0  # base_power * flat_power_factor (1.0 default)
+        assert result.avg_power_descending == 0.0  # Model assumes coasting
+
+    def test_flat_power_factor_applied(self):
+        """Ensure flat_power_factor is applied to flat power calculation."""
+        from gpx_analyzer.training import _calculate_estimated_verbose_metrics
+        from gpx_analyzer.models import TrackPoint
+
+        # Create simple track points with varying grades
+        points = [
+            TrackPoint(lat=45.0, lon=6.0, elevation=100.0, time=None),
+            TrackPoint(lat=45.001, lon=6.0, elevation=110.0, time=None),  # Uphill
+            TrackPoint(lat=45.002, lon=6.0, elevation=110.0, time=None),  # Flat
+            TrackPoint(lat=45.003, lon=6.0, elevation=100.0, time=None),  # Downhill
+        ]
+
+        params = RiderParams(
+            total_mass=80.0,
+            assumed_avg_power=150.0,
+            climb_power_factor=1.5,
+            flat_power_factor=0.9,  # 90% power on flats
+        )
+
+        result = _calculate_estimated_verbose_metrics(points, params)
+
+        # Verify flat_power_factor is applied
+        assert result.avg_power_climbing == 150.0 * 1.5  # 225W
+        assert result.avg_power_flat == 150.0 * 0.9  # 135W (not 150W)
+        assert result.avg_power_descending == 0.0
+
+    def test_actual_verbose_metrics_calculation(self):
+        """Test calculation of verbose metrics from trip data."""
+        from gpx_analyzer.training import _calculate_verbose_metrics
+        from gpx_analyzer.ridewithgps import TripPoint
+
+        # Create trip points with power and speed data
+        points = [
+            TripPoint(lat=45.0, lon=6.0, elevation=100.0, distance=0, speed=5.0,
+                      timestamp=0.0, power=150.0, heart_rate=None, cadence=None),
+            TripPoint(lat=45.001, lon=6.0, elevation=110.0, distance=111, speed=3.0,
+                      timestamp=30.0, power=200.0, heart_rate=None, cadence=None),  # Climbing
+            TripPoint(lat=45.002, lon=6.0, elevation=110.0, distance=222, speed=5.0,
+                      timestamp=60.0, power=100.0, heart_rate=None, cadence=None),  # Flat
+            TripPoint(lat=45.003, lon=6.0, elevation=100.0, distance=333, speed=10.0,
+                      timestamp=90.0, power=50.0, heart_rate=None, cadence=None),  # Descending
+        ]
+
+        max_coasting_speed_ms = 15.0  # 54 km/h
+
+        result = _calculate_verbose_metrics(points, max_coasting_speed_ms)
+
+        assert result is not None
+        # Check that time percentages sum to ~100%
+        total_pct = result.time_climbing_pct + result.time_flat_pct + result.time_descending_pct
+        assert 99.0 <= total_pct <= 101.0

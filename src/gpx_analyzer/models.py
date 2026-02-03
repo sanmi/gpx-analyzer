@@ -27,6 +27,7 @@ class RiderParams:
     # Gradient-dependent power model
     climb_power_factor: float = 1.5  # power multiplier on steep climbs (1.5 = 50% more power)
     climb_threshold_grade: float = 4.0  # degrees; full climb factor reached at this grade
+    flat_power_factor: float = 1.0  # power multiplier on flat terrain (1.0 = no change from base)
     # Gradient-dependent braking model for descents
     steep_descent_speed: float = 18.0 / 3.6  # m/s; max speed on very steep descents (default 18 km/h)
     steep_descent_grade: float = -8.0  # degrees; grade where steep descent speed applies (~-14%)

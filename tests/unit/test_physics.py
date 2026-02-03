@@ -112,7 +112,9 @@ class TestCalculateSegmentWork:
 
 class TestEffectivePower:
     def test_flat_base_power(self, params):
-        assert effective_power(0.0, params) == params.assumed_avg_power
+        # With default flat_power_factor=1.0, flat power equals base power
+        expected = params.assumed_avg_power * params.flat_power_factor
+        assert effective_power(0.0, params) == expected
 
     def test_steep_climb_increased_power(self, params):
         # Beyond climb threshold should have full climb power factor
@@ -161,6 +163,29 @@ class TestEffectivePower:
         )
         steep_rad = math.radians(6.0)  # Beyond threshold
         assert effective_power(steep_rad, params) == pytest.approx(200.0)
+
+    def test_custom_flat_power_factor(self):
+        params = RiderParams(
+            assumed_avg_power=100.0,
+            flat_power_factor=0.9,  # 90% power on flats
+        )
+        # On flat terrain, power should be base * flat_power_factor
+        assert effective_power(0.0, params) == pytest.approx(90.0)
+
+    def test_flat_power_factor_ramp_to_climb(self):
+        """Power should ramp from flat_power to climb_power on climbs."""
+        params = RiderParams(
+            assumed_avg_power=100.0,
+            flat_power_factor=0.8,  # 80W on flat
+            climb_power_factor=1.5,  # 150W on steep climb
+            climb_threshold_grade=4.0,
+        )
+        # At 2° (halfway to threshold), factor should interpolate
+        mid_rad = math.radians(2.0)
+        power = effective_power(mid_rad, params)
+        # Expected: 0.8 + 0.5 * (1.5 - 0.8) = 0.8 + 0.35 = 1.15
+        expected = 100.0 * 1.15
+        assert power == pytest.approx(expected, rel=0.01)
 
 
 class TestEstimateSpeedFromPower:

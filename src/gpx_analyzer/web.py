@@ -2983,6 +2983,7 @@ def build_params(power: float, mass: float, headwind: float) -> RiderParams:
         max_coasting_speed_unpaved=config.get("max_coast_speed_unpaved", DEFAULTS["max_coast_speed_unpaved"]) / 3.6,
         headwind=headwind / 3.6,
         climb_power_factor=config.get("climb_power_factor", DEFAULTS["climb_power_factor"]),
+        flat_power_factor=config.get("flat_power_factor", DEFAULTS["flat_power_factor"]),
         climb_threshold_grade=config.get("climb_threshold_grade", DEFAULTS["climb_threshold_grade"]),
         steep_descent_speed=config.get("steep_descent_speed", DEFAULTS["steep_descent_speed"]) / 3.6,
         steep_descent_grade=config.get("steep_descent_grade", DEFAULTS["steep_descent_grade"]),

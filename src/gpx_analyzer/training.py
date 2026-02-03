@@ -15,6 +15,7 @@ from gpx_analyzer.ridewithgps import (
     is_ridewithgps_url,
 )
 from gpx_analyzer.smoothing import smooth_elevations
+from gpx_analyzer.distance import haversine_distance
 
 
 @dataclass
@@ -32,6 +33,19 @@ class TrainingRoute:
 
 
 @dataclass
+class VerboseMetrics:
+    """Verbose metrics calculated from trip data."""
+
+    avg_power_climbing: float | None  # Avg power when grade > 2%
+    avg_power_flat: float | None  # Avg power when -2% <= grade <= 2%
+    avg_power_descending: float | None  # Avg power when grade < -2%
+    braking_score: float | None  # Ratio of actual descent time vs theoretical (>1 = more braking)
+    time_climbing_pct: float  # % of time spent climbing (grade > 2%)
+    time_flat_pct: float  # % of time on flats (-2% to 2%)
+    time_descending_pct: float  # % of time descending (grade < -2%)
+
+
+@dataclass
 class TrainingResult:
     """Result of analyzing a training route."""
 
@@ -46,6 +60,8 @@ class TrainingResult:
     elevation_scale_used: float = 1.0  # Scale factor applied to match trip elevation
     route_max_grade: float = 0.0  # Max grade from route (%)
     trip_max_grade: float | None = None  # Max grade from trip (%)
+    verbose_metrics: VerboseMetrics | None = None  # Verbose metrics from trip data (actual)
+    estimated_verbose_metrics: VerboseMetrics | None = None  # Verbose metrics from route (estimated)
 
 
 @dataclass
@@ -161,6 +177,214 @@ def _calculate_trip_max_grade(points: list[TripPoint], window: float = 50.0) -> 
     return max_grade
 
 
+def _calculate_verbose_metrics(
+    trip_points: list[TripPoint],
+    max_coasting_speed_ms: float,
+) -> VerboseMetrics:
+    """Calculate verbose metrics from trip data.
+
+    Args:
+        trip_points: Trip points with power, speed, elevation data
+        max_coasting_speed_ms: Model's max coasting speed in m/s for braking score
+
+    Returns:
+        VerboseMetrics with power by terrain type and braking score
+    """
+    CLIMB_THRESHOLD = 2.0  # Grade > 2% is climbing
+    DESCENT_THRESHOLD = -2.0  # Grade < -2% is descending
+
+    # Accumulate time and power by terrain type
+    climb_time = 0.0
+    climb_power_sum = 0.0
+    climb_power_count = 0
+
+    flat_time = 0.0
+    flat_power_sum = 0.0
+    flat_power_count = 0
+
+    descent_time = 0.0
+    descent_power_sum = 0.0
+    descent_power_count = 0
+    descent_speed_sum = 0.0  # For avg descent speed
+
+    total_time = 0.0
+
+    for i in range(1, len(trip_points)):
+        prev = trip_points[i - 1]
+        curr = trip_points[i]
+
+        # Skip if missing timestamps
+        if prev.timestamp is None or curr.timestamp is None:
+            continue
+
+        time_delta = curr.timestamp - prev.timestamp
+        if time_delta <= 0:
+            continue
+
+        # Calculate distance between points
+        # Use cumulative distance if available, otherwise calculate from lat/lon
+        dist = curr.distance - prev.distance
+        if dist <= 0:
+            # Fallback to haversine distance from coordinates
+            dist = haversine_distance(prev.lat, prev.lon, curr.lat, curr.lon)
+
+        # Calculate grade between points
+        if dist > 0 and prev.elevation is not None and curr.elevation is not None:
+            grade = (curr.elevation - prev.elevation) / dist * 100
+        else:
+            grade = 0.0
+
+        # Clamp extreme grades
+        grade = max(-30, min(30, grade))
+
+        total_time += time_delta
+
+        # Categorize by terrain and accumulate power
+        if grade > CLIMB_THRESHOLD:
+            climb_time += time_delta
+            if curr.power is not None and curr.power > 0:
+                climb_power_sum += curr.power * time_delta
+                climb_power_count += time_delta
+        elif grade < DESCENT_THRESHOLD:
+            descent_time += time_delta
+            if curr.power is not None:
+                descent_power_sum += curr.power * time_delta
+                descent_power_count += time_delta
+            if curr.speed is not None and curr.speed > 0:
+                descent_speed_sum += curr.speed * time_delta
+        else:
+            flat_time += time_delta
+            if curr.power is not None and curr.power > 0:
+                flat_power_sum += curr.power * time_delta
+                flat_power_count += time_delta
+
+    # Calculate averages
+    avg_power_climbing = climb_power_sum / climb_power_count if climb_power_count > 0 else None
+    avg_power_flat = flat_power_sum / flat_power_count if flat_power_count > 0 else None
+    avg_power_descending = descent_power_sum / descent_power_count if descent_power_count > 0 else None
+
+    # Calculate time percentages
+    if total_time > 0:
+        time_climbing_pct = climb_time / total_time * 100
+        time_flat_pct = flat_time / total_time * 100
+        time_descending_pct = descent_time / total_time * 100
+    else:
+        time_climbing_pct = time_flat_pct = time_descending_pct = 0.0
+
+    # Braking score: ratio of actual avg descent speed to max coasting speed
+    # < 1 means they descended slower than max (more braking/caution)
+    # = 1 means they descended at max coasting speed
+    # > 1 means they descended faster than max coasting speed (unlikely)
+    if descent_time > 0 and max_coasting_speed_ms > 0:
+        avg_descent_speed = descent_speed_sum / descent_time
+        braking_score = avg_descent_speed / max_coasting_speed_ms
+    else:
+        braking_score = None
+
+    return VerboseMetrics(
+        avg_power_climbing=avg_power_climbing,
+        avg_power_flat=avg_power_flat,
+        avg_power_descending=avg_power_descending,
+        braking_score=braking_score,
+        time_climbing_pct=time_climbing_pct,
+        time_flat_pct=time_flat_pct,
+        time_descending_pct=time_descending_pct,
+    )
+
+
+def _calculate_estimated_verbose_metrics(
+    route_points: list,
+    params: RiderParams,
+) -> VerboseMetrics:
+    """Calculate estimated verbose metrics from route using physics model.
+
+    Args:
+        route_points: Smoothed route track points
+        params: Rider parameters including power and climb factors
+
+    Returns:
+        VerboseMetrics with estimated power by terrain and braking score
+    """
+    import math
+    from gpx_analyzer.physics import estimate_speed_from_power
+
+    CLIMB_THRESHOLD = 2.0  # Grade > 2% is climbing
+    DESCENT_THRESHOLD = -2.0  # Grade < -2% is descending
+
+    # For estimated power:
+    # - Climbing: base power * climb_power_factor
+    # - Flat: base power * flat_power_factor
+    # - Descending: minimal pedaling (model assumes coasting)
+    base_power = params.assumed_avg_power
+    flat_power = base_power * params.flat_power_factor
+    climb_power = base_power * params.climb_power_factor
+
+    # Calculate time at each terrain type using physics model
+    climb_time = 0.0
+    flat_time = 0.0
+    descent_time = 0.0
+    descent_speed_sum = 0.0
+
+    for i in range(1, len(route_points)):
+        prev = route_points[i - 1]
+        curr = route_points[i]
+
+        # Calculate distance and grade
+        dist = haversine_distance(prev.lat, prev.lon, curr.lat, curr.lon)
+        if dist <= 0:
+            continue
+
+        if prev.elevation is not None and curr.elevation is not None:
+            grade_pct = (curr.elevation - prev.elevation) / dist * 100
+        else:
+            grade_pct = 0.0
+
+        grade_pct = max(-30, min(30, grade_pct))
+
+        # Calculate speed using physics model (convert grade % to slope angle in radians)
+        slope_angle = math.atan(grade_pct / 100)
+        speed = estimate_speed_from_power(slope_angle, params)
+        if speed <= 0:
+            continue
+
+        segment_time = dist / speed
+
+        if grade_pct > CLIMB_THRESHOLD:
+            climb_time += segment_time
+        elif grade_pct < DESCENT_THRESHOLD:
+            descent_time += segment_time
+            descent_speed_sum += speed * segment_time
+        else:
+            flat_time += segment_time
+
+    total_time = climb_time + flat_time + descent_time
+
+    # Calculate time percentages
+    if total_time > 0:
+        time_climbing_pct = climb_time / total_time * 100
+        time_flat_pct = flat_time / total_time * 100
+        time_descending_pct = descent_time / total_time * 100
+    else:
+        time_climbing_pct = time_flat_pct = time_descending_pct = 0.0
+
+    # Estimated braking score: model's avg descent speed / max coasting speed
+    if descent_time > 0 and params.max_coasting_speed > 0:
+        avg_descent_speed = descent_speed_sum / descent_time
+        braking_score = avg_descent_speed / params.max_coasting_speed
+    else:
+        braking_score = None
+
+    return VerboseMetrics(
+        avg_power_climbing=climb_power,
+        avg_power_flat=flat_power,
+        avg_power_descending=0.0,  # Model assumes coasting on descents
+        braking_score=braking_score,
+        time_climbing_pct=time_climbing_pct,
+        time_flat_pct=time_flat_pct,
+        time_descending_pct=time_descending_pct,
+    )
+
+
 def load_training_data(path: Path) -> list[TrainingRoute]:
     """Load training data from JSON file."""
     with path.open() as f:
@@ -246,9 +470,14 @@ def analyze_training_route(
             max_coasting_speed_unpaved=params.max_coasting_speed_unpaved,
             headwind=headwind_used,
             climb_power_factor=params.climb_power_factor,
+            flat_power_factor=params.flat_power_factor,
             climb_threshold_grade=params.climb_threshold_grade,
             steep_descent_speed=params.steep_descent_speed,
             steep_descent_grade=params.steep_descent_grade,
+            straight_descent_speed=params.straight_descent_speed,
+            hairpin_speed=params.hairpin_speed,
+            straight_curvature=params.straight_curvature,
+            hairpin_curvature=params.hairpin_curvature,
             drivetrain_efficiency=params.drivetrain_efficiency,
         )
 
@@ -303,6 +532,10 @@ def analyze_training_route(
         route_max_grade = hilliness.max_grade
         trip_max_grade = _calculate_trip_max_grade(trip_points, max_grade_window_trip)
 
+        # Calculate verbose metrics from trip data (actual) and route (estimated)
+        verbose_metrics = _calculate_verbose_metrics(trip_points, route_params.max_coasting_speed)
+        estimated_verbose_metrics = _calculate_estimated_verbose_metrics(smoothed, route_params)
+
         return TrainingResult(
             route=route,
             comparison=comparison,
@@ -315,6 +548,8 @@ def analyze_training_route(
             elevation_scale_used=effective_scale,
             route_max_grade=route_max_grade,
             trip_max_grade=trip_max_grade,
+            verbose_metrics=verbose_metrics,
+            estimated_verbose_metrics=estimated_verbose_metrics,
         )
 
     except Exception as e:
@@ -405,6 +640,7 @@ def run_training_analysis(
 def format_training_summary(
     results: list[TrainingResult], summary: TrainingSummary, params: RiderParams,
     imperial: bool = False,
+    verbose: bool = False,
 ) -> str:
     """Format training analysis results as a human-readable report."""
     lines = []
@@ -472,12 +708,19 @@ def format_training_summary(
     dist_suffix = "m" if imperial else "k"  # miles or km
     elev_suffix = "'" if imperial else "m"  # feet or meters
     lines.append("PER-ROUTE BREAKDOWN:")
-    # Build header and data rows with consistent formatting
-    # Column groups: Route(22) Unpvd(6) Pwr(6) | Est: Dist(8) Elev(7) Time(6) Work(6) Grade(7) | Act: same | Diff: Time(8) Work(8) Elev(8) Grade(8)
-    lines.append("-" * 164)
-    lines.append(f"{'':34} {'------- Estimated -------':^34}{'-------- Actual --------':^34}{'--------- Diff ---------':^32}")
-    lines.append(f"{'Route':<22} {'Unpvd':>5} {'Pwr':>4}  {'Dist':>6} {'Elev':>5} {'Time':>4} {'Work':>4} {'Grade':>5}  {'Dist':>6} {'Elev':>5} {'Time':>4} {'Work':>4} {'Grade':>5}  {'Time':>6} {'Work':>6} {'Elev':>6} {'Grade':>6}")
-    lines.append("-" * 164)
+
+    if verbose:
+        # Verbose mode: same as standard plus power by terrain and braking score
+        lines.append("-" * 250)
+        lines.append(f"{'':34} {'-------------- Estimated --------------':^46}{'--------------- Actual ---------------':^46}{'---------------- Diff ----------------':^52}")
+        lines.append(f"{'Route':<22} {'Unpvd':>5} {'Pwr':>4}  {'Dist':>6} {'Elev':>5} {'Time':>4} {'Work':>4} {'Grade':>5} {'Climb':>5} {'Flat':>4} {'Brk':>4}  {'Dist':>6} {'Elev':>5} {'Time':>4} {'Work':>4} {'Grade':>5} {'Climb':>5} {'Flat':>4} {'Brk':>4}  {'Time':>6} {'Work':>6} {'Elev':>6} {'Grade':>6} {'Climb':>6} {'Flat':>6} {'Brk':>6}")
+        lines.append("-" * 250)
+    else:
+        # Standard mode
+        lines.append("-" * 164)
+        lines.append(f"{'':34} {'------- Estimated -------':^34}{'-------- Actual --------':^34}{'--------- Diff ---------':^32}")
+        lines.append(f"{'Route':<22} {'Unpvd':>5} {'Pwr':>4}  {'Dist':>6} {'Elev':>5} {'Time':>4} {'Work':>4} {'Grade':>5}  {'Dist':>6} {'Elev':>5} {'Time':>4} {'Work':>4} {'Grade':>5}  {'Time':>6} {'Work':>6} {'Elev':>6} {'Grade':>6}")
+        lines.append("-" * 164)
 
     for r in results:
         # Estimated values
@@ -504,12 +747,54 @@ def format_training_summary(
                       if act_max_grade > 0 else 0)
 
         name = r.route.name[:21]
-        lines.append(
-            f"{name:<22} {r.unpaved_pct:>4.0f}% {r.power_used:>3.0f}W "
-            f" {est_dist:>5.0f}{dist_suffix} {est_elev:>4.0f}{elev_suffix} {est_time:>4.1f}h {est_work:>4.0f}k {est_max_grade:>4.1f}% "
-            f" {act_dist:>5.0f}{dist_suffix} {act_elev:>4.0f}{elev_suffix} {act_time:>4.1f}h {act_work:>4.0f}k {act_max_grade:>4.1f}% "
-            f" {time_diff:>+5.1f}% {work_diff:>+5.1f}% {elev_diff:>+5.1f}% {grade_diff:>+5.1f}%"
-        )
+
+        if verbose:
+            # Get verbose metrics (actual from trip, estimated from route)
+            vm = r.verbose_metrics
+            evm = r.estimated_verbose_metrics
+
+            # Estimated power values (shorter format to fit)
+            est_pwr_climb = f"{evm.avg_power_climbing:>4.0f}" if evm and evm.avg_power_climbing else "   -"
+            est_pwr_flat = f"{evm.avg_power_flat:>3.0f}" if evm and evm.avg_power_flat else "  -"
+            est_brake = f"{evm.braking_score:>4.2f}" if evm and evm.braking_score else "   -"
+
+            # Actual power values
+            act_pwr_climb = f"{vm.avg_power_climbing:>4.0f}" if vm and vm.avg_power_climbing else "   -"
+            act_pwr_flat = f"{vm.avg_power_flat:>3.0f}" if vm and vm.avg_power_flat else "  -"
+            act_brake = f"{vm.braking_score:>4.2f}" if vm and vm.braking_score else "   -"
+
+            # Diff for verbose metrics (actual - estimated, as percentage)
+            if evm and vm and evm.avg_power_climbing and vm.avg_power_climbing:
+                climb_diff = (vm.avg_power_climbing - evm.avg_power_climbing) / evm.avg_power_climbing * 100
+                climb_diff_str = f"{climb_diff:>+5.0f}%"
+            else:
+                climb_diff_str = "     -"
+
+            if evm and vm and evm.avg_power_flat and vm.avg_power_flat:
+                flat_diff = (vm.avg_power_flat - evm.avg_power_flat) / evm.avg_power_flat * 100
+                flat_diff_str = f"{flat_diff:>+5.0f}%"
+            else:
+                flat_diff_str = "     -"
+
+            if evm and vm and evm.braking_score and vm.braking_score:
+                brake_diff = (vm.braking_score - evm.braking_score) / evm.braking_score * 100
+                brake_diff_str = f"{brake_diff:>+5.0f}%"
+            else:
+                brake_diff_str = "     -"
+
+            lines.append(
+                f"{name:<22} {r.unpaved_pct:>4.0f}% {r.power_used:>3.0f}W "
+                f" {est_dist:>5.0f}{dist_suffix} {est_elev:>4.0f}{elev_suffix} {est_time:>4.1f}h {est_work:>4.0f}k {est_max_grade:>4.1f}% {est_pwr_climb}W {est_pwr_flat}W {est_brake} "
+                f" {act_dist:>5.0f}{dist_suffix} {act_elev:>4.0f}{elev_suffix} {act_time:>4.1f}h {act_work:>4.0f}k {act_max_grade:>4.1f}% {act_pwr_climb}W {act_pwr_flat}W {act_brake} "
+                f" {time_diff:>+5.1f}% {work_diff:>+5.1f}% {elev_diff:>+5.1f}% {grade_diff:>+5.1f}% {climb_diff_str} {flat_diff_str} {brake_diff_str}"
+            )
+        else:
+            lines.append(
+                f"{name:<22} {r.unpaved_pct:>4.0f}% {r.power_used:>3.0f}W "
+                f" {est_dist:>5.0f}{dist_suffix} {est_elev:>4.0f}{elev_suffix} {est_time:>4.1f}h {est_work:>4.0f}k {est_max_grade:>4.1f}% "
+                f" {act_dist:>5.0f}{dist_suffix} {act_elev:>4.0f}{elev_suffix} {act_time:>4.1f}h {act_work:>4.0f}k {act_max_grade:>4.1f}% "
+                f" {time_diff:>+5.1f}% {work_diff:>+5.1f}% {elev_diff:>+5.1f}% {grade_diff:>+5.1f}%"
+            )
 
     lines.append("")
 

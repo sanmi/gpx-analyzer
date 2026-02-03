@@ -38,6 +38,7 @@ DEFAULTS = {
     "max_coast_speed": 48.0,
     "max_coast_speed_unpaved": 24.0,
     "climb_power_factor": 1.5,
+    "flat_power_factor": 1.0,
     "climb_threshold_grade": 4.0,
     "steep_descent_speed": 18.0,
     "steep_descent_grade": -8.0,
@@ -124,6 +125,11 @@ See README.md for detailed parameter descriptions.""",
         help="Display output in imperial units (miles, feet) instead of metric.",
     )
     parser.add_argument(
+        "--verbose", "-v",
+        action="store_true",
+        help="Show additional metrics in training mode (avg power climbing/flat, braking score).",
+    )
+    parser.add_argument(
         "--mass",
         type=float,
         default=get_default("mass"),
@@ -170,6 +176,12 @@ See README.md for detailed parameter descriptions.""",
         type=float,
         default=get_default("climb_power_factor"),
         help=f"Power multiplier on steep climbs, e.g. 1.5 = 50%% more power (default: {DEFAULTS['climb_power_factor']})",
+    )
+    parser.add_argument(
+        "--flat-power-factor",
+        type=float,
+        default=get_default("flat_power_factor"),
+        help=f"Power multiplier on flat terrain, e.g. 1.15 = 15%% more power (default: {DEFAULTS['flat_power_factor']})",
     )
     parser.add_argument(
         "--climb-threshold-grade",
@@ -518,6 +530,7 @@ def main(argv: list[str] | None = None) -> None:
         max_coasting_speed_unpaved=args.max_coast_speed_unpaved / 3.6,
         headwind=args.headwind / 3.6,
         climb_power_factor=args.climb_power_factor,
+        flat_power_factor=args.flat_power_factor,
         climb_threshold_grade=args.climb_threshold_grade,
         steep_descent_speed=args.steep_descent_speed / 3.6,
         steep_descent_grade=args.steep_descent_grade,
@@ -593,7 +606,7 @@ def main(argv: list[str] | None = None) -> None:
         )
 
         print("")
-        print(format_training_summary(results, summary, params, args.imperial))
+        print(format_training_summary(results, summary, params, args.imperial, args.verbose))
         return
 
     # Collection mode
