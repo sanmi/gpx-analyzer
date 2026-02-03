@@ -1065,6 +1065,14 @@ HTML_TEMPLATE = """
         .comparison-table tr.primary td {
             font-weight: 600;
         }
+        /* Steep comparison table - wider columns for route names */
+        .steep-comparison-table th:not(:first-child) {
+            min-width: 180px;
+            white-space: nowrap;
+        }
+        .steep-comparison-table th:first-child {
+            width: 120px;
+        }
         /* Comparison histograms */
         .histogram-bars.comparison-mode {
             gap: 12px;  /* spacing between grade bins */
@@ -2522,8 +2530,8 @@ HTML_TEMPLATE = """
                 <thead>
                     <tr>
                         <th>Metric</th>
-                        <th>{{ (result.name or 'Route 1')|truncate(15) }}</th>
-                        <th>{{ (result2.name or 'Route 2')|truncate(15) }}</th>
+                        <th>{{ (result.name or ('Trip 1' if is_trip else 'Route 1')) }} <span class="result-badge {% if is_trip %}trip-badge{% else %}route-badge{% endif %}">{% if is_trip %}Ride{% else %}Route{% endif %}</span></th>
+                        <th>{{ (result2.name or ('Trip 2' if is_trip2 else 'Route 2')) }} <span class="result-badge {% if is_trip2 %}trip-badge{% else %}route-badge{% endif %}">{% if is_trip2 %}Ride{% else %}Route{% endif %}</span></th>
                     </tr>
                 </thead>
                 <tbody>
@@ -2657,7 +2665,7 @@ HTML_TEMPLATE = """
         <!-- Stacked elevation profiles for comparison -->
         <div class="elevation-profiles-stacked">
             <div class="elevation-profile">
-                <h4>{{ (result.name or 'Route 1')|truncate(40) }}</h4>
+                <h4>{{ (result.name or ('Trip 1' if is_trip else 'Route 1'))|truncate(40) }} <span class="result-badge {% if is_trip %}trip-badge{% else %}route-badge{% endif %}">{% if is_trip %}Ride{% else %}Route{% endif %}</span></h4>
                 <div class="elevation-profile-container" id="elevationContainer1" data-url="{{ url|urlencode }}">
                     <div class="elevation-loading" id="elevationLoading1">
                         <div class="elevation-spinner"></div>
@@ -2673,7 +2681,7 @@ HTML_TEMPLATE = """
                 </div>
             </div>
             <div class="elevation-profile">
-                <h4>{{ (result2.name or 'Route 2')|truncate(40) }}</h4>
+                <h4>{{ (result2.name or ('Trip 2' if is_trip2 else 'Route 2'))|truncate(40) }} <span class="result-badge {% if is_trip2 %}trip-badge{% else %}route-badge{% endif %}">{% if is_trip2 %}Ride{% else %}Route{% endif %}</span></h4>
                 <div class="elevation-profile-container" id="elevationContainer2" data-url="{{ url2|urlencode }}">
                     <div class="elevation-loading" id="elevationLoading2">
                         <div class="elevation-spinner"></div>
