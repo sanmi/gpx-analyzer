@@ -1505,6 +1505,7 @@ HTML_TEMPLATE = """
 
         function populateRecentUrls(dropdownId, inputId, routesOnly) {
             var dropdown = document.getElementById(dropdownId);
+            if (!dropdown) return;  // Guard against missing element
             var urls = getRecentUrls();
             // Filter to routes only for the compare dropdown
             if (routesOnly) {
