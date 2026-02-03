@@ -82,7 +82,7 @@ def _calculate_elevation_gain(points: list) -> float:
 
 # Adaptive smoothing constants for high-noise DEM detection
 HIGH_NOISE_RATIO_THRESHOLD = 1.8  # raw_gain / api_gain ratio indicating noisy DEM
-HIGH_NOISE_SMOOTHING_RADIUS = 200.0  # meters, used when DEM is noisy
+HIGH_NOISE_SMOOTHING_RADIUS = 300.0  # meters, used when DEM is noisy
 
 
 def _is_high_noise_dem(raw_gain: float, api_gain: float) -> bool:
@@ -249,6 +249,7 @@ def analyze_training_route(
             climb_threshold_grade=params.climb_threshold_grade,
             steep_descent_speed=params.steep_descent_speed,
             steep_descent_grade=params.steep_descent_grade,
+            drivetrain_efficiency=params.drivetrain_efficiency,
         )
 
         if len(route_points) < 2 or len(trip_points) < 2:

@@ -55,8 +55,8 @@
       "route_url": "https://ridewithgps.com/routes/50532002",
       "trip_url": "https://ridewithgps.com/trips/276204729",
       "tags": ["road", "gravel", "flat", "france"],
-      "headwind": 5,
-      "notes": "Road with some gravel with little climbing"
+      "notes": "Road with some gravel with little climbing",
+      "mass": 90
     },
     {
       "name": "Del Puerto Canyon",
@@ -71,7 +71,9 @@
       "route_url": "https://ridewithgps.com/routes/50387623",
       "trip_url": "https://ridewithgps.com/trips/276589889",
       "tags": ["road", "gravel", "hilly", "france"],
-      "notes": "Road with climbing"
+      "notes": "Road with climbing",
+      "mass": 90,
+      "headwind": -5
     },
     {
       "name": "Le Col d'Ares gravel",
@@ -99,6 +101,14 @@
       "route_url": "https://ridewithgps.com/routes/53879476",
       "trip_url": "https://ridewithgps.com/trips/280527062",
       "tags": ["road", "flat", "gravel", "france"],
+      "notes": "Road with climbing",
+      "mass": 90
+    },
+    {
+      "name": "Sacramento River Loop",
+      "route_url": "https://ridewithgps.com/routes/53879950",
+      "trip_url": "https://ridewithgps.com/trips/108113511",
+      "tags": ["road", "flat", "gravel", "california"],
       "notes": "Road with climbing"
     }
   ]

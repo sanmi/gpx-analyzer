@@ -45,6 +45,7 @@ DEFAULTS = {
     "hairpin_speed": 18.0,
     "straight_curvature": 0.3,
     "hairpin_curvature": 3.0,
+    "drivetrain_efficiency": 0.97,
     "smoothing": 50.0,
     "elevation_scale": 1.0,
     "headwind": 0.0,
@@ -211,6 +212,12 @@ See README.md for detailed parameter descriptions.""",
         type=float,
         default=get_default("hairpin_curvature"),
         help=f"Curvature threshold for hairpin turns in deg/m (default: {DEFAULTS['hairpin_curvature']})",
+    )
+    parser.add_argument(
+        "--drivetrain-efficiency",
+        type=float,
+        default=get_default("drivetrain_efficiency"),
+        help=f"Drivetrain efficiency as fraction 0-1 (default: {DEFAULTS['drivetrain_efficiency']})",
     )
     parser.add_argument(
         "--smoothing",
@@ -518,6 +525,7 @@ def main(argv: list[str] | None = None) -> None:
         hairpin_speed=args.hairpin_speed / 3.6,
         straight_curvature=args.straight_curvature,
         hairpin_curvature=args.hairpin_curvature,
+        drivetrain_efficiency=args.drivetrain_efficiency,
     )
 
     # Optimization mode

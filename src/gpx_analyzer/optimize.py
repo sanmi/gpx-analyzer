@@ -187,6 +187,7 @@ def _build_rider_params(opt_values: np.ndarray, param_names: list[str],
         climb_threshold_grade=climb_threshold_frac,
         steep_descent_speed=FIXED_PARAMS["steep_descent_speed"] / 3.6,
         steep_descent_grade=steep_descent_frac,
+        drivetrain_efficiency=params.get("drivetrain_efficiency", 0.97),
     )
 
 

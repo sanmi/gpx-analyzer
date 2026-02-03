@@ -126,8 +126,9 @@ def estimate_speed_from_power(
 ) -> float:
     """Estimate rider speed by solving the power balance equation.
 
-    Solves: P_eff = (F_grade + F_roll) * v + 0.5 * rho * CdA * (v + headwind)^2 * v
+    Solves: P_wheel = (F_grade + F_roll) * v + 0.5 * rho * CdA * (v + headwind)^2 * v
     where F_grade = m*g*sin(theta), F_roll = Crr*m*g*cos(theta),
+    P_wheel = P_eff * drivetrain_efficiency (power at wheel after drivetrain losses),
     and P_eff is the effective power adjusted for downhill coasting.
     Headwind is positive when riding into the wind.
 
@@ -138,7 +139,8 @@ def estimate_speed_from_power(
     B = params.total_mass * G * (
         math.sin(slope_angle) + effective_crr * math.cos(slope_angle)
     )
-    P = effective_power(slope_angle, params)
+    # Power at wheel after drivetrain losses
+    P = effective_power(slope_angle, params) * params.drivetrain_efficiency
     max_speed = _gradient_limited_speed(slope_angle, params, unpaved, curvature)
     w = params.headwind
 

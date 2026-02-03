@@ -2160,6 +2160,7 @@ def build_params(power: float, mass: float, headwind: float) -> RiderParams:
         climb_threshold_grade=config.get("climb_threshold_grade", DEFAULTS["climb_threshold_grade"]),
         steep_descent_speed=config.get("steep_descent_speed", DEFAULTS["steep_descent_speed"]) / 3.6,
         steep_descent_grade=config.get("steep_descent_grade", DEFAULTS["steep_descent_grade"]),
+        drivetrain_efficiency=config.get("drivetrain_efficiency", DEFAULTS["drivetrain_efficiency"]),
     )
 
 
