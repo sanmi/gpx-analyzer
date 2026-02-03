@@ -1198,7 +1198,7 @@ HTML_TEMPLATE = """
         <div class="compare-toggle">
             <label>
                 <input type="checkbox" id="compareCheckbox" {{ 'checked' if compare_mode else '' }} onchange="toggleCompareMode()">
-                Compare with another route
+                Compare this
             </label>
             <input type="hidden" id="compareMode" name="compare" value="{{ 'on' if compare_mode else '' }}">
         </div>

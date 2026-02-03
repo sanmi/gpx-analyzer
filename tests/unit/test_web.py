@@ -53,7 +53,7 @@ class TestIndexGet:
         html = response.data.decode()
         assert 'name="mode"' in html  # Hidden input for mode
         assert 'id="compareCheckbox"' in html
-        assert "Compare with another route" in html
+        assert "Compare this" in html
 
     def test_contains_imperial_toggle(self, client):
         response = client.get("/")
