@@ -2846,7 +2846,7 @@ HTML_TEMPLATE = """
                     for (let i = 0; i < profileData.times.length - 1; i++) {
                         if (time >= profileData.times[i] && time < profileData.times[i + 1]) {
                             return {
-                                grade: profileData.grades[i] || 0,
+                                grade: profileData.grades[i],  // Keep null for stopped segments
                                 elevation: profileData.elevations[i] || 0,
                                 time: time
                             };
@@ -2854,13 +2854,16 @@ HTML_TEMPLATE = """
                     }
                     const lastIdx = profileData.grades.length - 1;
                     return {
-                        grade: profileData.grades[lastIdx] || 0,
+                        grade: profileData.grades[lastIdx],
                         elevation: profileData.elevations[lastIdx + 1] || 0,
                         time: time
                     };
                 }
 
                 function formatGrade(g) {
+                    if (g === null || g === undefined) {
+                        return 'Stopped';
+                    }
                     const sign = g >= 0 ? '+' : '';
                     return sign + g.toFixed(1) + '%';
                 }
@@ -3650,6 +3653,19 @@ def _calculate_trip_elevation_profile_data(url: str) -> dict:
 
     grades = rolling_grades if rolling_grades else [0.0] * (len(trip_points) - 1)
 
+    # Calculate speeds and mark stopped segments (speed < 2 km/h) with None grade
+    STOPPED_SPEED_THRESHOLD = 2.0  # km/h
+    for i in range(len(grades)):
+        if i + 1 < len(trip_points):
+            tp0, tp1 = trip_points[i], trip_points[i + 1]
+            if tp0.timestamp is not None and tp1.timestamp is not None:
+                time_delta = tp1.timestamp - tp0.timestamp  # seconds
+                if time_delta > 0:
+                    dist = haversine_distance(tp0.lat, tp0.lon, tp1.lat, tp1.lon)
+                    speed_kmh = (dist / time_delta) * 3.6  # m/s to km/h
+                    if speed_kmh < STOPPED_SPEED_THRESHOLD:
+                        grades[i] = None  # Mark as stopped
+
     trip_name = trip_metadata.get("name", "Trip Profile") if trip_metadata else "Trip Profile"
 
     # Convert tunnel corrections to time ranges for highlighting
@@ -3799,6 +3815,8 @@ def generate_trip_elevation_profile(url: str, title_time_hours: float | None = N
     steep_colors = ['#e55a00', '#cc4400', '#b33300', '#992200', '#801100', '#660000']
 
     def grade_to_color(g):
+        if g is None:
+            return '#ffffff'  # White for stopped segments
         if g >= 10:
             if g < 12:
                 return steep_colors[0]
