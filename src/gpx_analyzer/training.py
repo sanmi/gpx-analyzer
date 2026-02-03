@@ -459,27 +459,6 @@ def analyze_training_route(
         mass_used = route.mass if route.mass is not None else params.total_mass
 
         headwind_used = route.headwind / 3.6 if route.headwind is not None else params.headwind
-        route_params = RiderParams(
-            total_mass=mass_used,
-            cda=params.cda,
-            crr=params.crr,
-            air_density=params.air_density,
-            assumed_avg_power=power_used,
-            coasting_grade_threshold=params.coasting_grade_threshold,
-            max_coasting_speed=params.max_coasting_speed,
-            max_coasting_speed_unpaved=params.max_coasting_speed_unpaved,
-            headwind=headwind_used,
-            climb_power_factor=params.climb_power_factor,
-            flat_power_factor=params.flat_power_factor,
-            climb_threshold_grade=params.climb_threshold_grade,
-            steep_descent_speed=params.steep_descent_speed,
-            steep_descent_grade=params.steep_descent_grade,
-            straight_descent_speed=params.straight_descent_speed,
-            hairpin_speed=params.hairpin_speed,
-            straight_curvature=params.straight_curvature,
-            hairpin_curvature=params.hairpin_curvature,
-            drivetrain_efficiency=params.drivetrain_efficiency,
-        )
 
         if len(route_points) < 2 or len(trip_points) < 2:
             print(f"  Skipping {route.name}: insufficient data points")
@@ -510,6 +489,78 @@ def analyze_training_route(
         else:
             # No API elevation - just smooth
             smoothed = smooth_elevations(route_points, smoothing_radius, elevation_scale)
+
+        # Infer descent_speed_factor from trip data by comparing actual vs physics descent speeds
+        # First, build params with descent_speed_factor=1.0 to get raw physics predictions
+        physics_params = RiderParams(
+            total_mass=mass_used,
+            cda=params.cda,
+            crr=params.crr,
+            air_density=params.air_density,
+            assumed_avg_power=power_used,
+            coasting_grade_threshold=params.coasting_grade_threshold,
+            max_coasting_speed=params.max_coasting_speed,
+            max_coasting_speed_unpaved=params.max_coasting_speed_unpaved,
+            headwind=headwind_used,
+            climb_power_factor=params.climb_power_factor,
+            flat_power_factor=params.flat_power_factor,
+            climb_threshold_grade=params.climb_threshold_grade,
+            steep_descent_speed=params.steep_descent_speed,
+            steep_descent_grade=params.steep_descent_grade,
+            straight_descent_speed=params.straight_descent_speed,
+            hairpin_speed=params.hairpin_speed,
+            straight_curvature=params.straight_curvature,
+            hairpin_curvature=params.hairpin_curvature,
+            descent_speed_factor=1.0,  # Raw physics, no adjustment
+            drivetrain_efficiency=params.drivetrain_efficiency,
+        )
+
+        # Calculate braking scores to infer descent_speed_factor
+        actual_metrics = _calculate_verbose_metrics(trip_points, params.max_coasting_speed)
+        physics_metrics = _calculate_estimated_verbose_metrics(smoothed, physics_params)
+
+        # Infer factor: actual_brk / physics_brk (both normalized by max_coasting_speed)
+        # Only infer if there's sufficient descent data (>10% of time descending)
+        MIN_DESCENT_PCT = 10.0
+        has_sufficient_descent = (
+            actual_metrics.time_descending_pct >= MIN_DESCENT_PCT and
+            physics_metrics.time_descending_pct >= MIN_DESCENT_PCT
+        )
+
+        if (has_sufficient_descent and
+            actual_metrics.braking_score is not None and
+            physics_metrics.braking_score is not None and
+            physics_metrics.braking_score > 0):
+            inferred_descent_factor = actual_metrics.braking_score / physics_metrics.braking_score
+            # Clamp to reasonable range [0.2, 1.5]
+            inferred_descent_factor = max(0.2, min(1.5, inferred_descent_factor))
+        else:
+            # Fallback to config default if we can't reliably infer
+            inferred_descent_factor = params.descent_speed_factor
+
+        # Build final route_params with inferred descent_speed_factor
+        route_params = RiderParams(
+            total_mass=mass_used,
+            cda=params.cda,
+            crr=params.crr,
+            air_density=params.air_density,
+            assumed_avg_power=power_used,
+            coasting_grade_threshold=params.coasting_grade_threshold,
+            max_coasting_speed=params.max_coasting_speed,
+            max_coasting_speed_unpaved=params.max_coasting_speed_unpaved,
+            headwind=headwind_used,
+            climb_power_factor=params.climb_power_factor,
+            flat_power_factor=params.flat_power_factor,
+            climb_threshold_grade=params.climb_threshold_grade,
+            steep_descent_speed=params.steep_descent_speed,
+            steep_descent_grade=params.steep_descent_grade,
+            straight_descent_speed=params.straight_descent_speed,
+            hairpin_speed=params.hairpin_speed,
+            straight_curvature=params.straight_curvature,
+            hairpin_curvature=params.hairpin_curvature,
+            descent_speed_factor=inferred_descent_factor,
+            drivetrain_efficiency=params.drivetrain_efficiency,
+        )
 
         analysis = analyze(smoothed, route_params)
 

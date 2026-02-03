@@ -133,7 +133,8 @@ def estimate_speed_from_power(
     and P_eff is the effective power adjusted for downhill coasting.
     Headwind is positive when riding into the wind.
 
-    On descents, speed is limited by gradient and curvature-dependent braking.
+    On descents, speed is limited by gradient and curvature-dependent braking,
+    then scaled by descent_speed_factor to model rider caution/preference.
     """
     effective_crr = crr if crr is not None else params.crr
     A = 0.5 * params.air_density * params.cda
@@ -153,7 +154,8 @@ def estimate_speed_from_power(
         v_coast = 0.0
 
     if P <= 0:
-        return v_coast
+        # Pure coasting descent - apply descent_speed_factor
+        return v_coast * params.descent_speed_factor
 
     # Solve A*(v+w)^2*v + B*v - P = 0 using Newton's method
     v = max(5.0, v_coast)
@@ -170,7 +172,13 @@ def estimate_speed_from_power(
             break
         v = v_new
 
-    return min(max(v, v_coast), max_speed)
+    final_speed = min(max(v, v_coast), max_speed)
+
+    # Apply descent_speed_factor on descents (slope_angle < 0)
+    if slope_angle < 0:
+        final_speed *= params.descent_speed_factor
+
+    return final_speed
 
 
 def calculate_segment_work(

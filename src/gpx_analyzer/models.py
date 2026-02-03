@@ -36,6 +36,8 @@ class RiderParams:
     straight_descent_speed: float = 45.0 / 3.6  # m/s; max speed on straight descents (default 45 km/h)
     hairpin_curvature: float = 3.0  # deg/m; curvature threshold for hairpin (tighter = higher value)
     straight_curvature: float = 0.3  # deg/m; curvature threshold for straight sections
+    # Rider descent behavior
+    descent_speed_factor: float = 1.0  # multiplier for descent speeds (1.0 = full physics, 0.5 = cautious)
     drivetrain_efficiency: float = 0.97  # fraction of power reaching wheel (1.0 = no loss)
 
 
