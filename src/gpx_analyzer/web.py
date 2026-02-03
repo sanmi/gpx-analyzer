@@ -1496,10 +1496,10 @@ HTML_TEMPLATE = """
     <div id="steepClimbsModal" class="modal-overlay" onclick="hideModal('steepClimbsModal')">
         <div class="modal" onclick="event.stopPropagation()">
             <h3>Steep Climbs Methodology</h3>
-            <p><strong>Max Grade</strong> is calculated using a 300m rolling average to filter GPS noise and match RideWithGPS methodology. This gives the maximum <em>sustained</em> grade over a meaningful distance.</p>
-            <p><strong>Grade Histogram</strong> uses the same 300m rolling average, so grades shown will never exceed the max grade. This ensures consistency between the reported maximum and the histogram distribution.</p>
-            <p><strong>Why 300m?</strong> Point-to-point GPS measurements can show unrealistic spikes (50%+ grades) due to elevation noise. Averaging over 300m filters these artifacts while still capturing steep sections that riders actually experience.</p>
-            <p>Elevation data is smoothed (50m Gaussian) before grade calculation to reduce GPS noise.</p>
+            <p><strong>Max Grade</strong> is calculated using a 150m rolling average to filter GPS noise. This gives the maximum <em>sustained</em> grade over a meaningful distance.</p>
+            <p><strong>Grade Histogram</strong> uses the same 150m rolling average, so grades shown will never exceed the max grade. This ensures consistency between the reported maximum and the histogram distribution.</p>
+            <p><strong>Why 150m?</strong> Point-to-point GPS measurements can show unrealistic spikes (50%+ grades) due to elevation noise. Averaging over 150m filters these artifacts while still capturing steep sections that riders actually experience.</p>
+            <p>Elevation data is smoothed (150m Gaussian) before grade calculation to reduce GPS noise.</p>
             <button class="modal-close" onclick="hideModal('steepClimbsModal')">Got it</button>
         </div>
     </div>

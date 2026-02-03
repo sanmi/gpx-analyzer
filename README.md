@@ -61,9 +61,9 @@ The final descent speed is the more restrictive of gradient and curvature limits
 - **Grade histogram** — Time spent at each grade bucket, showing the character of a route. Displayed as a bar chart in the web UI and ASCII art in the CLI.
 
 - **Steep climbs section** — Detailed breakdown of grades ≥10%, including:
-  - **Max grade** — Maximum sustained grade, calculated using a 300m rolling average to filter GPS noise and match RideWithGPS methodology.
+  - **Max grade** — Maximum sustained grade, calculated using a 150m rolling average to filter GPS noise.
   - **Distance at steep grades** — How much of the route is at ≥10% and ≥15% grades.
-  - **Steep grade histogram** — Time and distance distribution across steep grade buckets (10-12%, 12-14%, etc.), using the same 300m rolling average for consistency with max grade.
+  - **Steep grade histogram** — Time and distance distribution across steep grade buckets (10-12%, 12-14%, etc.), using the same 150m rolling average for consistency with max grade.
 
 ## Installation
 
