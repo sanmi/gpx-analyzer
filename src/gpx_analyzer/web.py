@@ -2514,8 +2514,14 @@ def _calculate_elevation_profile_data(url: str, params: RiderParams) -> dict:
     }
 
 
-def generate_elevation_profile(url: str, params: RiderParams) -> bytes:
+def generate_elevation_profile(url: str, params: RiderParams, title_time_hours: float | None = None) -> bytes:
     """Generate elevation profile image with grade-based coloring.
+
+    Args:
+        url: RideWithGPS route URL
+        params: Rider parameters
+        title_time_hours: Optional time to display in title (from calibrated analysis).
+                          If None, uses uncalibrated time from profile data.
 
     Returns PNG image as bytes.
     """
@@ -2584,9 +2590,9 @@ def generate_elevation_profile(url: str, params: RiderParams) -> bytes:
     ax.set_xlabel('Time (hours)', fontsize=10)
     ax.set_ylabel('Elevation (m)', fontsize=10)
 
-    # Add title with route info
-    total_time = times_hours[-1]
-    ax.set_title(f"{route_name} - {total_time:.1f}h", fontsize=12, fontweight='bold')
+    # Add title with route info (use calibrated time if provided)
+    display_time = title_time_hours if title_time_hours is not None else times_hours[-1]
+    ax.set_title(f"{route_name} - {display_time:.1f}h", fontsize=12, fontweight='bold')
 
     ax.spines['top'].set_visible(False)
     ax.spines['right'].set_visible(False)
@@ -2629,7 +2635,10 @@ def elevation_profile():
 
     try:
         params = build_params(power, mass, headwind)
-        img_bytes = generate_elevation_profile(url, params)
+        # Get calibrated time from analysis (cached, so fast)
+        analysis = analyze_single_route(url, params)
+        title_time_hours = analysis["time_seconds"] / 3600
+        img_bytes = generate_elevation_profile(url, params, title_time_hours)
         # Save to disk cache
         _save_profile_to_cache(cache_key, img_bytes)
         return send_file(io.BytesIO(img_bytes), mimetype='image/png')
