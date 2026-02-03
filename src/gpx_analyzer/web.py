@@ -2691,7 +2691,7 @@ HTML_TEMPLATE = """
 
         {% if result.tunnels_corrected > 0 %}
         <div class="note tunnel-note">
-            <strong>{{ result.tunnels_corrected }} tunnel{{ 's' if result.tunnels_corrected > 1 else '' }} detected and corrected:</strong>
+            <strong>{% if compare_mode %}{{ (result.name or 'Route 1')|truncate(20) }}: {% endif %}{{ result.tunnels_corrected }} tunnel{{ 's' if result.tunnels_corrected > 1 else '' }} detected and corrected:</strong>
             {% for t in result.tunnel_corrections %}
             <span class="tunnel-item">{{ "%.1f"|format(t.start_km) }}-{{ "%.1f"|format(t.end_km) }} km ({{ "%.0f"|format(t.artificial_gain) }}m artificial gain removed)</span>{% if not loop.last %}, {% endif %}
             {% endfor %}
@@ -2717,6 +2717,14 @@ HTML_TEMPLATE = """
                     </div>
                 </div>
             </div>
+            {% if result2.tunnels_corrected > 0 %}
+            <div class="note tunnel-note" style="margin: 8px 0;">
+                <strong>{{ (result2.name or 'Route 2')|truncate(20) }}: {{ result2.tunnels_corrected }} tunnel{{ 's' if result2.tunnels_corrected > 1 else '' }} detected and corrected:</strong>
+                {% for t in result2.tunnel_corrections %}
+                <span class="tunnel-item">{{ "%.1f"|format(t.start_km) }}-{{ "%.1f"|format(t.end_km) }} km ({{ "%.0f"|format(t.artificial_gain) }}m artificial gain removed)</span>{% if not loop.last %}, {% endif %}
+                {% endfor %}
+            </div>
+            {% endif %}
             <div class="elevation-profile">
                 <h4>{{ (result2.name or ('Trip 2' if is_trip2 else 'Route 2'))|truncate(40) }} <span class="result-badge {% if is_trip2 %}trip-badge{% else %}route-badge{% endif %}">{% if is_trip2 %}Ride{% else %}Route{% endif %}</span></h4>
                 <div class="elevation-profile-container" id="elevationContainer2" data-url="{{ url2|urlencode }}">
@@ -3731,14 +3739,20 @@ def generate_elevation_profile(url: str, params: RiderParams, title_time_hours: 
     # Add outline on top
     ax.plot(times_hours, elevations, color='#333333', linewidth=0.5)
 
-    # Highlight tunnel-corrected regions with vertical bands
+    # Highlight tunnel-corrected regions with vertical bands and markers
+    max_elev = max(elevations) * 1.1
     for start_time, end_time in tunnel_time_ranges:
         ax.axvspan(start_time, end_time, alpha=0.25, color='#FFC107', zorder=0.5,
                    label='Tunnel corrected' if start_time == tunnel_time_ranges[0][0] else None)
+        # Add "T" marker at top center of band
+        mid_time = (start_time + end_time) / 2
+        ax.text(mid_time, max_elev * 0.92, 'T', fontsize=9, fontweight='bold',
+                color='#E65100', ha='center', va='center',
+                bbox=dict(boxstyle='circle,pad=0.2', facecolor='#FFF3E0', edgecolor='#FF9800', linewidth=1))
 
     # Style the plot
     ax.set_xlim(0, times_hours[-1])
-    ax.set_ylim(0, max(elevations) * 1.1)
+    ax.set_ylim(0, max_elev)
     ax.set_xlabel('Time (hours)', fontsize=10)
     ax.set_ylabel('Elevation (m)', fontsize=10)
 
@@ -3818,13 +3832,19 @@ def generate_trip_elevation_profile(url: str, title_time_hours: float | None = N
 
     ax.plot(times_hours, elevations, color='#333333', linewidth=0.5)
 
-    # Highlight tunnel-corrected regions with vertical bands
+    # Highlight tunnel-corrected regions with vertical bands and markers
+    max_elev = max(elevations) * 1.1
     for start_time, end_time in tunnel_time_ranges:
         ax.axvspan(start_time, end_time, alpha=0.25, color='#FFC107', zorder=0.5,
                    label='Tunnel corrected' if start_time == tunnel_time_ranges[0][0] else None)
+        # Add "T" marker at top center of band
+        mid_time = (start_time + end_time) / 2
+        ax.text(mid_time, max_elev * 0.92, 'T', fontsize=9, fontweight='bold',
+                color='#E65100', ha='center', va='center',
+                bbox=dict(boxstyle='circle,pad=0.2', facecolor='#FFF3E0', edgecolor='#FF9800', linewidth=1))
 
     ax.set_xlim(0, times_hours[-1])
-    ax.set_ylim(0, max(elevations) * 1.1)
+    ax.set_ylim(0, max_elev)
     ax.set_xlabel('Time (hours)', fontsize=10)
     ax.set_ylabel('Elevation (m)', fontsize=10)
 
