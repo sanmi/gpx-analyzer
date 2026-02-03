@@ -854,23 +854,23 @@ HTML_TEMPLATE = """
         }
         /* Units toggle */
         .units-row {
-            margin-top: 20px;
-            padding-top: 15px;
-            border-top: 1px solid #eee;
+            margin-top: 15px;
         }
         .toggle-label {
             display: flex;
             align-items: center;
             gap: 8px;
             cursor: pointer;
+            font-size: 0.9em;
             font-weight: normal;
             color: #555;
             margin: 0;
         }
         .toggle-label input[type="checkbox"] {
-            width: 18px;
-            height: 18px;
+            width: 16px;
+            height: 16px;
             cursor: pointer;
+            accent-color: var(--primary);
         }
         .footer {
             margin-top: 30px;
@@ -2200,27 +2200,27 @@ HTML_TEMPLATE = """
                     </tr>
                     <tr>
                         <td>Distance</td>
-                        <td class="route-col" id="cmpDist1" data-km="{{ result.distance_km }}"></td>
-                        <td class="route-col" id="cmpDist2" data-km="{{ result2.distance_km }}"></td>
-                        <td class="diff-col" id="cmpDistDiff" data-km="{{ result.distance_km - result2.distance_km }}"></td>
+                        <td class="route-col" id="cmpDist1" data-km="{{ result.distance_km }}">{{ "%.1f"|format(result.distance_km) }} km</td>
+                        <td class="route-col" id="cmpDist2" data-km="{{ result2.distance_km }}">{{ "%.1f"|format(result2.distance_km) }} km</td>
+                        <td class="diff-col" id="cmpDistDiff" data-km="{{ result.distance_km - result2.distance_km }}">{{ "%+.1f"|format(result.distance_km - result2.distance_km) }} km</td>
                     </tr>
                     <tr>
                         <td>Elevation Gain</td>
-                        <td class="route-col" id="cmpElev1" data-m="{{ result.elevation_m }}"></td>
-                        <td class="route-col" id="cmpElev2" data-m="{{ result2.elevation_m }}"></td>
-                        <td class="diff-col" id="cmpElevDiff" data-m="{{ result.elevation_m - result2.elevation_m }}"></td>
+                        <td class="route-col" id="cmpElev1" data-m="{{ result.elevation_m }}">{{ "%.0f"|format(result.elevation_m) }} m</td>
+                        <td class="route-col" id="cmpElev2" data-m="{{ result2.elevation_m }}">{{ "%.0f"|format(result2.elevation_m) }} m</td>
+                        <td class="diff-col" id="cmpElevDiff" data-m="{{ result.elevation_m - result2.elevation_m }}">{{ "%+.0f"|format(result.elevation_m - result2.elevation_m) }} m</td>
                     </tr>
                     <tr>
                         <td>Avg Speed</td>
-                        <td class="route-col" id="cmpSpeed1" data-kmh="{{ result.avg_speed_kmh }}"></td>
-                        <td class="route-col" id="cmpSpeed2" data-kmh="{{ result2.avg_speed_kmh }}"></td>
-                        <td class="diff-col" id="cmpSpeedDiff" data-kmh="{{ result.avg_speed_kmh - result2.avg_speed_kmh }}"></td>
+                        <td class="route-col" id="cmpSpeed1" data-kmh="{{ result.avg_speed_kmh }}">{{ "%.1f"|format(result.avg_speed_kmh) }} km/h</td>
+                        <td class="route-col" id="cmpSpeed2" data-kmh="{{ result2.avg_speed_kmh }}">{{ "%.1f"|format(result2.avg_speed_kmh) }} km/h</td>
+                        <td class="diff-col" id="cmpSpeedDiff" data-kmh="{{ result.avg_speed_kmh - result2.avg_speed_kmh }}">{{ "%+.1f"|format(result.avg_speed_kmh - result2.avg_speed_kmh) }} km/h</td>
                     </tr>
                     <tr>
                         <td><span class="label-with-info">Hilliness <button type="button" class="info-btn" onclick="showModal('hillyModal')">?</button></span></td>
-                        <td class="route-col" id="cmpHilly1" data-mkm="{{ result.hilliness_score }}"></td>
-                        <td class="route-col" id="cmpHilly2" data-mkm="{{ result2.hilliness_score }}"></td>
-                        <td class="diff-col" id="cmpHillyDiff" data-mkm="{{ result.hilliness_score - result2.hilliness_score }}"></td>
+                        <td class="route-col" id="cmpHilly1" data-mkm="{{ result.hilliness_score }}">{{ "%.0f"|format(result.hilliness_score) }} m/km</td>
+                        <td class="route-col" id="cmpHilly2" data-mkm="{{ result2.hilliness_score }}">{{ "%.0f"|format(result2.hilliness_score) }} m/km</td>
+                        <td class="diff-col" id="cmpHillyDiff" data-mkm="{{ result.hilliness_score - result2.hilliness_score }}">{{ "%+.0f"|format(result.hilliness_score - result2.hilliness_score) }} m/km</td>
                     </tr>
                     <tr>
                         <td><span class="label-with-info">Steepness <button type="button" class="info-btn" onclick="showModal('steepModal')">?</button></span></td>
@@ -2254,19 +2254,19 @@ HTML_TEMPLATE = """
 
         <div class="result-row">
             <span class="result-label">Distance</span>
-            <span class="result-value" id="singleDistance" data-km="{{ result.distance_km }}"></span>
+            <span class="result-value" id="singleDistance" data-km="{{ result.distance_km }}">{{ "%.1f"|format(result.distance_km) }} km</span>
         </div>
         <div class="result-row">
             <span class="result-label">Elevation Gain</span>
-            <span class="result-value" id="singleElevGain" data-m="{{ result.elevation_m }}"></span>
+            <span class="result-value" id="singleElevGain" data-m="{{ result.elevation_m }}">{{ "%.0f"|format(result.elevation_m) }} m</span>
         </div>
         <div class="result-row">
             <span class="result-label">Elevation Loss</span>
-            <span class="result-value" id="singleElevLoss" data-m="{{ result.elevation_loss_m }}"></span>
+            <span class="result-value" id="singleElevLoss" data-m="{{ result.elevation_loss_m }}">{{ "%.0f"|format(result.elevation_loss_m) }} m</span>
         </div>
         <div class="result-row">
             <span class="result-label">Avg Speed</span>
-            <span class="result-value" id="singleSpeed" data-kmh="{{ result.avg_speed_kmh }}"></span>
+            <span class="result-value" id="singleSpeed" data-kmh="{{ result.avg_speed_kmh }}">{{ "%.1f"|format(result.avg_speed_kmh) }} km/h</span>
         </div>
         {% if result.unpaved_pct is not none %}
         <div class="result-row">
@@ -2276,7 +2276,7 @@ HTML_TEMPLATE = """
         {% endif %}
         <div class="result-row">
             <span class="result-label label-with-info">Hilliness <button type="button" class="info-btn" onclick="showModal('hillyModal')">?</button></span>
-            <span class="result-value" id="singleHilliness" data-mkm="{{ result.hilliness_score }}"></span>
+            <span class="result-value" id="singleHilliness" data-mkm="{{ result.hilliness_score }}">{{ "%.0f"|format(result.hilliness_score) }} m/km</span>
         </div>
         <div class="result-row">
             <span class="result-label label-with-info">Steepness <button type="button" class="info-btn" onclick="showModal('steepModal')">?</button></span>
@@ -2395,13 +2395,13 @@ HTML_TEMPLATE = """
                     </tr>
                     <tr>
                         <td>Distance ≥10%</td>
-                        <td id="steepDist10" data-m="{{ result.steep_distance }}"></td>
-                        <td id="steepDist10_2" data-m="{{ result2.steep_distance }}"></td>
+                        <td id="steepDist10" data-m="{{ result.steep_distance }}">{{ "%.2f"|format(result.steep_distance / 1000) }} km</td>
+                        <td id="steepDist10_2" data-m="{{ result2.steep_distance }}">{{ "%.2f"|format(result2.steep_distance / 1000) }} km</td>
                     </tr>
                     <tr>
                         <td>Distance ≥15%</td>
-                        <td id="steepDist15" data-m="{{ result.very_steep_distance }}"></td>
-                        <td id="steepDist15_2" data-m="{{ result2.very_steep_distance }}"></td>
+                        <td id="steepDist15" data-m="{{ result.very_steep_distance }}">{{ "%.2f"|format(result.very_steep_distance / 1000) }} km</td>
+                        <td id="steepDist15_2" data-m="{{ result2.very_steep_distance }}">{{ "%.2f"|format(result2.very_steep_distance / 1000) }} km</td>
                     </tr>
                 </tbody>
             </table>
@@ -2413,11 +2413,11 @@ HTML_TEMPLATE = """
                 </div>
                 <div class="steep-stat">
                     <span class="steep-label">Distance ≥10%</span>
-                    <span class="steep-value" id="steepDist10" data-m="{{ result.steep_distance }}"></span>
+                    <span class="steep-value" id="steepDist10" data-m="{{ result.steep_distance }}">{{ "%.2f"|format(result.steep_distance / 1000) }} km</span>
                 </div>
                 <div class="steep-stat">
                     <span class="steep-label">Distance ≥15%</span>
-                    <span class="steep-value" id="steepDist15" data-m="{{ result.very_steep_distance }}"></span>
+                    <span class="steep-value" id="steepDist15" data-m="{{ result.very_steep_distance }}">{{ "%.2f"|format(result.very_steep_distance / 1000) }} km</span>
                 </div>
             </div>
             {% endif %}
