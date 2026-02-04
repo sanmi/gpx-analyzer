@@ -47,7 +47,7 @@ DEFAULTS = {
     "hairpin_speed": 18.0,
     "straight_curvature": 0.3,
     "hairpin_curvature": 3.0,
-    "descent_speed_factor": 1.0,
+    "descent_braking_factor": 1.0,
     "drivetrain_efficiency": 0.97,
     "smoothing": 50.0,
     "elevation_scale": 1.0,
@@ -234,10 +234,10 @@ See README.md for detailed parameter descriptions.""",
         help=f"Curvature threshold for hairpin turns in deg/m (default: {DEFAULTS['hairpin_curvature']})",
     )
     parser.add_argument(
-        "--descent-speed-factor",
+        "--descent-braking-factor",
         type=float,
-        default=get_default("descent_speed_factor"),
-        help=f"Multiplier for descent speeds (1.0 = full physics, 0.5 = cautious) (default: {DEFAULTS['descent_speed_factor']})",
+        default=get_default("descent_braking_factor"),
+        help=f"Multiplier for descent speeds (1.0 = full physics, 0.5 = cautious) (default: {DEFAULTS['descent_braking_factor']})",
     )
     parser.add_argument(
         "--drivetrain-efficiency",
@@ -553,7 +553,7 @@ def main(argv: list[str] | None = None) -> None:
         hairpin_speed=args.hairpin_speed / 3.6,
         straight_curvature=args.straight_curvature,
         hairpin_curvature=args.hairpin_curvature,
-        descent_speed_factor=args.descent_speed_factor,
+        descent_braking_factor=args.descent_braking_factor,
         drivetrain_efficiency=args.drivetrain_efficiency,
     )
 

@@ -62,6 +62,7 @@ class TrainingResult:
     trip_max_grade: float | None = None  # Max grade from trip (%)
     verbose_metrics: VerboseMetrics | None = None  # Verbose metrics from trip data (actual)
     estimated_verbose_metrics: VerboseMetrics | None = None  # Verbose metrics from route (estimated)
+    inferred_braking_factor: float | None = None  # actual_braking_score / estimated_braking_score
 
 
 @dataclass
@@ -499,7 +500,7 @@ def analyze_training_route(
             # No API elevation - just smooth
             smoothed = smooth_elevations(route_points, smoothing_radius, elevation_scale)
 
-        # Build params with descent_speed_factor=1.0 to get raw physics predictions
+        # Build params with descent_braking_factor=1.0 to get raw physics predictions
         physics_params = RiderParams(
             total_mass=mass_used,
             cda=params.cda,
@@ -520,17 +521,65 @@ def analyze_training_route(
             hairpin_speed=params.hairpin_speed,
             straight_curvature=params.straight_curvature,
             hairpin_curvature=params.hairpin_curvature,
-            descent_speed_factor=1.0,  # Raw physics, no adjustment
+            descent_braking_factor=1.0,  # Raw physics, no adjustment
             drivetrain_efficiency=params.drivetrain_efficiency,
         )
 
         # Calculate verbose metrics for reporting (no longer used for descent factor inference)
         physics_metrics = _calculate_estimated_verbose_metrics(smoothed, physics_params)
 
-        # Use descent_speed_factor=1.0 - descent behavior is now modeled by
-        # max_descent_speed, descending_power, and curvature-based braking
+        # Calculate unpaved percentage
+        unpaved_pct = route_metadata.get("unpaved_pct", 0) or 0
 
-        # Build final route_params
+        # Calculate max grades
+        trip_max_grade = _calculate_trip_max_grade(trip_points, max_grade_window_trip)
+
+        # Step 1: Calculate verbose metrics with braking_factor=1.0 to infer actual braking behavior
+        # Build physics params (factor=1.0) for braking score calculation
+        physics_params = RiderParams(
+            total_mass=mass_used,
+            cda=params.cda,
+            crr=params.crr,
+            air_density=params.air_density,
+            climbing_power=climbing_power_used,
+            flat_power=flat_power_used,
+            descending_power=descending_power_used,
+            coasting_grade_threshold=params.coasting_grade_threshold,
+            max_coasting_speed=params.max_coasting_speed,
+            max_coasting_speed_unpaved=params.max_coasting_speed_unpaved,
+            max_descent_speed=params.max_descent_speed,
+            headwind=headwind_used,
+            climb_threshold_grade=params.climb_threshold_grade,
+            steep_descent_speed=params.steep_descent_speed,
+            steep_descent_grade=params.steep_descent_grade,
+            straight_descent_speed=params.straight_descent_speed,
+            hairpin_speed=params.hairpin_speed,
+            straight_curvature=params.straight_curvature,
+            hairpin_curvature=params.hairpin_curvature,
+            descent_braking_factor=1.0,  # Pure physics for braking inference
+            drivetrain_efficiency=params.drivetrain_efficiency,
+        )
+
+        # Calculate verbose metrics from trip (actual) and route (estimated with factor=1.0)
+        verbose_metrics = _calculate_verbose_metrics(trip_points, physics_params.max_coasting_speed)
+        estimated_verbose_metrics = _calculate_estimated_verbose_metrics(smoothed, physics_params)
+
+        # Step 2: Infer braking factor from ratio of actual to estimated braking scores
+        # inferred_braking_factor < 1.0 means rider descends slower than physics predicts (more cautious)
+        inferred_braking_factor = None
+        if (verbose_metrics and estimated_verbose_metrics and
+            verbose_metrics.braking_score is not None and
+            estimated_verbose_metrics.braking_score is not None and
+            estimated_verbose_metrics.braking_score > 0):
+            inferred_braking_factor = verbose_metrics.braking_score / estimated_verbose_metrics.braking_score
+            # Clamp to reasonable range [0.3, 1.5]
+            inferred_braking_factor = max(0.3, min(1.5, inferred_braking_factor))
+
+        # Step 3: Build final route_params
+        # Note: We don't apply the inferred braking factor to the model because:
+        # - The physics model already predicts times that are too slow (rider is faster)
+        # - Applying braking factor < 1.0 would make descent predictions even slower
+        # - The inferred factor is kept for reporting purposes only
         route_params = RiderParams(
             total_mass=mass_used,
             cda=params.cda,
@@ -551,13 +600,18 @@ def analyze_training_route(
             hairpin_speed=params.hairpin_speed,
             straight_curvature=params.straight_curvature,
             hairpin_curvature=params.hairpin_curvature,
-            descent_speed_factor=1.0,  # Use physics-based descent model
+            descent_braking_factor=1.0,  # Use physics-based model (inferred factor for reporting only)
             drivetrain_efficiency=params.drivetrain_efficiency,
         )
 
+        # Step 4: Analyze with inferred braking factor
         analysis = analyze(smoothed, route_params)
 
-        # Compare with trip - use physics-based moving_time, not work/power estimate
+        # Calculate hilliness with final params
+        hilliness = calculate_hilliness(smoothed, route_params, route_points, max_grade_window_route, max_grade_smoothing)
+        route_max_grade = hilliness.max_grade
+
+        # Compare with trip - use physics-based moving_time with inferred braking factor
         comparison = compare_route_with_trip(
             smoothed,
             trip_points,
@@ -567,18 +621,6 @@ def analyze_training_route(
             route_elevation_gain=analysis.elevation_gain,
             trip_elevation_gain=trip_elevation_gain,
         )
-
-        # Calculate unpaved percentage
-        unpaved_pct = route_metadata.get("unpaved_pct", 0) or 0
-
-        # Calculate max grades
-        hilliness = calculate_hilliness(smoothed, route_params, route_points, max_grade_window_route, max_grade_smoothing)
-        route_max_grade = hilliness.max_grade
-        trip_max_grade = _calculate_trip_max_grade(trip_points, max_grade_window_trip)
-
-        # Calculate verbose metrics from trip data (actual) and route (estimated)
-        verbose_metrics = _calculate_verbose_metrics(trip_points, route_params.max_coasting_speed)
-        estimated_verbose_metrics = _calculate_estimated_verbose_metrics(smoothed, route_params)
 
         return TrainingResult(
             route=route,
@@ -594,6 +636,7 @@ def analyze_training_route(
             trip_max_grade=trip_max_grade,
             verbose_metrics=verbose_metrics,
             estimated_verbose_metrics=estimated_verbose_metrics,
+            inferred_braking_factor=inferred_braking_factor,
         )
 
     except Exception as e:
@@ -724,12 +767,18 @@ def format_training_summary(
             grade_errors.append(grade_err)
     avg_grade_error = sum(grade_errors) / len(grade_errors) if grade_errors else 0
 
+    # Calculate avg inferred braking factor
+    braking_factors = [r.inferred_braking_factor for r in results if r.inferred_braking_factor is not None]
+    avg_braking_factor = sum(braking_factors) / len(braking_factors) if braking_factors else None
+
     # Error summary
     lines.append("PREDICTION ERRORS (positive = predicted too slow/high)")
     lines.append("-" * 50)
     lines.append(f"  Avg time error:       {summary.avg_time_error_pct:+.1f}%")
     lines.append(f"  Avg work error:       {summary.avg_work_error_pct:+.1f}%")
     lines.append(f"  Avg max grade error:  {avg_grade_error:+.1f}%")
+    if avg_braking_factor is not None:
+        lines.append(f"  Avg braking factor:   {avg_braking_factor:.2f} (1.0 = physics, <1 = cautious, n={len(braking_factors)})")
     lines.append("")
 
     # By terrain type
@@ -757,7 +806,7 @@ def format_training_summary(
         # Verbose mode: same as standard plus power by terrain and braking score
         lines.append("-" * 280)
         lines.append(f"{'':34} {'---------------- Estimated ----------------':^52}{'----------------- Actual -----------------':^52}{'------------------ Diff ------------------':^58}")
-        lines.append(f"{'Route':<22} {'Unpvd':>5} {'Pwr':>4}  {'Dist':>6} {'Elev':>5} {'Time':>4} {'Work':>4} {'Grade':>5} {'Climb':>5} {'Flat':>4} {'Desc':>4} {'Brk':>4}  {'Dist':>6} {'Elev':>5} {'Time':>4} {'Work':>4} {'Grade':>5} {'Climb':>5} {'Flat':>4} {'Desc':>4} {'Brk':>4}  {'Time':>6} {'Work':>6} {'Elev':>6} {'Grade':>6} {'Climb':>6} {'Flat':>6} {'Desc':>6} {'Brk':>6}")
+        lines.append(f"{'Route':<22} {'Unpvd':>5} {'Pwr':>4}  {'Dist':>6} {'Elev':>5} {'Time':>4} {'Work':>4} {'Grade':>5} {'Climb':>5} {'Flat':>4} {'Desc':>4} {'Brk':>4}  {'Dist':>6} {'Elev':>5} {'Time':>4} {'Work':>4} {'Grade':>5} {'Climb':>5} {'Flat':>4} {'Desc':>4} {'Brk':>4}  {'Time':>6} {'Work':>6} {'Elev':>6} {'Grade':>6} {'Climb':>6} {'Flat':>6} {'Desc':>6} {'BrkF':>6}")
         lines.append("-" * 280)
     else:
         # Standard mode
@@ -828,9 +877,10 @@ def format_training_summary(
             else:
                 desc_diff_str = "     -"
 
-            if evm and vm and evm.braking_score and vm.braking_score:
-                brake_diff = (vm.braking_score - evm.braking_score) / evm.braking_score * 100
-                brake_diff_str = f"{brake_diff:>+5.0f}%"
+            # Show inferred braking factor (actual/estimated) instead of percentage
+            # <1.0 means rider descends slower than physics predicts (more braking)
+            if r.inferred_braking_factor is not None:
+                brake_diff_str = f"{r.inferred_braking_factor:>5.2f}x"
             else:
                 brake_diff_str = "     -"
 

@@ -223,19 +223,19 @@ class TestEstimateSpeedFromPower:
         speed = estimate_speed_from_power(math.radians(-15), params)
         assert speed == pytest.approx(6.0)
 
-    def test_descent_speed_factor_scales_descent(self):
-        """descent_speed_factor should scale descent speeds."""
-        params_full = RiderParams(descent_speed_factor=1.0)
-        params_half = RiderParams(descent_speed_factor=0.5)
+    def test_descent_braking_factor_scales_descent(self):
+        """descent_braking_factor should scale descent speeds."""
+        params_full = RiderParams(descent_braking_factor=1.0)
+        params_half = RiderParams(descent_braking_factor=0.5)
         # On descent, factor should scale speed
         descent_full = estimate_speed_from_power(math.radians(-5), params_full)
         descent_half = estimate_speed_from_power(math.radians(-5), params_half)
         assert descent_half == pytest.approx(descent_full * 0.5, rel=0.01)
 
-    def test_descent_speed_factor_no_effect_on_flat(self):
-        """descent_speed_factor should not affect flat or uphill speeds."""
-        params_full = RiderParams(descent_speed_factor=1.0)
-        params_half = RiderParams(descent_speed_factor=0.5)
+    def test_descent_braking_factor_no_effect_on_flat(self):
+        """descent_braking_factor should not affect flat or uphill speeds."""
+        params_full = RiderParams(descent_braking_factor=1.0)
+        params_half = RiderParams(descent_braking_factor=0.5)
         # On flat, factor should have no effect
         flat_full = estimate_speed_from_power(0.0, params_full)
         flat_half = estimate_speed_from_power(0.0, params_half)

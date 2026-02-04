@@ -135,7 +135,7 @@ def estimate_speed_from_power(
     1. Gradient-dependent braking (steep = slower)
     2. Curvature-dependent braking (turns = slower)
     3. Hard cap at max_descent_speed
-    4. descent_speed_factor to model rider caution/preference
+    4. descent_braking_factor to model rider caution/preference
     """
     effective_crr = crr if crr is not None else params.crr
     A = 0.5 * params.air_density * params.cda
@@ -164,8 +164,8 @@ def estimate_speed_from_power(
         v_coast = 0.0
 
     if P <= 0:
-        # Pure coasting descent - apply descent_speed_factor
-        return v_coast * params.descent_speed_factor
+        # Pure coasting descent - apply descent_braking_factor
+        return v_coast * params.descent_braking_factor
 
     # Solve A*(v+w)^2*v + B*v - P = 0 using Newton's method
     v = max(5.0, v_coast)
@@ -184,9 +184,9 @@ def estimate_speed_from_power(
 
     final_speed = min(max(v, v_coast), max_speed)
 
-    # Apply descent_speed_factor on descents (slope_angle < 0)
+    # Apply descent_braking_factor on descents (slope_angle < 0)
     if slope_angle < 0:
-        final_speed *= params.descent_speed_factor
+        final_speed *= params.descent_braking_factor
 
     return final_speed
 
@@ -229,11 +229,11 @@ def calculate_segment_work(
         # Estimate speed from power model
         speed = estimate_speed_from_power(slope_angle, params, segment_crr, point_b.unpaved, point_b.curvature)
         elapsed = distance / speed if speed > 0 else 0.0
-        # For work calculation, use physics speed WITHOUT descent_speed_factor
+        # For work calculation, use physics speed WITHOUT descent_braking_factor
         # This keeps work independent of rider descent preference for calibration
-        if slope_angle < 0 and params.descent_speed_factor != 1.0:
-            # Reverse the descent_speed_factor to get physics-based speed
-            physics_speed = speed / params.descent_speed_factor if params.descent_speed_factor > 0 else speed
+        if slope_angle < 0 and params.descent_braking_factor != 1.0:
+            # Reverse the descent_braking_factor to get physics-based speed
+            physics_speed = speed / params.descent_braking_factor if params.descent_braking_factor > 0 else speed
         else:
             physics_speed = speed
 
@@ -244,7 +244,7 @@ def calculate_segment_work(
     work_rolling = segment_crr * params.total_mass * G * math.cos(slope_angle) * distance
 
     # Aerodynamic drag work (based on physics speed, not preference-adjusted speed)
-    # This keeps work calculation independent of descent_speed_factor for calibration
+    # This keeps work calculation independent of descent_braking_factor for calibration
     airspeed = physics_speed + params.headwind
     work_aero = 0.5 * params.air_density * params.cda * airspeed**2 * distance
 
