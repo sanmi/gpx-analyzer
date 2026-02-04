@@ -322,7 +322,7 @@ class TestVerboseMetrics:
         assert result is not None
         assert result.avg_power_climbing == 225.0  # climbing_power
         assert result.avg_power_flat == 150.0  # flat_power
-        assert result.avg_power_descending == 0.0  # Model assumes coasting
+        assert result.avg_power_descending == params.descending_power  # Light pedaling on descents
 
     def test_flat_power_applied(self):
         """Ensure flat_power is used correctly in calculations."""
@@ -348,7 +348,7 @@ class TestVerboseMetrics:
         # Verify direct power values are used
         assert result.avg_power_climbing == 225.0
         assert result.avg_power_flat == 135.0
-        assert result.avg_power_descending == 0.0
+        assert result.avg_power_descending == params.descending_power  # Light pedaling on descents
 
     def test_actual_verbose_metrics_calculation(self):
         """Test calculation of verbose metrics from trip data."""

@@ -376,7 +376,7 @@ def _calculate_estimated_verbose_metrics(
     return VerboseMetrics(
         avg_power_climbing=climb_power,
         avg_power_flat=flat_power,
-        avg_power_descending=0.0,  # Model assumes coasting on descents
+        avg_power_descending=params.descending_power,  # Light pedaling on gentle descents
         braking_score=braking_score,
         time_climbing_pct=time_climbing_pct,
         time_flat_pct=time_flat_pct,
@@ -755,10 +755,10 @@ def format_training_summary(
 
     if verbose:
         # Verbose mode: same as standard plus power by terrain and braking score
-        lines.append("-" * 250)
-        lines.append(f"{'':34} {'-------------- Estimated --------------':^46}{'--------------- Actual ---------------':^46}{'---------------- Diff ----------------':^52}")
-        lines.append(f"{'Route':<22} {'Unpvd':>5} {'Pwr':>4}  {'Dist':>6} {'Elev':>5} {'Time':>4} {'Work':>4} {'Grade':>5} {'Climb':>5} {'Flat':>4} {'Brk':>4}  {'Dist':>6} {'Elev':>5} {'Time':>4} {'Work':>4} {'Grade':>5} {'Climb':>5} {'Flat':>4} {'Brk':>4}  {'Time':>6} {'Work':>6} {'Elev':>6} {'Grade':>6} {'Climb':>6} {'Flat':>6} {'Brk':>6}")
-        lines.append("-" * 250)
+        lines.append("-" * 280)
+        lines.append(f"{'':34} {'---------------- Estimated ----------------':^52}{'----------------- Actual -----------------':^52}{'------------------ Diff ------------------':^58}")
+        lines.append(f"{'Route':<22} {'Unpvd':>5} {'Pwr':>4}  {'Dist':>6} {'Elev':>5} {'Time':>4} {'Work':>4} {'Grade':>5} {'Climb':>5} {'Flat':>4} {'Desc':>4} {'Brk':>4}  {'Dist':>6} {'Elev':>5} {'Time':>4} {'Work':>4} {'Grade':>5} {'Climb':>5} {'Flat':>4} {'Desc':>4} {'Brk':>4}  {'Time':>6} {'Work':>6} {'Elev':>6} {'Grade':>6} {'Climb':>6} {'Flat':>6} {'Desc':>6} {'Brk':>6}")
+        lines.append("-" * 280)
     else:
         # Standard mode
         lines.append("-" * 164)
@@ -800,11 +800,13 @@ def format_training_summary(
             # Estimated power values (shorter format to fit)
             est_pwr_climb = f"{evm.avg_power_climbing:>4.0f}" if evm and evm.avg_power_climbing else "   -"
             est_pwr_flat = f"{evm.avg_power_flat:>3.0f}" if evm and evm.avg_power_flat else "  -"
+            est_pwr_desc = f"{evm.avg_power_descending:>3.0f}" if evm and evm.avg_power_descending is not None else "  -"
             est_brake = f"{evm.braking_score:>4.2f}" if evm and evm.braking_score else "   -"
 
             # Actual power values
             act_pwr_climb = f"{vm.avg_power_climbing:>4.0f}" if vm and vm.avg_power_climbing else "   -"
             act_pwr_flat = f"{vm.avg_power_flat:>3.0f}" if vm and vm.avg_power_flat else "  -"
+            act_pwr_desc = f"{vm.avg_power_descending:>3.0f}" if vm and vm.avg_power_descending is not None else "  -"
             act_brake = f"{vm.braking_score:>4.2f}" if vm and vm.braking_score else "   -"
 
             # Diff for verbose metrics (actual - estimated, as percentage)
@@ -820,6 +822,12 @@ def format_training_summary(
             else:
                 flat_diff_str = "     -"
 
+            if evm and vm and evm.avg_power_descending is not None and vm.avg_power_descending is not None and evm.avg_power_descending > 0:
+                desc_diff = (vm.avg_power_descending - evm.avg_power_descending) / evm.avg_power_descending * 100
+                desc_diff_str = f"{desc_diff:>+5.0f}%"
+            else:
+                desc_diff_str = "     -"
+
             if evm and vm and evm.braking_score and vm.braking_score:
                 brake_diff = (vm.braking_score - evm.braking_score) / evm.braking_score * 100
                 brake_diff_str = f"{brake_diff:>+5.0f}%"
@@ -828,9 +836,9 @@ def format_training_summary(
 
             lines.append(
                 f"{name:<22} {r.unpaved_pct:>4.0f}% {r.power_used:>3.0f}W "
-                f" {est_dist:>5.0f}{dist_suffix} {est_elev:>4.0f}{elev_suffix} {est_time:>4.1f}h {est_work:>4.0f}k {est_max_grade:>4.1f}% {est_pwr_climb}W {est_pwr_flat}W {est_brake} "
-                f" {act_dist:>5.0f}{dist_suffix} {act_elev:>4.0f}{elev_suffix} {act_time:>4.1f}h {act_work:>4.0f}k {act_max_grade:>4.1f}% {act_pwr_climb}W {act_pwr_flat}W {act_brake} "
-                f" {time_diff:>+5.1f}% {work_diff:>+5.1f}% {elev_diff:>+5.1f}% {grade_diff:>+5.1f}% {climb_diff_str} {flat_diff_str} {brake_diff_str}"
+                f" {est_dist:>5.0f}{dist_suffix} {est_elev:>4.0f}{elev_suffix} {est_time:>4.1f}h {est_work:>4.0f}k {est_max_grade:>4.1f}% {est_pwr_climb}W {est_pwr_flat}W {est_pwr_desc}W {est_brake} "
+                f" {act_dist:>5.0f}{dist_suffix} {act_elev:>4.0f}{elev_suffix} {act_time:>4.1f}h {act_work:>4.0f}k {act_max_grade:>4.1f}% {act_pwr_climb}W {act_pwr_flat}W {act_pwr_desc}W {act_brake} "
+                f" {time_diff:>+5.1f}% {work_diff:>+5.1f}% {elev_diff:>+5.1f}% {grade_diff:>+5.1f}% {climb_diff_str} {flat_diff_str} {desc_diff_str} {brake_diff_str}"
             )
         else:
             lines.append(
