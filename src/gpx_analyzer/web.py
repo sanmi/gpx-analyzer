@@ -3499,12 +3499,19 @@ HTML_TEMPLATE = """
                 }
                 const distKm = distM / 1000;
 
-                // Elevation gain/loss
+                // Elevation gain/loss - use pre-computed arrays to survive downsampling
                 let elevGain = 0, elevLoss = 0;
-                for (let k = i; k <= j; k++) {
-                    const diff = (d.elevations[k + 1] || d.elevations[k]) - d.elevations[k];
-                    if (diff > 0) elevGain += diff;
-                    else elevLoss += diff;
+                if (d.elev_gains && d.elev_losses) {
+                    for (let k = i; k <= j; k++) {
+                        elevGain += (d.elev_gains[k] || 0);
+                        elevLoss += (d.elev_losses[k] || 0);
+                    }
+                } else {
+                    for (let k = i; k <= j; k++) {
+                        const diff = (d.elevations[k + 1] !== undefined ? d.elevations[k + 1] : d.elevations[k]) - d.elevations[k];
+                        if (diff > 0) elevGain += diff;
+                        else elevLoss += diff;
+                    }
                 }
 
                 // Avg grade
@@ -4490,15 +4497,22 @@ def _calculate_elevation_profile_data(url: str, params: RiderParams) -> dict:
     speeds_ms = []
     segment_distances = []
     segment_powers = []
+    segment_elev_gains = []
+    segment_elev_losses = []
 
     for i in range(1, len(points)):
         work, dist, elapsed = calculate_segment_work(points[i-1], points[i], params)
         cum_time.append(cum_time[-1] + elapsed)
         cum_dist.append(cum_dist[-1] + dist)
-        elevations.append(points[i].elevation or elevations[-1])
+        prev_elev = elevations[-1]
+        curr_elev = points[i].elevation or prev_elev
+        elevations.append(curr_elev)
         speeds_ms.append(dist / elapsed if elapsed > 0 else 0.0)
         segment_distances.append(dist)
         segment_powers.append(work / elapsed if elapsed > 0 else 0.0)
+        delta = curr_elev - prev_elev
+        segment_elev_gains.append(delta if delta > 0 else 0.0)
+        segment_elev_losses.append(delta if delta < 0 else 0.0)
 
     # Convert to hours
     times_hours = [t / 3600 for t in cum_time]
@@ -4525,6 +4539,8 @@ def _calculate_elevation_profile_data(url: str, params: RiderParams) -> dict:
         "speeds_kmh": speeds_kmh,
         "distances": segment_distances,
         "powers": segment_powers,
+        "elev_gains": segment_elev_gains,
+        "elev_losses": segment_elev_losses,
         "route_name": route_name,
         "tunnel_time_ranges": tunnel_time_ranges,
     }
@@ -4635,6 +4651,14 @@ def _calculate_trip_elevation_profile_data(url: str, collapse_stops: bool = Fals
             times_hours.append(hours)
             elevations.append(sp.elevation or 0.0)
 
+    # Pre-compute per-segment elevation gains and losses from the smoothed elevations
+    segment_elev_gains = []
+    segment_elev_losses = []
+    for i in range(len(elevations) - 1):
+        delta = elevations[i + 1] - elevations[i]
+        segment_elev_gains.append(delta if delta > 0 else 0.0)
+        segment_elev_losses.append(delta if delta < 0 else 0.0)
+
     grades = rolling_grades if rolling_grades else [0.0] * (len(trip_points) - 1)
 
     # Mark stopped segments with None grade (for visual indication)
@@ -4661,6 +4685,8 @@ def _calculate_trip_elevation_profile_data(url: str, collapse_stops: bool = Fals
         "speeds_kmh": speeds_kmh,
         "distances": segment_distances,
         "powers": segment_powers,
+        "elev_gains": segment_elev_gains,
+        "elev_losses": segment_elev_losses,
         "route_name": trip_name,
         "tunnel_time_ranges": tunnel_time_ranges,
         "is_collapsed": collapse_stops,
@@ -4998,6 +5024,8 @@ def elevation_profile_data():
         speeds = data.get("speeds_kmh", [])
         distances = data.get("distances", [])
         powers = data.get("powers", [])
+        elev_gains = data.get("elev_gains", [])
+        elev_losses = data.get("elev_losses", [])
 
         if len(times) > max_points:
             step = len(times) // max_points
@@ -5013,6 +5041,10 @@ def elevation_profile_data():
                     valid = [p for p in chunk if p is not None]
                     return sum(valid) / len(valid) if valid else None
                 powers = [_avg_power(powers[i:i+step]) for i in range(0, len(powers), step)]
+            if elev_gains:
+                elev_gains = [sum(elev_gains[i:i+step]) for i in range(0, len(elev_gains), step)]
+            if elev_losses:
+                elev_losses = [sum(elev_losses[i:i+step]) for i in range(0, len(elev_losses), step)]
 
         result = {
             "times": times,
@@ -5026,6 +5058,10 @@ def elevation_profile_data():
             result["distances"] = distances
         if powers and any(p is not None for p in powers):
             result["powers"] = powers
+        if elev_gains:
+            result["elev_gains"] = elev_gains
+        if elev_losses:
+            result["elev_losses"] = elev_losses
         return jsonify(result)
     except Exception as e:
         return jsonify({"error": str(e)}), 500
