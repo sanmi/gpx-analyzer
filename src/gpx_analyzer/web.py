@@ -609,6 +609,56 @@ HTML_TEMPLATE = """
         .elevation-cursor.visible {
             opacity: 1;
         }
+        .elevation-selection {
+            position: absolute;
+            top: 0;
+            bottom: 0;
+            background: rgba(59, 130, 246, 0.2);
+            border-left: 2px solid rgba(59, 130, 246, 0.6);
+            border-right: 2px solid rgba(59, 130, 246, 0.6);
+            pointer-events: none;
+            opacity: 0;
+            z-index: 50;
+        }
+        .elevation-selection.visible {
+            opacity: 1;
+        }
+        .elevation-selection-popup {
+            position: absolute;
+            background: rgba(0, 0, 0, 0.9);
+            color: white;
+            padding: 10px 14px;
+            border-radius: 6px;
+            font-size: 12px;
+            z-index: 200;
+            white-space: nowrap;
+            transform: translateX(-50%);
+            pointer-events: auto;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+        }
+        .elevation-selection-popup .selection-close {
+            position: absolute;
+            top: 2px;
+            right: 6px;
+            cursor: pointer;
+            color: #888;
+            font-size: 14px;
+            line-height: 1;
+        }
+        .elevation-selection-popup .selection-close:hover {
+            color: white;
+        }
+        .elevation-selection-popup .selection-stat {
+            display: flex;
+            justify-content: space-between;
+            gap: 12px;
+        }
+        .elevation-selection-popup .stat-label {
+            color: #aaa;
+        }
+        .elevation-selection-popup .stat-value {
+            font-weight: bold;
+        }
         .elevation-loading {
             display: flex;
             align-items: center;
@@ -3155,6 +3205,8 @@ HTML_TEMPLATE = """
                         <div class="grade">--</div>
                         <div class="elev">--</div>
                     </div>
+                    <div class="elevation-selection" id="elevationSelection1"></div>
+                    <div class="elevation-selection-popup" id="elevationSelectionPopup1" style="display: none;"></div>
                 </div>
             </div>
             {% if result2.tunnels_corrected > 0 %}
@@ -3193,6 +3245,8 @@ HTML_TEMPLATE = """
                         <div class="grade">--</div>
                         <div class="elev">--</div>
                     </div>
+                    <div class="elevation-selection" id="elevationSelection2"></div>
+                    <div class="elevation-selection-popup" id="elevationSelectionPopup2" style="display: none;"></div>
                 </div>
             </div>
         </div>
@@ -3229,6 +3283,8 @@ HTML_TEMPLATE = """
                     <div class="grade">--</div>
                     <div class="elev">--</div>
                 </div>
+                <div class="elevation-selection" id="elevationSelection"></div>
+                <div class="elevation-selection-popup" id="elevationSelectionPopup" style="display: none;"></div>
             </div>
         </div>
         {% endif %}
@@ -3292,8 +3348,18 @@ HTML_TEMPLATE = """
             const cursor = document.getElementById(cursorId);
             if (!container || !img || !tooltip || !cursor) return;
 
+            // Derive selection element IDs from container suffix
+            const suffix = containerId.replace('elevationContainer', '');
+            const selection = document.getElementById('elevationSelection' + suffix);
+            const selectionPopup = document.getElementById('elevationSelectionPopup' + suffix);
+
             let profileData = null;
             let xlimHours = maxXlimHours || null;
+
+            // Selection state
+            let selectionStart = null;  // xPct where drag started
+            let isSelecting = false;
+            let selectionActive = false;
 
             // Fetch profile data
             fetch(dataUrl)
@@ -3301,17 +3367,16 @@ HTML_TEMPLATE = """
                 .then(data => {
                     if (!data.error) {
                         profileData = data;
-                        // Use max_xlim_hours if provided, otherwise use data's total time
                         if (!xlimHours) xlimHours = profileData.total_time;
                     }
                 })
                 .catch(() => {});
 
-            // The plot area margins depend on whether a right-axis overlay is active
-            const plotLeftPct = 0.10;
+            // The plot area margins match tight_layout() output for figsize=(14,4)
+            const plotLeftPct = 0.055;
             var speedCheckbox = document.getElementById('overlay_speed');
             const hasOverlay = speedCheckbox && speedCheckbox.checked;
-            const plotRightPct = hasOverlay ? 0.90 : 0.98;
+            const plotRightPct = hasOverlay ? 0.955 : 0.987;
 
             function getDataAtPosition(xPct) {
                 if (!profileData || !profileData.times || profileData.times.length < 2) return null;
@@ -3319,16 +3384,13 @@ HTML_TEMPLATE = """
                 const plotXPct = (xPct - plotLeftPct) / (plotRightPct - plotLeftPct);
                 if (plotXPct < 0 || plotXPct > 1) return null;
 
-                // Use xlimHours for x-axis range (may be larger than data's total_time)
                 const time = plotXPct * (xlimHours || profileData.total_time);
-
-                // If time is beyond the actual data, return null (no data there)
                 if (time > profileData.total_time) return null;
 
                 for (let i = 0; i < profileData.times.length - 1; i++) {
                     if (time >= profileData.times[i] && time < profileData.times[i + 1]) {
                         return {
-                            grade: profileData.grades[i],  // Keep null for stopped segments
+                            grade: profileData.grades[i],
                             elevation: profileData.elevations[i] || 0,
                             speed: profileData.speeds ? profileData.speeds[i] : null,
                             time: time
@@ -3344,10 +3406,19 @@ HTML_TEMPLATE = """
                 };
             }
 
-            function formatGrade(g) {
-                if (g === null || g === undefined) {
-                    return 'Stopped';
+            function getIndexAtPosition(xPct) {
+                if (!profileData || !profileData.times || profileData.times.length < 2) return -1;
+                // Clamp to plot boundaries so extremities still work
+                const plotXPct = Math.max(0, Math.min(1, (xPct - plotLeftPct) / (plotRightPct - plotLeftPct)));
+                const time = Math.min(plotXPct * (xlimHours || profileData.total_time), profileData.total_time);
+                for (let i = 0; i < profileData.times.length - 1; i++) {
+                    if (time >= profileData.times[i] && time < profileData.times[i + 1]) return i;
                 }
+                return profileData.times.length - 2;
+            }
+
+            function formatGrade(g) {
+                if (g === null || g === undefined) return 'Stopped';
                 const sign = g >= 0 ? '+' : '';
                 return sign + g.toFixed(1) + '%';
             }
@@ -3358,21 +3429,17 @@ HTML_TEMPLATE = """
                 return h + 'h ' + m.toString().padStart(2, '0') + 'm';
             }
 
-            function handleMove(e) {
-                if (!profileData) return;
+            function formatDuration(hours) {
+                const totalMin = Math.round(hours * 60);
+                if (totalMin < 60) return totalMin + 'min';
+                const h = Math.floor(totalMin / 60);
+                const m = totalMin % 60;
+                return h + 'h ' + m.toString().padStart(2, '0') + 'm';
+            }
 
-                const rect = img.getBoundingClientRect();
-                let clientX;
-
-                if (e.touches) {
-                    clientX = e.touches[0].clientX;
-                } else {
-                    clientX = e.clientX;
-                }
-
-                const xPct = (clientX - rect.left) / rect.width;
+            // Tooltip helpers
+            function updateTooltip(xPct, clientX) {
                 const data = getDataAtPosition(xPct);
-
                 if (data) {
                     tooltip.querySelector('.grade').textContent = formatGrade(data.grade);
                     const elevUnit = isImperial() ? 'ft' : 'm';
@@ -3385,22 +3452,272 @@ HTML_TEMPLATE = """
                     }
                     tooltip.querySelector('.elev').textContent = Math.round(elevVal) + ' ' + elevUnit + speedText + ' | ' + formatTime(data.time);
 
+                    const rect = img.getBoundingClientRect();
                     const xPos = clientX - rect.left;
                     tooltip.style.left = xPos + 'px';
                     tooltip.style.bottom = '60px';
                     tooltip.classList.add('visible');
-
                     cursor.style.left = xPos + 'px';
                     cursor.classList.add('visible');
                 } else {
-                    tooltip.classList.remove('visible');
-                    cursor.classList.remove('visible');
+                    hideTooltip();
                 }
             }
 
-            function handleLeave() {
+            function hideTooltip() {
                 tooltip.classList.remove('visible');
                 cursor.classList.remove('visible');
+            }
+
+            // Selection helpers
+            function updateSelectionHighlight(startXPct, endXPct) {
+                if (!selection) return;
+                // Clamp to plot area so highlight doesn't extend into axis margins
+                const clampedStart = Math.max(plotLeftPct, Math.min(plotRightPct, startXPct));
+                const clampedEnd = Math.max(plotLeftPct, Math.min(plotRightPct, endXPct));
+                const left = Math.min(clampedStart, clampedEnd) * 100;
+                const right = Math.max(clampedStart, clampedEnd) * 100;
+                selection.style.left = left + '%';
+                selection.style.width = (right - left) + '%';
+                selection.classList.add('visible');
+            }
+
+            function computeSelectionStats(startIdx, endIdx) {
+                if (!profileData) return null;
+                const d = profileData;
+                const i = Math.min(startIdx, endIdx);
+                const j = Math.max(startIdx, endIdx);
+                if (i < 0 || j >= d.times.length) return null;
+
+                // Duration (hours)
+                const duration = d.times[j + 1 < d.times.length ? j + 1 : j] - d.times[i];
+
+                // Distance (meters -> km)
+                let distM = 0;
+                if (d.distances) {
+                    for (let k = i; k <= j; k++) distM += (d.distances[k] || 0);
+                }
+                const distKm = distM / 1000;
+
+                // Elevation gain/loss
+                let elevGain = 0, elevLoss = 0;
+                for (let k = i; k <= j; k++) {
+                    const diff = (d.elevations[k + 1] || d.elevations[k]) - d.elevations[k];
+                    if (diff > 0) elevGain += diff;
+                    else elevLoss += diff;
+                }
+
+                // Avg grade
+                let gradeSum = 0, gradeCount = 0;
+                for (let k = i; k <= j; k++) {
+                    if (d.grades[k] !== null && d.grades[k] !== undefined) {
+                        gradeSum += d.grades[k];
+                        gradeCount++;
+                    }
+                }
+                const avgGrade = gradeCount > 0 ? gradeSum / gradeCount : null;
+
+                // Avg speed (km/h)
+                let speedSum = 0, speedCount = 0;
+                if (d.speeds) {
+                    for (let k = i; k <= j; k++) {
+                        if (d.speeds[k] !== null && d.speeds[k] !== undefined) {
+                            speedSum += d.speeds[k];
+                            speedCount++;
+                        }
+                    }
+                }
+                const avgSpeed = speedCount > 0 ? speedSum / speedCount : null;
+
+                // Avg power and total work
+                let powerSum = 0, powerCount = 0, workJ = 0;
+                if (d.powers) {
+                    for (let k = i; k <= j; k++) {
+                        if (d.powers[k] !== null && d.powers[k] !== undefined) {
+                            powerSum += d.powers[k];
+                            powerCount++;
+                            // Work = power * time_delta (seconds)
+                            const dt = ((d.times[k + 1 < d.times.length ? k + 1 : k] - d.times[k]) * 3600);
+                            workJ += d.powers[k] * dt;
+                        }
+                    }
+                }
+                const avgPower = powerCount > 0 ? powerSum / powerCount : null;
+                const workKJ = workJ / 1000;
+
+                return { duration, distKm, elevGain, elevLoss, avgGrade, avgSpeed, avgPower, workKJ };
+            }
+
+            function showSelectionPopup(stats, xPctCenter) {
+                if (!selectionPopup || !stats) return;
+                const imp = isImperial();
+                const distVal = imp ? (stats.distKm * 0.621371) : stats.distKm;
+                const distUnit = imp ? 'mi' : 'km';
+                const elevGainVal = imp ? (stats.elevGain * 3.28084) : stats.elevGain;
+                const elevLossVal = imp ? (stats.elevLoss * 3.28084) : stats.elevLoss;
+                const elevUnit = imp ? 'ft' : 'm';
+                const speedVal = stats.avgSpeed !== null ? (imp ? stats.avgSpeed * 0.621371 : stats.avgSpeed) : null;
+                const speedUnit = imp ? 'mph' : 'km/h';
+
+                let html = '<span class="selection-close">&times;</span>';
+                html += '<div class="selection-stat"><span class="stat-label">Duration</span><span class="stat-value">' + formatDuration(stats.duration) + '</span></div>';
+                html += '<div class="selection-stat"><span class="stat-label">Distance</span><span class="stat-value">' + distVal.toFixed(1) + ' ' + distUnit + '</span></div>';
+                html += '<div class="selection-stat"><span class="stat-label">Elev Gain</span><span class="stat-value">+' + Math.round(elevGainVal) + ' ' + elevUnit + '</span></div>';
+                html += '<div class="selection-stat"><span class="stat-label">Elev Loss</span><span class="stat-value">' + Math.round(elevLossVal) + ' ' + elevUnit + '</span></div>';
+                if (stats.avgGrade !== null) {
+                    html += '<div class="selection-stat"><span class="stat-label">Avg Grade</span><span class="stat-value">' + formatGrade(stats.avgGrade) + '</span></div>';
+                }
+                if (speedVal !== null) {
+                    html += '<div class="selection-stat"><span class="stat-label">Avg Speed</span><span class="stat-value">' + speedVal.toFixed(1) + ' ' + speedUnit + '</span></div>';
+                }
+                if (stats.avgPower !== null) {
+                    html += '<div class="selection-stat"><span class="stat-label">Avg Power</span><span class="stat-value">' + Math.round(stats.avgPower) + ' W</span></div>';
+                    html += '<div class="selection-stat"><span class="stat-label">Work</span><span class="stat-value">' + stats.workKJ.toFixed(1) + ' kJ</span></div>';
+                }
+
+                selectionPopup.innerHTML = html;
+                selectionPopup.style.display = 'block';
+                selectionPopup.style.left = (xPctCenter * 100) + '%';
+                selectionPopup.style.bottom = '70px';
+                selectionActive = true;
+
+                // Close button handler
+                var closeBtn = selectionPopup.querySelector('.selection-close');
+                if (closeBtn) {
+                    closeBtn.addEventListener('click', function(ev) {
+                        ev.stopPropagation();
+                        clearSelection();
+                    });
+                }
+            }
+
+            function clearSelection() {
+                if (selection) selection.classList.remove('visible');
+                if (selectionPopup) { selectionPopup.style.display = 'none'; selectionPopup.innerHTML = ''; }
+                selectionStart = null;
+                isSelecting = false;
+                selectionActive = false;
+            }
+
+            // Event handlers
+            function onMouseMove(e) {
+                if (!profileData) return;
+                const rect = img.getBoundingClientRect();
+                const xPct = (e.clientX - rect.left) / rect.width;
+
+                if (isSelecting) {
+                    updateSelectionHighlight(selectionStart, xPct);
+                    updateTooltip(xPct, e.clientX);
+                } else if (!selectionActive) {
+                    updateTooltip(xPct, e.clientX);
+                }
+            }
+
+            function onMouseDown(e) {
+                if (!profileData) return;
+                // If popup is showing and click is outside popup, clear it
+                if (selectionActive) {
+                    clearSelection();
+                    return;
+                }
+                const rect = img.getBoundingClientRect();
+                selectionStart = (e.clientX - rect.left) / rect.width;
+                isSelecting = true;
+                e.preventDefault();
+            }
+
+            function onMouseUp(e) {
+                if (!isSelecting) return;
+                isSelecting = false;
+                const rect = img.getBoundingClientRect();
+                const xPctEnd = (e.clientX - rect.left) / rect.width;
+                const dragPx = Math.abs(e.clientX - rect.left - selectionStart * rect.width);
+
+                if (dragPx > 5) {
+                    const startIdx = getIndexAtPosition(selectionStart);
+                    const endIdx = getIndexAtPosition(xPctEnd);
+                    if (startIdx >= 0 && endIdx >= 0 && startIdx !== endIdx) {
+                        const stats = computeSelectionStats(startIdx, endIdx);
+                        const centerXPct = (selectionStart + xPctEnd) / 2;
+                        hideTooltip();
+                        showSelectionPopup(stats, centerXPct);
+                    } else {
+                        clearSelection();
+                    }
+                } else {
+                    clearSelection();
+                }
+            }
+
+            function onMouseLeave(e) {
+                if (isSelecting) {
+                    // Finish selection on leave
+                    onMouseUp(e);
+                }
+                hideTooltip();
+            }
+
+            // Touch handlers
+            function onTouchStart(e) {
+                if (!profileData) return;
+                if (selectionActive) {
+                    clearSelection();
+                    return;
+                }
+                const rect = img.getBoundingClientRect();
+                const touch = e.touches[0];
+                selectionStart = (touch.clientX - rect.left) / rect.width;
+                isSelecting = true;
+            }
+
+            function onTouchMove(e) {
+                e.preventDefault();
+                if (!profileData) return;
+                const rect = img.getBoundingClientRect();
+                const touch = e.touches[0];
+                const xPct = (touch.clientX - rect.left) / rect.width;
+
+                if (isSelecting) {
+                    updateSelectionHighlight(selectionStart, xPct);
+                    updateTooltip(xPct, touch.clientX);
+                } else if (!selectionActive) {
+                    updateTooltip(xPct, touch.clientX);
+                }
+            }
+
+            function onTouchEnd(e) {
+                if (!isSelecting) {
+                    hideTooltip();
+                    return;
+                }
+                isSelecting = false;
+                // Use last known position from the selection highlight
+                if (!selection) { hideTooltip(); return; }
+                const rect = img.getBoundingClientRect();
+                const selLeft = parseFloat(selection.style.left) / 100;
+                const selWidth = parseFloat(selection.style.width) / 100;
+                const xPctEnd = selLeft + selWidth;
+                const dragPx = selWidth * rect.width;
+
+                if (dragPx > 30) {
+                    const startIdx = getIndexAtPosition(selLeft);
+                    const endIdx = getIndexAtPosition(xPctEnd);
+                    if (startIdx >= 0 && endIdx >= 0 && startIdx !== endIdx) {
+                        const stats = computeSelectionStats(startIdx, endIdx);
+                        const centerXPct = selLeft + selWidth / 2;
+                        hideTooltip();
+                        showSelectionPopup(stats, centerXPct);
+                    } else {
+                        clearSelection();
+                    }
+                } else {
+                    clearSelection();
+                }
+                hideTooltip();
+            }
+
+            function onKeyDown(e) {
+                if (e.key === 'Escape') clearSelection();
             }
 
             // Clean up old listeners if this profile was previously set up
@@ -3409,13 +3726,14 @@ HTML_TEMPLATE = """
             }
 
             var abortController = new AbortController();
-            container.addEventListener('mousemove', handleMove, { signal: abortController.signal });
-            container.addEventListener('mouseleave', handleLeave, { signal: abortController.signal });
-            container.addEventListener('touchmove', function(e) {
-                e.preventDefault();
-                handleMove(e);
-            }, { passive: false, signal: abortController.signal });
-            container.addEventListener('touchend', handleLeave, { signal: abortController.signal });
+            container.addEventListener('mousemove', onMouseMove, { signal: abortController.signal });
+            container.addEventListener('mousedown', onMouseDown, { signal: abortController.signal });
+            container.addEventListener('mouseup', onMouseUp, { signal: abortController.signal });
+            container.addEventListener('mouseleave', onMouseLeave, { signal: abortController.signal });
+            container.addEventListener('touchstart', onTouchStart, { signal: abortController.signal });
+            container.addEventListener('touchmove', onTouchMove, { passive: false, signal: abortController.signal });
+            container.addEventListener('touchend', onTouchEnd, { signal: abortController.signal });
+            document.addEventListener('keydown', onKeyDown, { signal: abortController.signal });
 
             container._profileCleanup = function() {
                 abortController.abort();
@@ -4170,13 +4488,17 @@ def _calculate_elevation_profile_data(url: str, params: RiderParams) -> dict:
     cum_dist = [0.0]
     elevations = [points[0].elevation or 0.0]
     speeds_ms = []
+    segment_distances = []
+    segment_powers = []
 
     for i in range(1, len(points)):
-        _, dist, elapsed = calculate_segment_work(points[i-1], points[i], params)
+        work, dist, elapsed = calculate_segment_work(points[i-1], points[i], params)
         cum_time.append(cum_time[-1] + elapsed)
         cum_dist.append(cum_dist[-1] + dist)
         elevations.append(points[i].elevation or elevations[-1])
         speeds_ms.append(dist / elapsed if elapsed > 0 else 0.0)
+        segment_distances.append(dist)
+        segment_powers.append(work / elapsed if elapsed > 0 else 0.0)
 
     # Convert to hours
     times_hours = [t / 3600 for t in cum_time]
@@ -4201,6 +4523,8 @@ def _calculate_elevation_profile_data(url: str, params: RiderParams) -> dict:
         "elevations": elevations,
         "grades": grades,
         "speeds_kmh": speeds_kmh,
+        "distances": segment_distances,
+        "powers": segment_powers,
         "route_name": route_name,
         "tunnel_time_ranges": tunnel_time_ranges,
     }
@@ -4260,13 +4584,18 @@ def _calculate_trip_elevation_profile_data(url: str, collapse_stops: bool = Fals
     STOPPED_SPEED_THRESHOLD = 2.0  # km/h
     STOPPED_SPEED_MS = STOPPED_SPEED_THRESHOLD / 3.6  # m/s
 
-    # Calculate segment speeds and cumulative distances
+    # Calculate segment speeds, distances, and powers
     segment_speeds = []  # speed in m/s for each segment
+    segment_distances = []  # distance in meters for each segment
+    segment_powers = []  # power in watts for each segment
     cum_dist = [0.0]
     for i in range(len(trip_points) - 1):
         tp0, tp1 = trip_points[i], trip_points[i + 1]
         dist = haversine_distance(tp0.lat, tp0.lon, tp1.lat, tp1.lon)
         cum_dist.append(cum_dist[-1] + dist)
+        segment_distances.append(dist)
+        # Use recorded power from trip point if available
+        segment_powers.append(tp1.power if tp1.power is not None else (tp0.power if tp0.power is not None else None))
         if tp0.timestamp is not None and tp1.timestamp is not None:
             time_delta = tp1.timestamp - tp0.timestamp
             if time_delta > 0:
@@ -4330,6 +4659,8 @@ def _calculate_trip_elevation_profile_data(url: str, collapse_stops: bool = Fals
         "elevations": elevations,
         "grades": grades,
         "speeds_kmh": speeds_kmh,
+        "distances": segment_distances,
+        "powers": segment_powers,
         "route_name": trip_name,
         "tunnel_time_ranges": tunnel_time_ranges,
         "is_collapsed": collapse_stops,
@@ -4451,7 +4782,7 @@ def generate_elevation_profile(url: str, params: RiderParams, title_time_hours: 
     plt.tight_layout()
 
     buf = io.BytesIO()
-    fig.savefig(buf, format='png', dpi=100, bbox_inches='tight',
+    fig.savefig(buf, format='png', dpi=100,
                 facecolor='white', edgecolor='none')
     plt.close(fig)
     buf.seek(0)
@@ -4562,7 +4893,7 @@ def generate_trip_elevation_profile(url: str, title_time_hours: float | None = N
     plt.tight_layout()
 
     buf = io.BytesIO()
-    fig.savefig(buf, format='png', dpi=100, bbox_inches='tight',
+    fig.savefig(buf, format='png', dpi=100,
                 facecolor='white', edgecolor='none')
     plt.close(fig)
     buf.seek(0)
@@ -4665,6 +4996,8 @@ def elevation_profile_data():
         elevations = data["elevations"]
         grades = data["grades"]
         speeds = data.get("speeds_kmh", [])
+        distances = data.get("distances", [])
+        powers = data.get("powers", [])
 
         if len(times) > max_points:
             step = len(times) // max_points
@@ -4673,6 +5006,13 @@ def elevation_profile_data():
             grades = grades[::step]
             if speeds:
                 speeds = speeds[::step]
+            if distances:
+                distances = [sum(distances[i:i+step]) for i in range(0, len(distances), step)]
+            if powers:
+                def _avg_power(chunk):
+                    valid = [p for p in chunk if p is not None]
+                    return sum(valid) / len(valid) if valid else None
+                powers = [_avg_power(powers[i:i+step]) for i in range(0, len(powers), step)]
 
         result = {
             "times": times,
@@ -4682,6 +5022,10 @@ def elevation_profile_data():
         }
         if speeds:
             result["speeds"] = speeds
+        if distances:
+            result["distances"] = distances
+        if powers and any(p is not None for p in powers):
+            result["powers"] = powers
         return jsonify(result)
     except Exception as e:
         return jsonify({"error": str(e)}), 500
