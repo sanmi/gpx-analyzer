@@ -11,7 +11,7 @@ def effective_power(slope_angle: float, params: RiderParams) -> float:
 
     Models how riders modulate power based on terrain:
     - Steep descents (beyond coasting threshold): zero power (coasting/braking)
-    - Gentle descents (threshold to 0): linearly ramps from 0 to flat power
+    - Gentle descents (threshold to 0): descending_power (light pedaling)
     - Flat (0 degrees): flat_power
     - Climbs (0 to climb threshold): linearly increases from flat power to climbing power
     - Steep climbs (beyond climb threshold): plateau at climbing_power
@@ -20,16 +20,15 @@ def effective_power(slope_angle: float, params: RiderParams) -> float:
     climb_threshold_rad = math.radians(params.climb_threshold_grade)
     flat_power = params.flat_power
     climbing_power = params.climbing_power
+    descending_power = params.descending_power
 
     # Steep descent: coasting/braking
     if slope_angle <= coasting_threshold_rad:
         return 0.0
 
-    # Gentle descent: ramp from 0 to flat power
+    # Gentle descent: use descending_power (light pedaling)
     if slope_angle < 0:
-        # Linear interpolation: 0 at coasting threshold, flat power at 0
-        fraction = slope_angle / coasting_threshold_rad  # 1 at threshold, 0 at flat
-        return flat_power * (1.0 - fraction)
+        return descending_power
 
     # Steep climb: plateau at max climbing power
     if slope_angle >= climb_threshold_rad:
@@ -132,8 +131,11 @@ def estimate_speed_from_power(
     and P_eff is the effective power adjusted for downhill coasting.
     Headwind is positive when riding into the wind.
 
-    On descents, speed is limited by gradient and curvature-dependent braking,
-    then scaled by descent_speed_factor to model rider caution/preference.
+    On descents, speed is limited by:
+    1. Gradient-dependent braking (steep = slower)
+    2. Curvature-dependent braking (turns = slower)
+    3. Hard cap at max_descent_speed
+    4. descent_speed_factor to model rider caution/preference
     """
     effective_crr = crr if crr is not None else params.crr
     A = 0.5 * params.air_density * params.cda
@@ -143,6 +145,15 @@ def estimate_speed_from_power(
     # Power at wheel after drivetrain losses
     P = effective_power(slope_angle, params) * params.drivetrain_efficiency
     max_speed = _gradient_limited_speed(slope_angle, params, unpaved, curvature)
+
+    # Apply hard cap on descent speed
+    if slope_angle < 0:
+        hard_cap = params.max_descent_speed
+        if unpaved:
+            # Scale down for unpaved surfaces
+            hard_cap *= params.max_coasting_speed_unpaved / params.max_coasting_speed
+        max_speed = min(max_speed, hard_cap)
+
     w = params.headwind
 
     # Coasting speed on descents (where gravity exceeds rolling resistance)

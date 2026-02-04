@@ -22,8 +22,10 @@ class RiderParams:
     # Direct power inputs (watts)
     climbing_power: float = 150.0  # watts on steep climbs (grade >= climb_threshold)
     flat_power: float = 120.0  # watts on flat terrain (-2% to 2%)
+    descending_power: float = 20.0  # watts on gentle descents (light pedaling)
     coasting_grade_threshold: float = -5.0  # degrees; fully coasting at this grade
     max_coasting_speed: float = 48.0 / 3.6  # m/s (default 48 km/h)
+    max_descent_speed: float = 55.0 / 3.6  # m/s; hard cap on descent speed (default 55 km/h)
     max_coasting_speed_unpaved: float = 32.0 / 3.6  # m/s (default 32 km/h for gravel)
     headwind: float = 0.0  # m/s (positive = into the wind, negative = tailwind)
     # Gradient-dependent power model

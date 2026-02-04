@@ -455,20 +455,23 @@ def analyze_training_route(
         # This gives us climbing_power and flat_power separately
         actual_metrics = _calculate_verbose_metrics(trip_points, params.max_coasting_speed)
 
-        # Use per-route power if specified, otherwise use actual climbing/flat power from trip
+        # Use per-route power if specified, otherwise use actual climbing/flat/descending power from trip
         if route.avg_watts is not None:
-            # If avg_watts specified, use it for climbing and derive flat proportionally
+            # If avg_watts specified, use it for climbing and derive others proportionally
             climbing_power_used = route.avg_watts
             flat_power_ratio = params.flat_power / params.climbing_power if params.climbing_power > 0 else 0.8
             flat_power_used = route.avg_watts * flat_power_ratio
+            descending_power_used = params.descending_power
         elif actual_metrics.avg_power_climbing is not None:
-            # Use actual climbing and flat power from trip
+            # Use actual climbing, flat, and descending power from trip
             climbing_power_used = actual_metrics.avg_power_climbing
             flat_power_used = actual_metrics.avg_power_flat if actual_metrics.avg_power_flat is not None else climbing_power_used * 0.8
+            descending_power_used = actual_metrics.avg_power_descending if actual_metrics.avg_power_descending is not None else params.descending_power
         else:
             # Fall back to params defaults
             climbing_power_used = params.climbing_power
             flat_power_used = params.flat_power
+            descending_power_used = params.descending_power
 
         # Get elevation gains from metadata
         api_elevation_gain = route_metadata.get("elevation_gain")  # DEM-derived from RWGPS
@@ -504,9 +507,11 @@ def analyze_training_route(
             air_density=params.air_density,
             climbing_power=climbing_power_used,
             flat_power=flat_power_used,
+            descending_power=descending_power_used,
             coasting_grade_threshold=params.coasting_grade_threshold,
             max_coasting_speed=params.max_coasting_speed,
             max_coasting_speed_unpaved=params.max_coasting_speed_unpaved,
+            max_descent_speed=params.max_descent_speed,
             headwind=headwind_used,
             climb_threshold_grade=params.climb_threshold_grade,
             steep_descent_speed=params.steep_descent_speed,
@@ -519,29 +524,13 @@ def analyze_training_route(
             drivetrain_efficiency=params.drivetrain_efficiency,
         )
 
-        # Calculate braking scores to infer descent_speed_factor
+        # Calculate verbose metrics for reporting (no longer used for descent factor inference)
         physics_metrics = _calculate_estimated_verbose_metrics(smoothed, physics_params)
 
-        # Infer factor: actual_brk / physics_brk (both normalized by max_coasting_speed)
-        # Only infer if there's sufficient descent data (>10% of time descending)
-        MIN_DESCENT_PCT = 10.0
-        has_sufficient_descent = (
-            actual_metrics.time_descending_pct >= MIN_DESCENT_PCT and
-            physics_metrics.time_descending_pct >= MIN_DESCENT_PCT
-        )
+        # Use descent_speed_factor=1.0 - descent behavior is now modeled by
+        # max_descent_speed, descending_power, and curvature-based braking
 
-        if (has_sufficient_descent and
-            actual_metrics.braking_score is not None and
-            physics_metrics.braking_score is not None and
-            physics_metrics.braking_score > 0):
-            inferred_descent_factor = actual_metrics.braking_score / physics_metrics.braking_score
-            # Clamp to reasonable range [0.2, 1.5]
-            inferred_descent_factor = max(0.2, min(1.5, inferred_descent_factor))
-        else:
-            # Fallback to config default if we can't reliably infer
-            inferred_descent_factor = params.descent_speed_factor
-
-        # Build final route_params with inferred descent_speed_factor
+        # Build final route_params
         route_params = RiderParams(
             total_mass=mass_used,
             cda=params.cda,
@@ -549,9 +538,11 @@ def analyze_training_route(
             air_density=params.air_density,
             climbing_power=climbing_power_used,
             flat_power=flat_power_used,
+            descending_power=descending_power_used,
             coasting_grade_threshold=params.coasting_grade_threshold,
             max_coasting_speed=params.max_coasting_speed,
             max_coasting_speed_unpaved=params.max_coasting_speed_unpaved,
+            max_descent_speed=params.max_descent_speed,
             headwind=headwind_used,
             climb_threshold_grade=params.climb_threshold_grade,
             steep_descent_speed=params.steep_descent_speed,
@@ -560,7 +551,7 @@ def analyze_training_route(
             hairpin_speed=params.hairpin_speed,
             straight_curvature=params.straight_curvature,
             hairpin_curvature=params.hairpin_curvature,
-            descent_speed_factor=inferred_descent_factor,
+            descent_speed_factor=1.0,  # Use physics-based descent model
             drivetrain_efficiency=params.drivetrain_efficiency,
         )
 

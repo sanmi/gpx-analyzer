@@ -35,9 +35,11 @@ DEFAULTS = {
     "crr": 0.005,
     "climbing_power": 150.0,
     "flat_power": 120.0,
+    "descending_power": 20.0,
     "coasting_grade": -5.0,
     "max_coast_speed": 48.0,
     "max_coast_speed_unpaved": 24.0,
+    "max_descent_speed": 55.0,
     "climb_threshold_grade": 4.0,
     "steep_descent_speed": 18.0,
     "steep_descent_grade": -8.0,
@@ -160,6 +162,12 @@ See README.md for detailed parameter descriptions.""",
         help=f"Power output on flat terrain in watts (default: {DEFAULTS['flat_power']})",
     )
     parser.add_argument(
+        "--descending-power",
+        type=float,
+        default=get_default("descending_power"),
+        help=f"Power output on gentle descents in watts (default: {DEFAULTS['descending_power']})",
+    )
+    parser.add_argument(
         "--coasting-grade",
         type=float,
         default=get_default("coasting_grade"),
@@ -176,6 +184,12 @@ See README.md for detailed parameter descriptions.""",
         type=float,
         default=get_default("max_coast_speed_unpaved"),
         help=f"Maximum coasting speed on unpaved surfaces in km/h (default: {DEFAULTS['max_coast_speed_unpaved']})",
+    )
+    parser.add_argument(
+        "--max-descent-speed",
+        type=float,
+        default=get_default("max_descent_speed"),
+        help=f"Hard cap on descent speed in km/h (default: {DEFAULTS['max_descent_speed']})",
     )
     parser.add_argument(
         "--climb-threshold-grade",
@@ -526,9 +540,11 @@ def main(argv: list[str] | None = None) -> None:
         crr=args.crr,
         climbing_power=args.climbing_power,
         flat_power=args.flat_power,
+        descending_power=args.descending_power,
         coasting_grade_threshold=args.coasting_grade,
         max_coasting_speed=args.max_coast_speed / 3.6,
         max_coasting_speed_unpaved=args.max_coast_speed_unpaved / 3.6,
+        max_descent_speed=args.max_descent_speed / 3.6,
         headwind=args.headwind / 3.6,
         climb_threshold_grade=args.climb_threshold_grade,
         steep_descent_speed=args.steep_descent_speed / 3.6,
