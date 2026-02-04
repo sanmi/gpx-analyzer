@@ -16,17 +16,21 @@ _POWER_TOLERANCE = 0.02  # 2% convergence threshold
 
 def _analyze_segments(
     points: list[TrackPoint], params: RiderParams
-) -> tuple[float, float, float, float, float, float]:
+) -> tuple[float, float, float, float, float, float, float]:
     """Run one pass of segment analysis.
 
     Returns (total_distance, elevation_gain, elevation_loss,
-             total_work, moving_seconds, max_speed).
+             total_work, moving_seconds, pedaling_seconds, max_speed).
+
+    pedaling_seconds is the time spent on segments where work > 0 (rider is pedaling).
+    This is used for power calibration to avoid descent time affecting the calculation.
     """
     total_distance = 0.0
     elevation_gain = 0.0
     elevation_loss = 0.0
     total_work = 0.0
     moving_seconds = 0.0
+    pedaling_seconds = 0.0
     max_speed = 0.0
 
     for i in range(1, len(points)):
@@ -50,8 +54,11 @@ def _analyze_segments(
                 max_speed = speed
             if speed >= MOVING_SPEED_THRESHOLD:
                 moving_seconds += elapsed
+                # Track time spent pedaling (work > 0) for power calibration
+                if work > 0:
+                    pedaling_seconds += elapsed
 
-    return total_distance, elevation_gain, elevation_loss, total_work, moving_seconds, max_speed
+    return total_distance, elevation_gain, elevation_loss, total_work, moving_seconds, pedaling_seconds, max_speed
 
 
 def analyze(points: list[TrackPoint], params: RiderParams) -> RideAnalysis:
@@ -79,14 +86,16 @@ def analyze(points: list[TrackPoint], params: RiderParams) -> RideAnalysis:
     calibrated_params = params
 
     # Iteratively adjust nominal power so average power matches the target
+    # Use pedaling_seconds (not moving_seconds) to avoid descent time affecting calibration
     for _ in range(_MAX_CALIBRATION_ITERATIONS):
         totals = _analyze_segments(points, calibrated_params)
-        total_distance, elevation_gain, elevation_loss, total_work, moving_seconds, max_speed = totals
+        total_distance, elevation_gain, elevation_loss, total_work, moving_seconds, pedaling_seconds, max_speed = totals
 
-        if target_power <= 0 or moving_seconds <= 0:
+        if target_power <= 0 or pedaling_seconds <= 0:
             break
 
-        avg_power = total_work / moving_seconds
+        # Calibrate using pedaling time only (excludes coasting descents)
+        avg_power = total_work / pedaling_seconds
         if avg_power <= 0:
             break
 

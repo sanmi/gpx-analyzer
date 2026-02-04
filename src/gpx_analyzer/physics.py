@@ -214,9 +214,18 @@ def calculate_segment_work(
     elapsed = _elapsed(point_a, point_b)
     if elapsed > 0:
         speed = distance / elapsed
+        physics_speed = speed  # Use recorded speed for work calculation
     else:
+        # Estimate speed from power model
         speed = estimate_speed_from_power(slope_angle, params, segment_crr, point_b.unpaved, point_b.curvature)
         elapsed = distance / speed if speed > 0 else 0.0
+        # For work calculation, use physics speed WITHOUT descent_speed_factor
+        # This keeps work independent of rider descent preference for calibration
+        if slope_angle < 0 and params.descent_speed_factor != 1.0:
+            # Reverse the descent_speed_factor to get physics-based speed
+            physics_speed = speed / params.descent_speed_factor if params.descent_speed_factor > 0 else speed
+        else:
+            physics_speed = speed
 
     # Gravitational work
     work_gravity = params.total_mass * G * delta_elev
@@ -224,8 +233,9 @@ def calculate_segment_work(
     # Rolling resistance work
     work_rolling = segment_crr * params.total_mass * G * math.cos(slope_angle) * distance
 
-    # Aerodynamic drag work (based on airspeed = ground speed + headwind)
-    airspeed = speed + params.headwind
+    # Aerodynamic drag work (based on physics speed, not preference-adjusted speed)
+    # This keeps work calculation independent of descent_speed_factor for calibration
+    airspeed = physics_speed + params.headwind
     work_aero = 0.5 * params.air_density * params.cda * airspeed**2 * distance
 
     total_work = work_gravity + work_rolling + work_aero

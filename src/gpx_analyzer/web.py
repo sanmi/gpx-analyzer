@@ -46,14 +46,18 @@ class AnalysisCache:
         self.hits = 0
         self.misses = 0
 
-    def _make_key(self, url: str, power: float, mass: float, headwind: float) -> str:
+    def _make_key(self, url: str, power: float, mass: float, headwind: float,
+                  climb_power_factor: float = 1.0, flat_power_factor: float = 1.0,
+                  descent_speed_factor: float = 1.0) -> str:
         """Create a cache key from analysis parameters."""
-        key_str = f"{url}|{power}|{mass}|{headwind}"
+        key_str = f"{url}|{power}|{mass}|{headwind}|{climb_power_factor}|{flat_power_factor}|{descent_speed_factor}"
         return hashlib.md5(key_str.encode()).hexdigest()
 
-    def get(self, url: str, power: float, mass: float, headwind: float) -> dict | None:
+    def get(self, url: str, power: float, mass: float, headwind: float,
+            climb_power_factor: float = 1.0, flat_power_factor: float = 1.0,
+            descent_speed_factor: float = 1.0) -> dict | None:
         """Get cached result, returns None if not found."""
-        key = self._make_key(url, power, mass, headwind)
+        key = self._make_key(url, power, mass, headwind, climb_power_factor, flat_power_factor, descent_speed_factor)
         with self.lock:
             if key in self.cache:
                 # Move to end (most recently used)
@@ -63,9 +67,11 @@ class AnalysisCache:
             self.misses += 1
             return None
 
-    def set(self, url: str, power: float, mass: float, headwind: float, result: dict) -> None:
+    def set(self, url: str, power: float, mass: float, headwind: float,
+            climb_power_factor: float, flat_power_factor: float,
+            descent_speed_factor: float, result: dict) -> None:
         """Store result in cache."""
-        key = self._make_key(url, power, mass, headwind)
+        key = self._make_key(url, power, mass, headwind, climb_power_factor, flat_power_factor, descent_speed_factor)
         with self.lock:
             if key in self.cache:
                 self.cache.move_to_end(key)
@@ -108,9 +114,11 @@ PROFILE_CACHE_INDEX_PATH = PROFILE_CACHE_DIR / "cache_index.json"
 MAX_CACHED_PROFILES = 150  # ~150 images, each ~60KB = ~9MB max
 
 
-def _make_profile_cache_key(url: str, power: float, mass: float, headwind: float) -> str:
+def _make_profile_cache_key(url: str, power: float, mass: float, headwind: float,
+                            climb_power_factor: float = 1.0, flat_power_factor: float = 1.0,
+                            descent_speed_factor: float = 1.0) -> str:
     """Create a unique cache key for elevation profile parameters."""
-    key_str = f"{url}|{power}|{mass}|{headwind}"
+    key_str = f"{url}|{power}|{mass}|{headwind}|{climb_power_factor}|{flat_power_factor}|{descent_speed_factor}"
     return hashlib.md5(key_str.encode()).hexdigest()
 
 
@@ -1182,6 +1190,18 @@ HTML_TEMPLATE = """
         .comparison-table tr.primary td {
             font-weight: 600;
         }
+        .est-marker {
+            color: #999;
+            font-size: 0.85em;
+            font-weight: normal;
+            cursor: help;
+        }
+        .comparison-footnote {
+            font-size: 0.8em;
+            color: #888;
+            margin-top: 8px;
+            font-style: italic;
+        }
         /* Steep comparison table - wider columns for route names on desktop */
         .steep-comparison-table th:not(:first-child) {
             min-width: 140px;
@@ -1851,9 +1871,11 @@ HTML_TEMPLATE = """
         // Initialize on page load
         document.addEventListener('DOMContentLoaded', function() {
             setupUrlDropdown();
+            initAdvancedOptions();
         });
         if (document.readyState !== 'loading') {
             setupUrlDropdown();
+            initAdvancedOptions();
         }
 
         function showModal(id) {
@@ -1869,6 +1891,21 @@ HTML_TEMPLATE = """
             var options = document.getElementById('advancedOptions');
             toggle.classList.toggle('expanded');
             options.classList.toggle('visible');
+            // Save state to localStorage
+            localStorage.setItem('advancedOptionsExpanded', options.classList.contains('visible'));
+        }
+
+        function initAdvancedOptions() {
+            // Restore advanced options visibility from localStorage
+            var expanded = localStorage.getItem('advancedOptionsExpanded') === 'true';
+            if (expanded) {
+                var toggle = document.getElementById('advancedToggle');
+                var options = document.getElementById('advancedOptions');
+                if (toggle && options) {
+                    toggle.classList.add('expanded');
+                    options.classList.add('visible');
+                }
+            }
         }
 
         function resetAdvancedOptions() {
@@ -2537,27 +2574,25 @@ HTML_TEMPLATE = """
                 </thead>
                 <tbody>
                     <tr class="primary">
-                        <td><span class="label-with-info">{% if is_trip and is_trip2 %}Moving Time{% else %}Est. Moving Time{% endif %} <button type="button" class="info-btn" onclick="showModal('timeModal')">?</button></span></td>
-                        <td class="route-col">{{ result.time_str }}</td>
-                        <td class="route-col">{{ result2.time_str }}</td>
+                        <td><span class="label-with-info">Moving Time <button type="button" class="info-btn" onclick="showModal('timeModal')">?</button></span></td>
+                        <td class="route-col">{{ result.time_str }}{% if not is_trip %} <span class="est-marker" title="Estimated">*</span>{% endif %}</td>
+                        <td class="route-col">{{ result2.time_str }}{% if not is_trip2 %} <span class="est-marker" title="Estimated">*</span>{% endif %}</td>
                         <td class="diff-col">{{ format_time_diff(result.time_seconds, result2.time_seconds) }}</td>
                     </tr>
                     {% if (not is_trip or result.work_kj is not none) and (not is_trip2 or result2.work_kj is not none) %}
                     <tr class="primary">
-                        <td><span class="label-with-info">{% if is_trip and is_trip2 %}Work{% else %}Est. Work{% endif %} <button type="button" class="info-btn" onclick="showModal('workModal')">?</button></span></td>
-                        <td class="route-col">{% if result.work_kj is not none %}{{ "%.0f"|format(result.work_kj) }} kJ{% else %}-{% endif %}</td>
-                        <td class="route-col">{% if result2.work_kj is not none %}{{ "%.0f"|format(result2.work_kj) }} kJ{% else %}-{% endif %}</td>
+                        <td><span class="label-with-info">Work <button type="button" class="info-btn" onclick="showModal('workModal')">?</button></span></td>
+                        <td class="route-col">{% if result.work_kj is not none %}{{ "%.0f"|format(result.work_kj) }} kJ{% if not is_trip %} <span class="est-marker" title="Estimated">*</span>{% endif %}{% else %}-{% endif %}</td>
+                        <td class="route-col">{% if result2.work_kj is not none %}{{ "%.0f"|format(result2.work_kj) }} kJ{% if not is_trip2 %} <span class="est-marker" title="Estimated">*</span>{% endif %}{% else %}-{% endif %}</td>
                         <td class="diff-col">{% if result.work_kj is not none and result2.work_kj is not none %}{{ format_diff(result.work_kj, result2.work_kj, 'kJ') }}{% else %}-{% endif %}</td>
                     </tr>
                     {% endif %}
-                    {% if (is_trip and result.has_power) or (is_trip2 and result2.has_power) %}
                     <tr class="primary">
                         <td>Avg Power</td>
-                        <td class="route-col">{% if result.avg_watts is not none %}{{ result.avg_watts|int }} W{% else %}-{% endif %}</td>
-                        <td class="route-col">{% if result2.avg_watts is not none %}{{ result2.avg_watts|int }} W{% else %}-{% endif %}</td>
+                        <td class="route-col">{% if result.avg_watts is not none %}{{ result.avg_watts|int }} W{% if not is_trip %} <span class="est-marker" title="Estimated">*</span>{% endif %}{% else %}-{% endif %}</td>
+                        <td class="route-col">{% if result2.avg_watts is not none %}{{ result2.avg_watts|int }} W{% if not is_trip2 %} <span class="est-marker" title="Estimated">*</span>{% endif %}{% else %}-{% endif %}</td>
                         <td class="diff-col">{% if result.avg_watts is not none and result2.avg_watts is not none %}{{ format_diff(result.avg_watts, result2.avg_watts, 'W') }}{% else %}-{% endif %}</td>
                     </tr>
-                    {% endif %}
                     <tr>
                         <td>Distance</td>
                         <td class="route-col" id="cmpDist1" data-km="{{ result.distance_km }}">{{ "%.1f"|format(result.distance_km) }} km</td>
@@ -2599,6 +2634,9 @@ HTML_TEMPLATE = """
                 </tbody>
             </table>
         </div>
+        {% if not is_trip or not is_trip2 %}
+        <div class="comparison-footnote">* Estimated from physics model</div>
+        {% endif %}
         {% else %}
         <!-- Single route/trip results -->
         <div class="primary-results">
@@ -2612,9 +2650,9 @@ HTML_TEMPLATE = """
                 <span class="result-value">{% if result.work_kj is not none %}{{ "%.0f"|format(result.work_kj) }} kJ{% else %}-{% endif %}</span>
             </div>
             {% endif %}
-            {% if is_trip and result.has_power %}
+            {% if result.has_power and result.avg_watts is not none %}
             <div class="result-row primary">
-                <span class="result-label">Avg Power</span>
+                <span class="result-label">{% if is_trip %}Avg Power{% else %}Estimated Avg Power{% endif %}</span>
                 <span class="result-value">{{ result.avg_watts|int }} W</span>
             </div>
             {% endif %}
@@ -2900,7 +2938,7 @@ HTML_TEMPLATE = """
                     <div class="elevation-loading" id="elevationLoading1">
                         <div class="elevation-spinner"></div>
                     </div>
-                    <img src="/elevation-profile?url={{ url|urlencode }}&power={{ power }}&mass={{ mass }}&headwind={{ headwind }}"
+                    <img src="/elevation-profile?url={{ url|urlencode }}&power={{ power }}&mass={{ mass }}&headwind={{ headwind }}&climb_power_factor={{ climb_power_factor }}&flat_power_factor={{ flat_power_factor }}&descent_speed_factor={{ descent_speed_factor }}"
                          alt="Elevation profile - Route 1" id="elevationImg1" class="loading"
                          onload="document.getElementById('elevationLoading1').classList.add('hidden'); this.classList.remove('loading');">
                     <div class="elevation-cursor" id="elevationCursor1"></div>
@@ -2924,7 +2962,7 @@ HTML_TEMPLATE = """
                     <div class="elevation-loading" id="elevationLoading2">
                         <div class="elevation-spinner"></div>
                     </div>
-                    <img src="/elevation-profile?url={{ url2|urlencode }}&power={{ power }}&mass={{ mass }}&headwind={{ headwind }}"
+                    <img src="/elevation-profile?url={{ url2|urlencode }}&power={{ power }}&mass={{ mass }}&headwind={{ headwind }}&climb_power_factor={{ climb_power_factor }}&flat_power_factor={{ flat_power_factor }}&descent_speed_factor={{ descent_speed_factor }}"
                          alt="Elevation profile - Route 2" id="elevationImg2" class="loading"
                          onload="document.getElementById('elevationLoading2').classList.add('hidden'); this.classList.remove('loading');">
                     <div class="elevation-cursor" id="elevationCursor2"></div>
@@ -2943,7 +2981,7 @@ HTML_TEMPLATE = """
                 <div class="elevation-loading" id="elevationLoading">
                     <div class="elevation-spinner"></div>
                 </div>
-                <img src="/elevation-profile?url={{ url|urlencode }}&power={{ power }}&mass={{ mass }}&headwind={{ headwind }}"
+                <img src="/elevation-profile?url={{ url|urlencode }}&power={{ power }}&mass={{ mass }}&headwind={{ headwind }}&climb_power_factor={{ climb_power_factor }}&flat_power_factor={{ flat_power_factor }}&descent_speed_factor={{ descent_speed_factor }}"
                      alt="Elevation profile" id="elevationImg" class="loading"
                      onload="document.getElementById('elevationLoading').classList.add('hidden'); this.classList.remove('loading');">
                 <div class="elevation-cursor" id="elevationCursor"></div>
@@ -3122,17 +3160,17 @@ HTML_TEMPLATE = """
                 // Comparison mode - setup both profiles
                 setupElevationProfile(
                     'elevationContainer1', 'elevationImg1', 'elevationTooltip1', 'elevationCursor1',
-                    '/elevation-profile-data?url={{ url|urlencode }}&power={{ power }}&mass={{ mass }}&headwind={{ headwind }}'
+                    '/elevation-profile-data?url={{ url|urlencode }}&power={{ power }}&mass={{ mass }}&headwind={{ headwind }}&climb_power_factor={{ climb_power_factor }}&flat_power_factor={{ flat_power_factor }}&descent_speed_factor={{ descent_speed_factor }}'
                 );
                 setupElevationProfile(
                     'elevationContainer2', 'elevationImg2', 'elevationTooltip2', 'elevationCursor2',
-                    '/elevation-profile-data?url={{ url2|urlencode if url2 else "" }}&power={{ power }}&mass={{ mass }}&headwind={{ headwind }}'
+                    '/elevation-profile-data?url={{ url2|urlencode if url2 else "" }}&power={{ power }}&mass={{ mass }}&headwind={{ headwind }}&climb_power_factor={{ climb_power_factor }}&flat_power_factor={{ flat_power_factor }}&descent_speed_factor={{ descent_speed_factor }}'
                 );
             } else {
                 // Single route mode
                 setupElevationProfile(
                     'elevationContainer', 'elevationImg', 'elevationTooltip', 'elevationCursor',
-                    '/elevation-profile-data?url={{ url|urlencode }}&power={{ power }}&mass={{ mass }}&headwind={{ headwind }}'
+                    '/elevation-profile-data?url={{ url|urlencode }}&power={{ power }}&mass={{ mass }}&headwind={{ headwind }}&climb_power_factor={{ climb_power_factor }}&flat_power_factor={{ flat_power_factor }}&descent_speed_factor={{ descent_speed_factor }}'
                 );
             }
         })();
@@ -3241,7 +3279,8 @@ def analyze_single_route(url: str, params: RiderParams) -> dict:
     """
     # Check cache first
     cached = _analysis_cache.get(
-        url, params.assumed_avg_power, params.total_mass, params.headwind
+        url, params.assumed_avg_power, params.total_mass, params.headwind,
+        params.climb_power_factor, params.flat_power_factor, params.descent_speed_factor
     )
     if cached is not None:
         return cached
@@ -3298,8 +3337,8 @@ def analyze_single_route(url: str, params: RiderParams) -> dict:
         "avg_speed_kmh": analysis.avg_speed * 3.6,
         "avg_speed_mph": analysis.avg_speed * 3.6 * 0.621371,
         "work_kj": analysis.estimated_work / 1000,
-        "avg_watts": None,  # Routes don't have recorded power
-        "has_power": False,
+        "avg_watts": (analysis.estimated_work / analysis.estimated_moving_time_at_power.total_seconds()) if analysis.estimated_moving_time_at_power.total_seconds() > 0 else None,
+        "has_power": True,  # Routes have derived avg power from physics model
         "unpaved_pct": unpaved_pct,
         "elevation_scale": api_elevation_scale,
         "elevation_scaled": abs(api_elevation_scale - 1.0) > 0.05,
@@ -3328,7 +3367,9 @@ def analyze_single_route(url: str, params: RiderParams) -> dict:
 
     # Store in cache
     _analysis_cache.set(
-        url, params.assumed_avg_power, params.total_mass, params.headwind, result
+        url, params.assumed_avg_power, params.total_mass, params.headwind,
+        params.climb_power_factor, params.flat_power_factor, params.descent_speed_factor,
+        result
     )
 
     return result
@@ -3415,13 +3456,17 @@ def analyze_trip(url: str) -> dict:
         if dist < 0.1:
             continue
 
-        total_distance += dist
-
         # Time delta from actual timestamps
         if curr.timestamp is not None and prev.timestamp is not None:
             time_delta = curr.timestamp - prev.timestamp
         else:
             time_delta = 0.0
+
+        # Skip stopped segments: if speed < 1 km/h (0.278 m/s), consider it stopped
+        if time_delta > 0 and dist / time_delta < 0.278:
+            continue
+
+        total_distance += dist
 
         # Elevation change from smoothed data
         elev_prev = prev_smooth.elevation if prev_smooth.elevation is not None else 0.0
@@ -4089,10 +4134,14 @@ def generate_trip_elevation_profile(url: str, title_time_hours: float | None = N
 @app.route("/elevation-profile")
 def elevation_profile():
     """Serve elevation profile image for a route or trip."""
+    defaults = get_defaults()
     url = request.args.get("url", "")
-    power = float(request.args.get("power", DEFAULTS["power"]))
-    mass = float(request.args.get("mass", DEFAULTS["mass"]))
-    headwind = float(request.args.get("headwind", DEFAULTS["headwind"]))
+    power = float(request.args.get("power", defaults["power"]))
+    mass = float(request.args.get("mass", defaults["mass"]))
+    headwind = float(request.args.get("headwind", defaults["headwind"]))
+    climb_power_factor = float(request.args.get("climb_power_factor", defaults["climb_power_factor"]))
+    flat_power_factor = float(request.args.get("flat_power_factor", defaults["flat_power_factor"]))
+    descent_speed_factor = float(request.args.get("descent_speed_factor", defaults["descent_speed_factor"]))
 
     if not url or not (is_ridewithgps_url(url) or is_ridewithgps_trip_url(url)):
         # Return a placeholder image
@@ -4106,7 +4155,7 @@ def elevation_profile():
         return send_file(buf, mimetype='image/png')
 
     # Check disk cache first
-    cache_key = _make_profile_cache_key(url, power, mass, headwind)
+    cache_key = _make_profile_cache_key(url, power, mass, headwind, climb_power_factor, flat_power_factor, descent_speed_factor)
     cached_bytes = _get_cached_profile(cache_key)
     if cached_bytes:
         return send_file(io.BytesIO(cached_bytes), mimetype='image/png')
@@ -4119,7 +4168,7 @@ def elevation_profile():
             img_bytes = generate_trip_elevation_profile(url, title_time_hours)
         else:
             # Route: use physics estimation
-            params = build_params(power, mass, headwind)
+            params = build_params(power, mass, headwind, climb_power_factor, flat_power_factor, descent_speed_factor)
             analysis = analyze_single_route(url, params)
             title_time_hours = analysis["time_seconds"] / 3600
             img_bytes = generate_elevation_profile(url, params, title_time_hours)
@@ -4141,10 +4190,14 @@ def elevation_profile():
 @app.route("/elevation-profile-data")
 def elevation_profile_data():
     """Return elevation profile data as JSON for interactive tooltip."""
+    defaults = get_defaults()
     url = request.args.get("url", "")
-    power = float(request.args.get("power", DEFAULTS["power"]))
-    mass = float(request.args.get("mass", DEFAULTS["mass"]))
-    headwind = float(request.args.get("headwind", DEFAULTS["headwind"]))
+    power = float(request.args.get("power", defaults["power"]))
+    mass = float(request.args.get("mass", defaults["mass"]))
+    headwind = float(request.args.get("headwind", defaults["headwind"]))
+    climb_power_factor = float(request.args.get("climb_power_factor", defaults["climb_power_factor"]))
+    flat_power_factor = float(request.args.get("flat_power_factor", defaults["flat_power_factor"]))
+    descent_speed_factor = float(request.args.get("descent_speed_factor", defaults["descent_speed_factor"]))
 
     if not url or not (is_ridewithgps_url(url) or is_ridewithgps_trip_url(url)):
         return jsonify({"error": "Invalid URL"}), 400
@@ -4155,7 +4208,7 @@ def elevation_profile_data():
             data = _calculate_trip_elevation_profile_data(url)
         else:
             # Route: use physics estimation
-            params = build_params(power, mass, headwind)
+            params = build_params(power, mass, headwind, climb_power_factor, flat_power_factor, descent_speed_factor)
             data = _calculate_elevation_profile_data(url, params)
 
         # Downsample data if too many points (for performance)
