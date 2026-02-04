@@ -12,14 +12,14 @@ def effective_power(slope_angle: float, params: RiderParams) -> float:
     Models how riders modulate power based on terrain:
     - Steep descents (beyond coasting threshold): zero power (coasting/braking)
     - Gentle descents (threshold to 0): linearly ramps from 0 to flat power
-    - Flat (0 degrees): base power * flat_power_factor
-    - Climbs (0 to climb threshold): linearly increases from flat power to climb power
-    - Steep climbs (beyond climb threshold): plateau at climb_power_factor * base
+    - Flat (0 degrees): flat_power
+    - Climbs (0 to climb threshold): linearly increases from flat power to climbing power
+    - Steep climbs (beyond climb threshold): plateau at climbing_power
     """
     coasting_threshold_rad = math.radians(params.coasting_grade_threshold)
     climb_threshold_rad = math.radians(params.climb_threshold_grade)
-    base_power = params.assumed_avg_power
-    flat_power = base_power * params.flat_power_factor
+    flat_power = params.flat_power
+    climbing_power = params.climbing_power
 
     # Steep descent: coasting/braking
     if slope_angle <= coasting_threshold_rad:
@@ -31,15 +31,14 @@ def effective_power(slope_angle: float, params: RiderParams) -> float:
         fraction = slope_angle / coasting_threshold_rad  # 1 at threshold, 0 at flat
         return flat_power * (1.0 - fraction)
 
-    # Steep climb: plateau at max climb power
+    # Steep climb: plateau at max climbing power
     if slope_angle >= climb_threshold_rad:
-        return base_power * params.climb_power_factor
+        return climbing_power
 
-    # Moderate climb: ramp from flat power to climb power
-    # Linear interpolation: flat_power at 0, climb_factor * base at climb_threshold
+    # Moderate climb: ramp from flat power to climbing power
+    # Linear interpolation: flat_power at 0, climbing_power at climb_threshold
     fraction = slope_angle / climb_threshold_rad  # 0 at flat, 1 at threshold
-    power_factor = params.flat_power_factor + (params.climb_power_factor - params.flat_power_factor) * fraction
-    return base_power * power_factor
+    return flat_power + (climbing_power - flat_power) * fraction
 
 
 def _curvature_limited_speed(curvature: float, params: RiderParams, unpaved: bool) -> float:

@@ -312,12 +312,11 @@ def _calculate_estimated_verbose_metrics(
     DESCENT_THRESHOLD = -2.0  # Grade < -2% is descending
 
     # For estimated power:
-    # - Climbing: base power * climb_power_factor
-    # - Flat: base power * flat_power_factor
+    # - Climbing: climbing_power (direct input)
+    # - Flat: flat_power (direct input)
     # - Descending: minimal pedaling (model assumes coasting)
-    base_power = params.assumed_avg_power
-    flat_power = base_power * params.flat_power_factor
-    climb_power = base_power * params.climb_power_factor
+    flat_power = params.flat_power
+    climb_power = params.climbing_power
 
     # Calculate time at each terrain type using physics model
     climb_time = 0.0
@@ -444,25 +443,32 @@ def analyze_training_route(
         # Get trip data
         trip_points, trip_metadata = get_trip_data(route.trip_url)
 
-        # Use per-route power if specified, otherwise calculate from trip, otherwise use default
-        if route.avg_watts is not None:
-            power_used = route.avg_watts
-        else:
-            # Calculate avg power from trip data points
-            _, trip_avg_power, has_power = _calculate_actual_work(trip_points)
-            if has_power and trip_avg_power:
-                power_used = trip_avg_power
-            else:
-                power_used = params.assumed_avg_power
-
-        # Use per-route mass if specified, otherwise use default
-        mass_used = route.mass if route.mass is not None else params.total_mass
-
-        headwind_used = route.headwind / 3.6 if route.headwind is not None else params.headwind
-
         if len(route_points) < 2 or len(trip_points) < 2:
             print(f"  Skipping {route.name}: insufficient data points")
             return None
+
+        # Use per-route mass if specified, otherwise use default
+        mass_used = route.mass if route.mass is not None else params.total_mass
+        headwind_used = route.headwind / 3.6 if route.headwind is not None else params.headwind
+
+        # Calculate actual power by terrain type from trip data
+        # This gives us climbing_power and flat_power separately
+        actual_metrics = _calculate_verbose_metrics(trip_points, params.max_coasting_speed)
+
+        # Use per-route power if specified, otherwise use actual climbing/flat power from trip
+        if route.avg_watts is not None:
+            # If avg_watts specified, use it for climbing and derive flat proportionally
+            climbing_power_used = route.avg_watts
+            flat_power_ratio = params.flat_power / params.climbing_power if params.climbing_power > 0 else 0.8
+            flat_power_used = route.avg_watts * flat_power_ratio
+        elif actual_metrics.avg_power_climbing is not None:
+            # Use actual climbing and flat power from trip
+            climbing_power_used = actual_metrics.avg_power_climbing
+            flat_power_used = actual_metrics.avg_power_flat if actual_metrics.avg_power_flat is not None else climbing_power_used * 0.8
+        else:
+            # Fall back to params defaults
+            climbing_power_used = params.climbing_power
+            flat_power_used = params.flat_power
 
         # Get elevation gains from metadata
         api_elevation_gain = route_metadata.get("elevation_gain")  # DEM-derived from RWGPS
@@ -490,20 +496,18 @@ def analyze_training_route(
             # No API elevation - just smooth
             smoothed = smooth_elevations(route_points, smoothing_radius, elevation_scale)
 
-        # Infer descent_speed_factor from trip data by comparing actual vs physics descent speeds
-        # First, build params with descent_speed_factor=1.0 to get raw physics predictions
+        # Build params with descent_speed_factor=1.0 to get raw physics predictions
         physics_params = RiderParams(
             total_mass=mass_used,
             cda=params.cda,
             crr=params.crr,
             air_density=params.air_density,
-            assumed_avg_power=power_used,
+            climbing_power=climbing_power_used,
+            flat_power=flat_power_used,
             coasting_grade_threshold=params.coasting_grade_threshold,
             max_coasting_speed=params.max_coasting_speed,
             max_coasting_speed_unpaved=params.max_coasting_speed_unpaved,
             headwind=headwind_used,
-            climb_power_factor=params.climb_power_factor,
-            flat_power_factor=params.flat_power_factor,
             climb_threshold_grade=params.climb_threshold_grade,
             steep_descent_speed=params.steep_descent_speed,
             steep_descent_grade=params.steep_descent_grade,
@@ -516,7 +520,6 @@ def analyze_training_route(
         )
 
         # Calculate braking scores to infer descent_speed_factor
-        actual_metrics = _calculate_verbose_metrics(trip_points, params.max_coasting_speed)
         physics_metrics = _calculate_estimated_verbose_metrics(smoothed, physics_params)
 
         # Infer factor: actual_brk / physics_brk (both normalized by max_coasting_speed)
@@ -544,13 +547,12 @@ def analyze_training_route(
             cda=params.cda,
             crr=params.crr,
             air_density=params.air_density,
-            assumed_avg_power=power_used,
+            climbing_power=climbing_power_used,
+            flat_power=flat_power_used,
             coasting_grade_threshold=params.coasting_grade_threshold,
             max_coasting_speed=params.max_coasting_speed,
             max_coasting_speed_unpaved=params.max_coasting_speed_unpaved,
             headwind=headwind_used,
-            climb_power_factor=params.climb_power_factor,
-            flat_power_factor=params.flat_power_factor,
             climb_threshold_grade=params.climb_threshold_grade,
             steep_descent_speed=params.steep_descent_speed,
             steep_descent_grade=params.steep_descent_grade,
@@ -564,12 +566,12 @@ def analyze_training_route(
 
         analysis = analyze(smoothed, route_params)
 
-        # Compare with trip
+        # Compare with trip - use physics-based moving_time, not work/power estimate
         comparison = compare_route_with_trip(
             smoothed,
             trip_points,
             route_params,
-            analysis.estimated_moving_time_at_power.total_seconds(),
+            analysis.moving_time.total_seconds(),
             analysis.estimated_work,
             route_elevation_gain=analysis.elevation_gain,
             trip_elevation_gain=trip_elevation_gain,
@@ -594,7 +596,7 @@ def analyze_training_route(
             trip_elevation_gain=trip_elevation_gain,
             route_distance=analysis.total_distance,
             unpaved_pct=unpaved_pct,
-            power_used=power_used,
+            power_used=climbing_power_used,  # Use climbing power (from trip) for display
             mass_used=mass_used,
             elevation_scale_used=effective_scale,
             route_max_grade=route_max_grade,

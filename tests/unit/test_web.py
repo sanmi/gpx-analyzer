@@ -39,7 +39,8 @@ class TestIndexGet:
         html = response.data.decode()
         assert "<form" in html
         assert 'name="url"' in html
-        assert 'name="power"' in html
+        assert 'name="climbing_power"' in html
+        assert 'name="flat_power"' in html
         assert 'name="mass"' in html
         assert 'name="headwind"' in html
 
@@ -76,7 +77,8 @@ class TestIndexPostSingleRoute:
         response = client.post("/", data={
             "url": "https://example.com/routes/123",
             "mode": "route",
-            "power": "100",
+            "climbing_power": "150",
+            "flat_power": "120",
             "mass": "85",
             "headwind": "0",
         })
@@ -87,7 +89,8 @@ class TestIndexPostSingleRoute:
         response = client.post("/", data={
             "url": "",
             "mode": "route",
-            "power": "100",
+            "climbing_power": "150",
+            "flat_power": "120",
             "mass": "85",
             "headwind": "0",
         })
@@ -98,7 +101,8 @@ class TestIndexPostSingleRoute:
         response = client.post("/", data={
             "url": "https://ridewithgps.com/routes/12345",
             "mode": "route",
-            "power": "not-a-number",
+            "climbing_power": "not-a-number",
+            "flat_power": "100",
             "mass": "85",
             "headwind": "0",
         })
@@ -115,7 +119,8 @@ class TestIndexPostSingleRoute:
         response = client.post("/", data={
             "url": "https://ridewithgps.com/routes/12345",
             "mode": "route",
-            "power": "100",
+            "climbing_power": "150",
+            "flat_power": "120",
             "mass": "85",
             "headwind": "0",
         })
@@ -138,7 +143,8 @@ class TestIndexPostSingleRoute:
         response = client.post("/", data={
             "url": "https://ridewithgps.com/routes/12345",
             "mode": "route",
-            "power": "100",
+            "climbing_power": "150",
+            "flat_power": "120",
             "mass": "85",
             "headwind": "0",
         })
@@ -163,7 +169,8 @@ class TestIndexPostSingleRoute:
         response = client.post("/", data={
             "url": "https://ridewithgps.com/routes/12345",
             "mode": "route",
-            "power": "100",
+            "climbing_power": "150",
+            "flat_power": "120",
             "mass": "85",
             "headwind": "0",
         })
@@ -182,7 +189,8 @@ class TestIndexPostSingleRoute:
         response = client.post("/", data={
             "url": "https://ridewithgps.com/routes/12345",
             "mode": "route",
-            "power": "100",
+            "climbing_power": "150",
+            "flat_power": "120",
             "mass": "85",
             "headwind": "0",
         })
@@ -197,7 +205,8 @@ class TestIndexPostSingleRoute:
         response = client.post("/", data={
             "url": "https://ridewithgps.com/routes/12345",
             "mode": "route",
-            "power": "100",
+            "climbing_power": "150",
+            "flat_power": "120",
             "mass": "85",
             "headwind": "0",
         })
@@ -213,7 +222,8 @@ class TestIndexPostCollection:
         response = client.post("/", data={
             "url": "https://ridewithgps.com/collections/12345",
             "mode": "collection",
-            "power": "100",
+            "climbing_power": "150",
+            "flat_power": "120",
             "mass": "85",
             "headwind": "0",
         })
@@ -228,7 +238,8 @@ class TestCollectionStreamEndpoint:
     def test_invalid_collection_url_returns_error(self, client, no_config):
         response = client.get("/analyze-collection-stream", query_string={
             "url": "https://ridewithgps.com/routes/12345",
-            "power": "100",
+            "climbing_power": "150",
+            "flat_power": "120",
             "mass": "85",
             "headwind": "0",
         })
@@ -244,7 +255,8 @@ class TestCollectionStreamEndpoint:
     def test_invalid_parameters_returns_error(self, client, no_config):
         response = client.get("/analyze-collection-stream", query_string={
             "url": "https://ridewithgps.com/collections/12345",
-            "power": "not-a-number",
+            "climbing_power": "not-a-number",
+            "flat_power": "100",
             "mass": "85",
             "headwind": "0",
         })
@@ -259,7 +271,8 @@ class TestCollectionStreamEndpoint:
 
         response = client.get("/analyze-collection-stream", query_string={
             "url": "https://ridewithgps.com/collections/12345",
-            "power": "100",
+            "climbing_power": "150",
+            "flat_power": "120",
             "mass": "85",
             "headwind": "0",
         })
@@ -299,7 +312,8 @@ class TestCollectionStreamEndpoint:
 
         response = client.get("/analyze-collection-stream", query_string={
             "url": "https://ridewithgps.com/collections/12345",
-            "power": "100",
+            "climbing_power": "150",
+            "flat_power": "120",
             "mass": "85",
             "headwind": "0",
         })
@@ -354,7 +368,8 @@ class TestCollectionStreamEndpoint:
 
         response = client.get("/analyze-collection-stream", query_string={
             "url": "https://ridewithgps.com/collections/12345",
-            "power": "100",
+            "climbing_power": "150",
+            "flat_power": "120",
             "mass": "85",
             "headwind": "0",
         })
@@ -387,13 +402,14 @@ class TestHelperFunctions:
         from gpx_analyzer import ridewithgps
 
         config_path = tmp_path / "gpx-analyzer.json"
-        config_path.write_text('{"power": 150, "mass": 90, "headwind": 5}')
+        config_path.write_text('{"climbing_power": 150, "flat_power": 120, "mass": 90, "headwind": 5}')
         monkeypatch.setattr(ridewithgps, "LOCAL_CONFIG_PATH", config_path)
         monkeypatch.setattr(ridewithgps, "CONFIG_PATH", tmp_path / "nonexistent.json")
 
         defaults = web.get_defaults()
 
-        assert defaults["power"] == 150
+        assert defaults["climbing_power"] == 150
+        assert defaults["flat_power"] == 120
         assert defaults["mass"] == 90
         assert defaults["headwind"] == 5
 
@@ -402,14 +418,16 @@ class TestHelperFunctions:
 
         defaults = web.get_defaults()
 
-        assert defaults["power"] == DEFAULTS["power"]
+        assert defaults["climbing_power"] == DEFAULTS["climbing_power"]
+        assert defaults["flat_power"] == DEFAULTS["flat_power"]
         assert defaults["mass"] == DEFAULTS["mass"]
         assert defaults["headwind"] == DEFAULTS["headwind"]
 
     def test_build_params(self, no_config):
-        params = web.build_params(power=120, mass=80, headwind=10)
+        params = web.build_params(climbing_power=150, flat_power=120, mass=80, headwind=10)
 
-        assert params.assumed_avg_power == 120
+        assert params.climbing_power == 150
+        assert params.flat_power == 120
         assert params.total_mass == 80
         assert params.headwind == 10 / 3.6  # Converted from km/h to m/s
 
@@ -463,7 +481,8 @@ class TestElevationProfile:
 
         response = client.get("/elevation-profile", query_string={
             "url": "https://ridewithgps.com/routes/12345",
-            "power": "100",
+            "climbing_power": "150",
+            "flat_power": "120",
             "mass": "85",
             "headwind": "0",
         })
@@ -477,7 +496,8 @@ class TestElevationProfile:
         """Invalid URL should return a placeholder PNG image."""
         response = client.get("/elevation-profile", query_string={
             "url": "https://example.com/routes/123",
-            "power": "100",
+            "climbing_power": "150",
+            "flat_power": "120",
             "mass": "85",
             "headwind": "0",
         })
@@ -494,7 +514,8 @@ class TestElevationProfile:
 
         response = client.get("/elevation-profile", query_string={
             "url": "https://ridewithgps.com/routes/12345",
-            "power": "100",
+            "climbing_power": "150",
+            "flat_power": "120",
             "mass": "85",
             "headwind": "0",
         })
@@ -514,7 +535,8 @@ class TestElevationProfile:
 
         response = client.get("/elevation-profile-data", query_string={
             "url": "https://ridewithgps.com/routes/12345",
-            "power": "100",
+            "climbing_power": "150",
+            "flat_power": "120",
             "mass": "85",
             "headwind": "0",
         })
@@ -531,7 +553,8 @@ class TestElevationProfile:
         """Data endpoint should return error for invalid URL."""
         response = client.get("/elevation-profile-data", query_string={
             "url": "https://example.com/routes/123",
-            "power": "100",
+            "climbing_power": "150",
+            "flat_power": "120",
             "mass": "85",
             "headwind": "0",
         })
@@ -562,7 +585,8 @@ class TestElevationScaling:
         response = client.post("/", data={
             "url": "https://ridewithgps.com/routes/12345",
             "mode": "route",
-            "power": "100",
+            "climbing_power": "150",
+            "flat_power": "120",
             "mass": "85",
             "headwind": "0",
         })
@@ -608,7 +632,8 @@ class TestTripSupport:
         response = client.post("/", data={
             "url": "https://example.com/trips/123",
             "mode": "route",
-            "power": "100",
+            "climbing_power": "150",
+            "flat_power": "120",
             "mass": "85",
             "headwind": "0",
         })
@@ -632,7 +657,8 @@ class TestTripSupport:
         response = client.post("/", data={
             "url": "https://ridewithgps.com/trips/12345",
             "mode": "route",
-            "power": "100",
+            "climbing_power": "150",
+            "flat_power": "120",
             "mass": "85",
             "headwind": "0",
         })
@@ -659,7 +685,8 @@ class TestTripSupport:
         response = client.post("/", data={
             "url": "https://ridewithgps.com/trips/12345",
             "mode": "route",
-            "power": "100",
+            "climbing_power": "150",
+            "flat_power": "120",
             "mass": "85",
             "headwind": "0",
         })
@@ -689,7 +716,8 @@ class TestTripSupport:
         response = client.post("/", data={
             "url": "https://ridewithgps.com/trips/12345",
             "mode": "route",
-            "power": "100",
+            "climbing_power": "150",
+            "flat_power": "120",
             "mass": "85",
             "headwind": "0",
         })
@@ -713,7 +741,8 @@ class TestTripSupport:
         response = client.post("/", data={
             "url": "https://ridewithgps.com/routes/12345",
             "mode": "route",
-            "power": "100",
+            "climbing_power": "150",
+            "flat_power": "120",
             "mass": "85",
             "headwind": "0",
         })

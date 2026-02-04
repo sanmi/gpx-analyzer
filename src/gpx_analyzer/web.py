@@ -35,6 +35,20 @@ from gpx_analyzer.smoothing import smooth_elevations
 from gpx_analyzer.tunnel import detect_and_correct_tunnels
 
 
+def _get_config_hash() -> str:
+    """Get a hash of config parameters that affect analysis but aren't in the UI."""
+    config = _load_config() or {}
+    # Include all config params that affect physics but aren't UI-adjustable
+    relevant_keys = [
+        "crr", "cda", "coasting_grade", "max_coast_speed", "max_coast_speed_unpaved",
+        "climb_threshold_grade", "steep_descent_speed", "steep_descent_grade",
+        "straight_descent_speed", "hairpin_speed", "straight_curvature", "hairpin_curvature",
+        "drivetrain_efficiency", "smoothing", "elevation_scale",
+    ]
+    config_str = "|".join(f"{k}={config.get(k, '')}" for k in relevant_keys)
+    return hashlib.md5(config_str.encode()).hexdigest()[:8]
+
+
 # Simple LRU cache for route analysis results
 class AnalysisCache:
     """Thread-safe LRU cache for route analysis results."""
@@ -46,18 +60,17 @@ class AnalysisCache:
         self.hits = 0
         self.misses = 0
 
-    def _make_key(self, url: str, power: float, mass: float, headwind: float,
-                  climb_power_factor: float = 1.0, flat_power_factor: float = 1.0,
+    def _make_key(self, url: str, climbing_power: float, flat_power: float, mass: float, headwind: float,
                   descent_speed_factor: float = 1.0) -> str:
         """Create a cache key from analysis parameters."""
-        key_str = f"{url}|{power}|{mass}|{headwind}|{climb_power_factor}|{flat_power_factor}|{descent_speed_factor}"
+        config_hash = _get_config_hash()
+        key_str = f"{url}|{climbing_power}|{flat_power}|{mass}|{headwind}|{descent_speed_factor}|{config_hash}"
         return hashlib.md5(key_str.encode()).hexdigest()
 
-    def get(self, url: str, power: float, mass: float, headwind: float,
-            climb_power_factor: float = 1.0, flat_power_factor: float = 1.0,
+    def get(self, url: str, climbing_power: float, flat_power: float, mass: float, headwind: float,
             descent_speed_factor: float = 1.0) -> dict | None:
         """Get cached result, returns None if not found."""
-        key = self._make_key(url, power, mass, headwind, climb_power_factor, flat_power_factor, descent_speed_factor)
+        key = self._make_key(url, climbing_power, flat_power, mass, headwind, descent_speed_factor)
         with self.lock:
             if key in self.cache:
                 # Move to end (most recently used)
@@ -67,11 +80,10 @@ class AnalysisCache:
             self.misses += 1
             return None
 
-    def set(self, url: str, power: float, mass: float, headwind: float,
-            climb_power_factor: float, flat_power_factor: float,
+    def set(self, url: str, climbing_power: float, flat_power: float, mass: float, headwind: float,
             descent_speed_factor: float, result: dict) -> None:
         """Store result in cache."""
-        key = self._make_key(url, power, mass, headwind, climb_power_factor, flat_power_factor, descent_speed_factor)
+        key = self._make_key(url, climbing_power, flat_power, mass, headwind, descent_speed_factor)
         with self.lock:
             if key in self.cache:
                 self.cache.move_to_end(key)
@@ -114,12 +126,12 @@ PROFILE_CACHE_INDEX_PATH = PROFILE_CACHE_DIR / "cache_index.json"
 MAX_CACHED_PROFILES = 150  # ~150 images, each ~60KB = ~9MB max
 
 
-def _make_profile_cache_key(url: str, power: float, mass: float, headwind: float,
-                            climb_power_factor: float = 1.0, flat_power_factor: float = 1.0,
+def _make_profile_cache_key(url: str, climbing_power: float, flat_power: float, mass: float, headwind: float,
                             descent_speed_factor: float = 1.0, collapse_stops: bool = False,
                             max_xlim_hours: float | None = None) -> str:
     """Create a unique cache key for elevation profile parameters."""
-    key_str = f"{url}|{power}|{mass}|{headwind}|{climb_power_factor}|{flat_power_factor}|{descent_speed_factor}|{collapse_stops}|{max_xlim_hours}"
+    config_hash = _get_config_hash()
+    key_str = f"{url}|{climbing_power}|{flat_power}|{mass}|{headwind}|{descent_speed_factor}|{collapse_stops}|{max_xlim_hours}|{config_hash}"
     return hashlib.md5(key_str.encode()).hexdigest()
 
 
@@ -195,9 +207,9 @@ HTML_TEMPLATE = """
     {% if is_trip %}
     <meta property="og:description" content="{{ result.time_str }}{% if result.work_kj is not none %} • {{ '%.0f'|format(result.work_kj) }} kJ{% endif %} | {{ '%.0f'|format(result.distance_km) }} km • {{ '%.0f'|format(result.elevation_m) }}m{% if result.avg_watts is not none %} @ {{ result.avg_watts|int }}W{% endif %}">
     {% else %}
-    <meta property="og:description" content="{{ result.time_str }} • {{ '%.0f'|format(result.work_kj) }} kJ | {{ '%.0f'|format(result.distance_km) }} km • {{ '%.0f'|format(result.elevation_m) }}m @ {{ power|int }}W">
+    <meta property="og:description" content="{{ result.time_str }} • {{ '%.0f'|format(result.work_kj) }} kJ | {{ '%.0f'|format(result.distance_km) }} km • {{ '%.0f'|format(result.elevation_m) }}m @ {{ climbing_power|int }}W">
     {% endif %}
-    <meta property="og:image" content="{{ base_url }}og-image?url={{ url|urlencode }}&power={{ power }}&mass={{ mass }}&headwind={{ headwind }}">
+    <meta property="og:image" content="{{ base_url }}og-image?url={{ url|urlencode }}&climbing_power={{ climbing_power }}&flat_power={{ flat_power }}&mass={{ mass }}&headwind={{ headwind }}">
     <meta property="og:type" content="website">
     {% else %}
     <meta property="og:title" content="Reality Check my Route">
@@ -1426,10 +1438,17 @@ HTML_TEMPLATE = """
         <div class="param-row">
             <div>
                 <div class="label-row">
-                    <label for="power">Average Power (W)</label>
+                    <label for="climbing_power">Climbing Power (W)</label>
                     <button type="button" class="info-btn" onclick="showModal('powerModal')">?</button>
                 </div>
-                <input type="number" id="power" name="power" value="{{ power }}" step="1">
+                <input type="number" id="climbing_power" name="climbing_power" value="{{ climbing_power }}" step="1">
+            </div>
+            <div>
+                <div class="label-row">
+                    <label for="flat_power">Flat Power (W)</label>
+                    <button type="button" class="info-btn" onclick="showModal('flatPowerModal')">?</button>
+                </div>
+                <input type="number" id="flat_power" name="flat_power" value="{{ flat_power }}" step="1">
             </div>
             <div>
                 <div class="label-row">
@@ -1459,10 +1478,8 @@ HTML_TEMPLATE = """
                 <span class="chevron">▶</span>
                 <span>Advanced Options</span>
             </div>
-            {% if result and (climb_power_factor != defaults.climb_power_factor or flat_power_factor != defaults.flat_power_factor or descent_speed_factor != defaults.descent_speed_factor) %}
+            {% if result and descent_speed_factor != defaults.descent_speed_factor %}
             <span class="custom-settings" title="Custom physics model settings">
-                <span class="setting"><span class="setting-label">Climb:</span> <span class="setting-value">{{ "%.2f"|format(climb_power_factor) }}</span></span>
-                <span class="setting"><span class="setting-label">Flat:</span> <span class="setting-value">{{ "%.2f"|format(flat_power_factor) }}</span></span>
                 <span class="setting"><span class="setting-label">Descent:</span> <span class="setting-value">{{ "%.2f"|format(descent_speed_factor) }}</span></span>
             </span>
             {% endif %}
@@ -1470,20 +1487,6 @@ HTML_TEMPLATE = """
 
         <div class="advanced-options" id="advancedOptions">
             <div class="param-row">
-                <div>
-                    <div class="label-row">
-                        <label for="climb_power_factor">Climb Power Factor</label>
-                        <button type="button" class="info-btn" onclick="showModal('climbPowerModal')">?</button>
-                    </div>
-                    <input type="number" id="climb_power_factor" name="climb_power_factor" value="{{ climb_power_factor }}" step="0.01" min="0.5" max="3.0">
-                </div>
-                <div>
-                    <div class="label-row">
-                        <label for="flat_power_factor">Flat Power Factor</label>
-                        <button type="button" class="info-btn" onclick="showModal('flatPowerModal')">?</button>
-                    </div>
-                    <input type="number" id="flat_power_factor" name="flat_power_factor" value="{{ flat_power_factor }}" step="0.01" min="0.5" max="2.0">
-                </div>
                 <div>
                     <div class="label-row">
                         <label for="descent_speed_factor">Descent Speed Factor</label>
@@ -1935,8 +1938,6 @@ HTML_TEMPLATE = """
         }
 
         function resetAdvancedOptions() {
-            document.getElementById('climb_power_factor').value = {{ defaults.climb_power_factor }};
-            document.getElementById('flat_power_factor').value = {{ defaults.flat_power_factor }};
             document.getElementById('descent_speed_factor').value = {{ defaults.descent_speed_factor }};
         }
 
@@ -2125,7 +2126,8 @@ HTML_TEMPLATE = """
         function buildAnalyzeUrl(routeUrl) {
             var params = new URLSearchParams({
                 url: routeUrl,
-                power: document.getElementById('power').value,
+                climbing_power: document.getElementById('climbing_power').value,
+                flat_power: document.getElementById('flat_power').value,
                 mass: document.getElementById('mass').value,
                 headwind: document.getElementById('headwind').value
             });
@@ -2177,7 +2179,8 @@ HTML_TEMPLATE = """
             hideAllResults();
 
             var url = document.getElementById('url').value;
-            var power = document.getElementById('power').value;
+            var climbing_power = document.getElementById('climbing_power').value;
+            var flat_power = document.getElementById('flat_power').value;
             var mass = document.getElementById('mass').value;
             var headwind = document.getElementById('headwind').value;
 
@@ -2196,7 +2199,8 @@ HTML_TEMPLATE = """
 
             var params = new URLSearchParams({
                 url: url,
-                power: power,
+                climbing_power: climbing_power,
+                flat_power: flat_power,
                 mass: mass,
                 headwind: headwind
             });
@@ -3028,12 +3032,12 @@ HTML_TEMPLATE = """
                 <div class="elevation-profile-container" id="elevationContainer1"
                      data-url="{{ url|urlencode }}"
                      data-max-xlim-hours="{{ '%.4f'|format(max_time_hours) }}"
-                     data-base-profile-url="/elevation-profile?url={{ url|urlencode }}&power={{ power }}&mass={{ mass }}&headwind={{ headwind }}&climb_power_factor={{ climb_power_factor }}&flat_power_factor={{ flat_power_factor }}&descent_speed_factor={{ descent_speed_factor }}&max_xlim_hours={{ '%.4f'|format(max_time_hours) }}"
-                     data-base-data-url="/elevation-profile-data?url={{ url|urlencode }}&power={{ power }}&mass={{ mass }}&headwind={{ headwind }}&climb_power_factor={{ climb_power_factor }}&flat_power_factor={{ flat_power_factor }}&descent_speed_factor={{ descent_speed_factor }}">
+                     data-base-profile-url="/elevation-profile?url={{ url|urlencode }}&climbing_power={{ climbing_power }}&flat_power={{ flat_power }}&mass={{ mass }}&headwind={{ headwind }}&descent_speed_factor={{ descent_speed_factor }}&max_xlim_hours={{ '%.4f'|format(max_time_hours) }}"
+                     data-base-data-url="/elevation-profile-data?url={{ url|urlencode }}&climbing_power={{ climbing_power }}&flat_power={{ flat_power }}&mass={{ mass }}&headwind={{ headwind }}&descent_speed_factor={{ descent_speed_factor }}">
                     <div class="elevation-loading" id="elevationLoading1">
                         <div class="elevation-spinner"></div>
                     </div>
-                    <img src="/elevation-profile?url={{ url|urlencode }}&power={{ power }}&mass={{ mass }}&headwind={{ headwind }}&climb_power_factor={{ climb_power_factor }}&flat_power_factor={{ flat_power_factor }}&descent_speed_factor={{ descent_speed_factor }}&max_xlim_hours={{ '%.4f'|format(max_time_hours) }}"
+                    <img src="/elevation-profile?url={{ url|urlencode }}&climbing_power={{ climbing_power }}&flat_power={{ flat_power }}&mass={{ mass }}&headwind={{ headwind }}&descent_speed_factor={{ descent_speed_factor }}&max_xlim_hours={{ '%.4f'|format(max_time_hours) }}"
                          alt="Elevation profile - Route 1" id="elevationImg1" class="loading"
                          onload="document.getElementById('elevationLoading1').classList.add('hidden'); this.classList.remove('loading');">
                     <div class="elevation-cursor" id="elevationCursor1"></div>
@@ -3064,12 +3068,12 @@ HTML_TEMPLATE = """
                 <div class="elevation-profile-container" id="elevationContainer2"
                      data-url="{{ url2|urlencode }}"
                      data-max-xlim-hours="{{ '%.4f'|format(max_time_hours) }}"
-                     data-base-profile-url="/elevation-profile?url={{ url2|urlencode }}&power={{ power }}&mass={{ mass }}&headwind={{ headwind }}&climb_power_factor={{ climb_power_factor }}&flat_power_factor={{ flat_power_factor }}&descent_speed_factor={{ descent_speed_factor }}&max_xlim_hours={{ '%.4f'|format(max_time_hours) }}"
-                     data-base-data-url="/elevation-profile-data?url={{ url2|urlencode }}&power={{ power }}&mass={{ mass }}&headwind={{ headwind }}&climb_power_factor={{ climb_power_factor }}&flat_power_factor={{ flat_power_factor }}&descent_speed_factor={{ descent_speed_factor }}">
+                     data-base-profile-url="/elevation-profile?url={{ url2|urlencode }}&climbing_power={{ climbing_power }}&flat_power={{ flat_power }}&mass={{ mass }}&headwind={{ headwind }}&descent_speed_factor={{ descent_speed_factor }}&max_xlim_hours={{ '%.4f'|format(max_time_hours) }}"
+                     data-base-data-url="/elevation-profile-data?url={{ url2|urlencode }}&climbing_power={{ climbing_power }}&flat_power={{ flat_power }}&mass={{ mass }}&headwind={{ headwind }}&descent_speed_factor={{ descent_speed_factor }}">
                     <div class="elevation-loading" id="elevationLoading2">
                         <div class="elevation-spinner"></div>
                     </div>
-                    <img src="/elevation-profile?url={{ url2|urlencode }}&power={{ power }}&mass={{ mass }}&headwind={{ headwind }}&climb_power_factor={{ climb_power_factor }}&flat_power_factor={{ flat_power_factor }}&descent_speed_factor={{ descent_speed_factor }}&max_xlim_hours={{ '%.4f'|format(max_time_hours) }}"
+                    <img src="/elevation-profile?url={{ url2|urlencode }}&climbing_power={{ climbing_power }}&flat_power={{ flat_power }}&mass={{ mass }}&headwind={{ headwind }}&descent_speed_factor={{ descent_speed_factor }}&max_xlim_hours={{ '%.4f'|format(max_time_hours) }}"
                          alt="Elevation profile - Route 2" id="elevationImg2" class="loading"
                          onload="document.getElementById('elevationLoading2').classList.add('hidden'); this.classList.remove('loading');">
                     <div class="elevation-cursor" id="elevationCursor2"></div>
@@ -3094,12 +3098,12 @@ HTML_TEMPLATE = """
             </div>
             <div class="elevation-profile-container" id="elevationContainer"
                  data-url="{{ url|urlencode }}"
-                 data-base-profile-url="/elevation-profile?url={{ url|urlencode }}&power={{ power }}&mass={{ mass }}&headwind={{ headwind }}&climb_power_factor={{ climb_power_factor }}&flat_power_factor={{ flat_power_factor }}&descent_speed_factor={{ descent_speed_factor }}"
-                 data-base-data-url="/elevation-profile-data?url={{ url|urlencode }}&power={{ power }}&mass={{ mass }}&headwind={{ headwind }}&climb_power_factor={{ climb_power_factor }}&flat_power_factor={{ flat_power_factor }}&descent_speed_factor={{ descent_speed_factor }}">
+                 data-base-profile-url="/elevation-profile?url={{ url|urlencode }}&climbing_power={{ climbing_power }}&flat_power={{ flat_power }}&mass={{ mass }}&headwind={{ headwind }}&descent_speed_factor={{ descent_speed_factor }}"
+                 data-base-data-url="/elevation-profile-data?url={{ url|urlencode }}&climbing_power={{ climbing_power }}&flat_power={{ flat_power }}&mass={{ mass }}&headwind={{ headwind }}&descent_speed_factor={{ descent_speed_factor }}">
                 <div class="elevation-loading" id="elevationLoading">
                     <div class="elevation-spinner"></div>
                 </div>
-                <img src="/elevation-profile?url={{ url|urlencode }}&power={{ power }}&mass={{ mass }}&headwind={{ headwind }}&climb_power_factor={{ climb_power_factor }}&flat_power_factor={{ flat_power_factor }}&descent_speed_factor={{ descent_speed_factor }}"
+                <img src="/elevation-profile?url={{ url|urlencode }}&climbing_power={{ climbing_power }}&flat_power={{ flat_power }}&mass={{ mass }}&headwind={{ headwind }}&descent_speed_factor={{ descent_speed_factor }}"
                      alt="Elevation profile" id="elevationImg" class="loading"
                      onload="document.getElementById('elevationLoading').classList.add('hidden'); this.classList.remove('loading');">
                 <div class="elevation-cursor" id="elevationCursor"></div>
@@ -3289,19 +3293,19 @@ HTML_TEMPLATE = """
                 var maxXlimHours = parseFloat(container1.getAttribute('data-max-xlim-hours')) || null;
                 setupElevationProfile(
                     'elevationContainer1', 'elevationImg1', 'elevationTooltip1', 'elevationCursor1',
-                    '/elevation-profile-data?url={{ url|urlencode }}&power={{ power }}&mass={{ mass }}&headwind={{ headwind }}&climb_power_factor={{ climb_power_factor }}&flat_power_factor={{ flat_power_factor }}&descent_speed_factor={{ descent_speed_factor }}',
+                    '/elevation-profile-data?url={{ url|urlencode }}&climbing_power={{ climbing_power }}&flat_power={{ flat_power }}&mass={{ mass }}&headwind={{ headwind }}&descent_speed_factor={{ descent_speed_factor }}',
                     maxXlimHours
                 );
                 setupElevationProfile(
                     'elevationContainer2', 'elevationImg2', 'elevationTooltip2', 'elevationCursor2',
-                    '/elevation-profile-data?url={{ url2|urlencode if url2 else "" }}&power={{ power }}&mass={{ mass }}&headwind={{ headwind }}&climb_power_factor={{ climb_power_factor }}&flat_power_factor={{ flat_power_factor }}&descent_speed_factor={{ descent_speed_factor }}',
+                    '/elevation-profile-data?url={{ url2|urlencode if url2 else "" }}&climbing_power={{ climbing_power }}&flat_power={{ flat_power }}&mass={{ mass }}&headwind={{ headwind }}&descent_speed_factor={{ descent_speed_factor }}',
                     maxXlimHours
                 );
             } else {
                 // Single route mode
                 setupElevationProfile(
                     'elevationContainer', 'elevationImg', 'elevationTooltip', 'elevationCursor',
-                    '/elevation-profile-data?url={{ url|urlencode }}&power={{ power }}&mass={{ mass }}&headwind={{ headwind }}&climb_power_factor={{ climb_power_factor }}&flat_power_factor={{ flat_power_factor }}&descent_speed_factor={{ descent_speed_factor }}'
+                    '/elevation-profile-data?url={{ url|urlencode }}&climbing_power={{ climbing_power }}&flat_power={{ flat_power }}&mass={{ mass }}&headwind={{ headwind }}&descent_speed_factor={{ descent_speed_factor }}'
                 );
             }
         })();
@@ -3326,19 +3330,16 @@ def get_defaults():
     """Get default values from config file, falling back to DEFAULTS."""
     config = _load_config() or {}
     return {
-        "power": config.get("power", DEFAULTS["power"]),
+        "climbing_power": config.get("climbing_power", DEFAULTS["climbing_power"]),
+        "flat_power": config.get("flat_power", DEFAULTS["flat_power"]),
         "mass": config.get("mass", DEFAULTS["mass"]),
         "headwind": config.get("headwind", DEFAULTS["headwind"]),
-        "climb_power_factor": config.get("climb_power_factor", DEFAULTS["climb_power_factor"]),
-        "flat_power_factor": config.get("flat_power_factor", DEFAULTS["flat_power_factor"]),
         "descent_speed_factor": config.get("descent_speed_factor", DEFAULTS["descent_speed_factor"]),
     }
 
 
 def build_params(
-    power: float, mass: float, headwind: float,
-    climb_power_factor: float | None = None,
-    flat_power_factor: float | None = None,
+    climbing_power: float, flat_power: float, mass: float, headwind: float,
     descent_speed_factor: float | None = None,
 ) -> RiderParams:
     """Build RiderParams from user inputs and config defaults."""
@@ -3347,16 +3348,19 @@ def build_params(
         total_mass=mass,
         cda=config.get("cda", DEFAULTS["cda"]),
         crr=config.get("crr", DEFAULTS["crr"]),
-        assumed_avg_power=power,
+        climbing_power=climbing_power,
+        flat_power=flat_power,
         coasting_grade_threshold=config.get("coasting_grade", DEFAULTS["coasting_grade"]),
         max_coasting_speed=config.get("max_coast_speed", DEFAULTS["max_coast_speed"]) / 3.6,
         max_coasting_speed_unpaved=config.get("max_coast_speed_unpaved", DEFAULTS["max_coast_speed_unpaved"]) / 3.6,
         headwind=headwind / 3.6,
-        climb_power_factor=climb_power_factor if climb_power_factor is not None else config.get("climb_power_factor", DEFAULTS["climb_power_factor"]),
-        flat_power_factor=flat_power_factor if flat_power_factor is not None else config.get("flat_power_factor", DEFAULTS["flat_power_factor"]),
         climb_threshold_grade=config.get("climb_threshold_grade", DEFAULTS["climb_threshold_grade"]),
         steep_descent_speed=config.get("steep_descent_speed", DEFAULTS["steep_descent_speed"]) / 3.6,
         steep_descent_grade=config.get("steep_descent_grade", DEFAULTS["steep_descent_grade"]),
+        straight_descent_speed=config.get("straight_descent_speed", DEFAULTS["straight_descent_speed"]) / 3.6,
+        hairpin_speed=config.get("hairpin_speed", DEFAULTS["hairpin_speed"]) / 3.6,
+        straight_curvature=config.get("straight_curvature", DEFAULTS["straight_curvature"]),
+        hairpin_curvature=config.get("hairpin_curvature", DEFAULTS["hairpin_curvature"]),
         descent_speed_factor=descent_speed_factor if descent_speed_factor is not None else config.get("descent_speed_factor", DEFAULTS["descent_speed_factor"]),
         drivetrain_efficiency=config.get("drivetrain_efficiency", DEFAULTS["drivetrain_efficiency"]),
     )
@@ -3410,8 +3414,8 @@ def analyze_single_route(url: str, params: RiderParams) -> dict:
     """
     # Check cache first
     cached = _analysis_cache.get(
-        url, params.assumed_avg_power, params.total_mass, params.headwind,
-        params.climb_power_factor, params.flat_power_factor, params.descent_speed_factor
+        url, params.climbing_power, params.flat_power, params.total_mass, params.headwind,
+        params.descent_speed_factor
     )
     if cached is not None:
         return cached
@@ -3498,8 +3502,8 @@ def analyze_single_route(url: str, params: RiderParams) -> dict:
 
     # Store in cache
     _analysis_cache.set(
-        url, params.assumed_avg_power, params.total_mass, params.headwind,
-        params.climb_power_factor, params.flat_power_factor, params.descent_speed_factor,
+        url, params.climbing_power, params.flat_power, params.total_mass, params.headwind,
+        params.descent_speed_factor,
         result
     )
 
@@ -3767,11 +3771,13 @@ def cache_clear():
 @app.route("/analyze-collection-stream")
 def analyze_collection_stream():
     """SSE endpoint for streaming collection analysis progress."""
+    defaults = get_defaults()
     url = request.args.get("url", "")
     try:
-        power = float(request.args.get("power", 100))
-        mass = float(request.args.get("mass", 85))
-        headwind = float(request.args.get("headwind", 0))
+        climbing_power = float(request.args.get("climbing_power", defaults["climbing_power"]))
+        flat_power = float(request.args.get("flat_power", defaults["flat_power"]))
+        mass = float(request.args.get("mass", defaults["mass"]))
+        headwind = float(request.args.get("headwind", defaults["headwind"]))
     except ValueError:
         def error_gen():
             yield f"data: {json.dumps({'type': 'error', 'message': 'Invalid parameters'})}\n\n"
@@ -3792,7 +3798,7 @@ def analyze_collection_stream():
 
             yield f"data: {json.dumps({'type': 'start', 'name': collection_name, 'total': len(route_ids)})}\n\n"
 
-            params = build_params(power, mass, headwind)
+            params = build_params(climbing_power, flat_power, mass, headwind)
 
             for i, route_id in enumerate(route_ids):
                 route_url = f"https://ridewithgps.com/routes/{route_id}"
@@ -3822,6 +3828,7 @@ def analyze_collection_stream():
 @app.route("/og-image")
 def og_image():
     """Generate Open Graph preview image with time-at-grade histogram."""
+    defaults = get_defaults()
     url = request.args.get("url", "")
 
     if not url or not is_ridewithgps_url(url):
@@ -3829,14 +3836,15 @@ def og_image():
         return generate_fallback_image()
 
     try:
-        power = float(request.args.get("power", DEFAULTS["power"]))
-        mass = float(request.args.get("mass", DEFAULTS["mass"]))
-        headwind = float(request.args.get("headwind", DEFAULTS["headwind"]))
+        climbing_power = float(request.args.get("climbing_power", defaults["climbing_power"]))
+        flat_power = float(request.args.get("flat_power", defaults["flat_power"]))
+        mass = float(request.args.get("mass", defaults["mass"]))
+        headwind = float(request.args.get("headwind", defaults["headwind"]))
     except ValueError:
         return generate_fallback_image()
 
     try:
-        params = build_params(power, mass, headwind)
+        params = build_params(climbing_power, flat_power, mass, headwind)
         result = analyze_single_route(url, params)
         return generate_histogram_image(result)
     except Exception:
@@ -4311,11 +4319,10 @@ def elevation_profile():
     """Serve elevation profile image for a route or trip."""
     defaults = get_defaults()
     url = request.args.get("url", "")
-    power = float(request.args.get("power", defaults["power"]))
+    climbing_power = float(request.args.get("climbing_power", defaults["climbing_power"]))
+    flat_power = float(request.args.get("flat_power", defaults["flat_power"]))
     mass = float(request.args.get("mass", defaults["mass"]))
     headwind = float(request.args.get("headwind", defaults["headwind"]))
-    climb_power_factor = float(request.args.get("climb_power_factor", defaults["climb_power_factor"]))
-    flat_power_factor = float(request.args.get("flat_power_factor", defaults["flat_power_factor"]))
     descent_speed_factor = float(request.args.get("descent_speed_factor", defaults["descent_speed_factor"]))
     collapse_stops = request.args.get("collapse_stops", "false").lower() == "true"
     max_xlim_str = request.args.get("max_xlim_hours", "")
@@ -4333,7 +4340,7 @@ def elevation_profile():
         return send_file(buf, mimetype='image/png')
 
     # Check disk cache first
-    cache_key = _make_profile_cache_key(url, power, mass, headwind, climb_power_factor, flat_power_factor, descent_speed_factor, collapse_stops, max_xlim_hours)
+    cache_key = _make_profile_cache_key(url, climbing_power, flat_power, mass, headwind, descent_speed_factor, collapse_stops, max_xlim_hours)
     cached_bytes = _get_cached_profile(cache_key)
     if cached_bytes:
         return send_file(io.BytesIO(cached_bytes), mimetype='image/png')
@@ -4346,7 +4353,7 @@ def elevation_profile():
             img_bytes = generate_trip_elevation_profile(url, title_time_hours, collapse_stops=collapse_stops, max_xlim_hours=max_xlim_hours)
         else:
             # Route: use physics estimation
-            params = build_params(power, mass, headwind, climb_power_factor, flat_power_factor, descent_speed_factor)
+            params = build_params(climbing_power, flat_power, mass, headwind, descent_speed_factor)
             analysis = analyze_single_route(url, params)
             title_time_hours = analysis["time_seconds"] / 3600
             img_bytes = generate_elevation_profile(url, params, title_time_hours, max_xlim_hours=max_xlim_hours)
@@ -4370,11 +4377,10 @@ def elevation_profile_data():
     """Return elevation profile data as JSON for interactive tooltip."""
     defaults = get_defaults()
     url = request.args.get("url", "")
-    power = float(request.args.get("power", defaults["power"]))
+    climbing_power = float(request.args.get("climbing_power", defaults["climbing_power"]))
+    flat_power = float(request.args.get("flat_power", defaults["flat_power"]))
     mass = float(request.args.get("mass", defaults["mass"]))
     headwind = float(request.args.get("headwind", defaults["headwind"]))
-    climb_power_factor = float(request.args.get("climb_power_factor", defaults["climb_power_factor"]))
-    flat_power_factor = float(request.args.get("flat_power_factor", defaults["flat_power_factor"]))
     descent_speed_factor = float(request.args.get("descent_speed_factor", defaults["descent_speed_factor"]))
     collapse_stops = request.args.get("collapse_stops", "false").lower() == "true"
 
@@ -4387,7 +4393,7 @@ def elevation_profile_data():
             data = _calculate_trip_elevation_profile_data(url, collapse_stops=collapse_stops)
         else:
             # Route: use physics estimation
-            params = build_params(power, mass, headwind, climb_power_factor, flat_power_factor, descent_speed_factor)
+            params = build_params(climbing_power, flat_power, mass, headwind, descent_speed_factor)
             data = _calculate_elevation_profile_data(url, params)
 
         # Downsample data if too many points (for performance)
@@ -4481,11 +4487,10 @@ def index():
     is_trip = False  # Flag for trip vs route
     is_trip2 = False  # Flag for second URL trip vs route
 
-    power = defaults["power"]
+    climbing_power = defaults["climbing_power"]
+    flat_power = defaults["flat_power"]
     mass = defaults["mass"]
     headwind = defaults["headwind"]
-    climb_power_factor = defaults["climb_power_factor"]
-    flat_power_factor = defaults["flat_power_factor"]
     descent_speed_factor = defaults["descent_speed_factor"]
 
     # Check for GET parameters (shared link)
@@ -4495,11 +4500,10 @@ def index():
         imperial = request.args.get("imperial") == "1"
 
         try:
-            power = float(request.args.get("power", defaults["power"]))
+            climbing_power = float(request.args.get("climbing_power", defaults["climbing_power"]))
+            flat_power = float(request.args.get("flat_power", defaults["flat_power"]))
             mass = float(request.args.get("mass", defaults["mass"]))
             headwind = float(request.args.get("headwind", defaults["headwind"]))
-            climb_power_factor = float(request.args.get("climb_power_factor", defaults["climb_power_factor"]))
-            flat_power_factor = float(request.args.get("flat_power_factor", defaults["flat_power_factor"]))
             descent_speed_factor = float(request.args.get("descent_speed_factor", defaults["descent_speed_factor"]))
         except ValueError:
             error = "Invalid number in parameters"
@@ -4511,7 +4515,7 @@ def index():
             elif _is_valid_rwgps_url(url):
                 # Single route or trip - analyze server-side
                 try:
-                    params = build_params(power, mass, headwind, climb_power_factor, flat_power_factor, descent_speed_factor)
+                    params = build_params(climbing_power, flat_power, mass, headwind, descent_speed_factor)
                     result, is_trip = _analyze_url(url, params)
                     route_id = _extract_id_from_url(url)
                     privacy_code = extract_privacy_code(url)
@@ -4539,11 +4543,10 @@ def index():
         imperial = request.form.get("imperial") == "on"
 
         try:
-            power = float(request.form.get("power", defaults["power"]))
+            climbing_power = float(request.form.get("climbing_power", defaults["climbing_power"]))
+            flat_power = float(request.form.get("flat_power", defaults["flat_power"]))
             mass = float(request.form.get("mass", defaults["mass"]))
             headwind = float(request.form.get("headwind", defaults["headwind"]))
-            climb_power_factor = float(request.form.get("climb_power_factor", defaults["climb_power_factor"]))
-            flat_power_factor = float(request.form.get("flat_power_factor", defaults["flat_power_factor"]))
             descent_speed_factor = float(request.form.get("descent_speed_factor", defaults["descent_speed_factor"]))
         except ValueError:
             error = "Invalid number in parameters"
@@ -4556,7 +4559,7 @@ def index():
                     error = "Invalid RideWithGPS URL. Expected format: https://ridewithgps.com/routes/XXXXX or /trips/XXXXX"
                 else:
                     try:
-                        params = build_params(power, mass, headwind, climb_power_factor, flat_power_factor, descent_speed_factor)
+                        params = build_params(climbing_power, flat_power, mass, headwind, descent_speed_factor)
                         result, is_trip = _analyze_url(url, params)
                         route_id = _extract_id_from_url(url)
                         privacy_code = extract_privacy_code(url)
@@ -4582,11 +4585,10 @@ def index():
         from urllib.parse import urlencode
         share_params = {
             "url": url,
-            "power": power,
+            "climbing_power": climbing_power,
+            "flat_power": flat_power,
             "mass": mass,
             "headwind": headwind,
-            "climb_power_factor": climb_power_factor,
-            "flat_power_factor": flat_power_factor,
             "descent_speed_factor": descent_speed_factor,
         }
         if url2 and compare_mode:
@@ -4604,11 +4606,10 @@ def index():
         is_trip=is_trip,
         is_trip2=is_trip2,
         mode=mode,
-        power=power,
+        climbing_power=climbing_power,
+        flat_power=flat_power,
         mass=mass,
         headwind=headwind,
-        climb_power_factor=climb_power_factor,
-        flat_power_factor=flat_power_factor,
         descent_speed_factor=descent_speed_factor,
         defaults=defaults,
         imperial=imperial,

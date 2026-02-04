@@ -33,12 +33,11 @@ DEFAULTS = {
     "mass": 85.0,
     "cda": 0.35,
     "crr": 0.005,
-    "power": 150.0,
+    "climbing_power": 150.0,
+    "flat_power": 120.0,
     "coasting_grade": -5.0,
     "max_coast_speed": 48.0,
     "max_coast_speed_unpaved": 24.0,
-    "climb_power_factor": 1.5,
-    "flat_power_factor": 1.0,
     "climb_threshold_grade": 4.0,
     "steep_descent_speed": 18.0,
     "steep_descent_grade": -8.0,
@@ -149,10 +148,16 @@ See README.md for detailed parameter descriptions.""",
         help=f"Rolling resistance coefficient (default: {DEFAULTS['crr']})",
     )
     parser.add_argument(
-        "--power",
+        "--climbing-power",
         type=float,
-        default=get_default("power"),
-        help=f"Assumed average power output in watts (default: {DEFAULTS['power']})",
+        default=get_default("climbing_power"),
+        help=f"Power output on steep climbs in watts (default: {DEFAULTS['climbing_power']})",
+    )
+    parser.add_argument(
+        "--flat-power",
+        type=float,
+        default=get_default("flat_power"),
+        help=f"Power output on flat terrain in watts (default: {DEFAULTS['flat_power']})",
     )
     parser.add_argument(
         "--coasting-grade",
@@ -171,18 +176,6 @@ See README.md for detailed parameter descriptions.""",
         type=float,
         default=get_default("max_coast_speed_unpaved"),
         help=f"Maximum coasting speed on unpaved surfaces in km/h (default: {DEFAULTS['max_coast_speed_unpaved']})",
-    )
-    parser.add_argument(
-        "--climb-power-factor",
-        type=float,
-        default=get_default("climb_power_factor"),
-        help=f"Power multiplier on steep climbs, e.g. 1.5 = 50%% more power (default: {DEFAULTS['climb_power_factor']})",
-    )
-    parser.add_argument(
-        "--flat-power-factor",
-        type=float,
-        default=get_default("flat_power_factor"),
-        help=f"Power multiplier on flat terrain, e.g. 1.15 = 15%% more power (default: {DEFAULTS['flat_power_factor']})",
     )
     parser.add_argument(
         "--climb-threshold-grade",
@@ -474,7 +467,7 @@ def format_collection_summary(
     # Config
     coast_speed = params.max_coasting_speed * 3.6 * speed_factor
     lines.append(f"Model params: mass={params.total_mass}kg cda={params.cda} crr={params.crr}")
-    lines.append(f"              power={params.assumed_avg_power}W max_coast={coast_speed:.0f}{speed_unit}")
+    lines.append(f"              climbing_power={params.climbing_power}W flat_power={params.flat_power}W max_coast={coast_speed:.0f}{speed_unit}")
     lines.append("")
 
     # Totals
@@ -531,13 +524,12 @@ def main(argv: list[str] | None = None) -> None:
         total_mass=args.mass,
         cda=args.cda,
         crr=args.crr,
-        assumed_avg_power=args.power,
+        climbing_power=args.climbing_power,
+        flat_power=args.flat_power,
         coasting_grade_threshold=args.coasting_grade,
         max_coasting_speed=args.max_coast_speed / 3.6,
         max_coasting_speed_unpaved=args.max_coast_speed_unpaved / 3.6,
         headwind=args.headwind / 3.6,
-        climb_power_factor=args.climb_power_factor,
-        flat_power_factor=args.flat_power_factor,
         climb_threshold_grade=args.climb_threshold_grade,
         steep_descent_speed=args.steep_descent_speed / 3.6,
         steep_descent_grade=args.steep_descent_grade,
@@ -565,7 +557,7 @@ def main(argv: list[str] | None = None) -> None:
         try:
             result = optimize_parameters(
                 training_file=optimize_path,
-                default_power=args.power,
+                default_power=args.climbing_power,
                 default_mass=args.mass,
                 max_iterations=100,
                 verbose=True,
@@ -740,14 +732,14 @@ def main(argv: list[str] | None = None) -> None:
     headwind_display = args.headwind * speed_factor
     max_coast_display = args.max_coast_speed * speed_factor
     print(
-        f"Config: mass={args.mass}kg cda={args.cda} crr={args.crr} power={args.power}W "
+        f"Config: mass={args.mass}kg cda={args.cda} crr={args.crr} climbing_power={args.climbing_power}W flat_power={args.flat_power}W "
         f"coasting_grade={args.coasting_grade}° max_coast_speed={max_coast_display:.0f}{speed_unit} "
         f"smoothing={smoothing_radius}m elevation_scale={args.elevation_scale} "
         f"headwind={headwind_display:.1f}{speed_unit}"
     )
     # Primary results (most important)
     print("=" * 40)
-    print(f"  Est. Time @{params.assumed_avg_power:.0f}W: {format_duration(result.estimated_moving_time_at_power)}")
+    print(f"  Est. Time @{params.climbing_power:.0f}W: {format_duration(result.estimated_moving_time_at_power)}")
     print(f"  Est. Work:       {result.estimated_work / 1000:.1f} kJ")
     print("=" * 40)
 

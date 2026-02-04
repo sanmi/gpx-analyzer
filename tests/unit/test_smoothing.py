@@ -27,10 +27,10 @@ class TestSmoothElevations:
         points = _make_points(elevations)
 
         params = RiderParams()
-        _, raw_gain, _, _, _, _ = _analyze_segments(points, params)
+        _, raw_gain, _, _, _, _, _ = _analyze_segments(points, params)
 
         smoothed = smooth_elevations(points, radius_m=25.0)
-        _, smooth_gain, _, _, _, _ = _analyze_segments(smoothed, params)
+        _, smooth_gain, _, _, _, _, _ = _analyze_segments(smoothed, params)
 
         assert smooth_gain < raw_gain
 

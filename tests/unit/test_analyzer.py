@@ -8,7 +8,7 @@ from gpx_analyzer.models import RiderParams, TrackPoint
 
 @pytest.fixture
 def high_power_params():
-    return RiderParams(assumed_avg_power=300.0)
+    return RiderParams(climbing_power=300.0, flat_power=240.0)
 
 
 class TestAnalyze:
@@ -65,7 +65,7 @@ class TestAnalyze:
     def test_estimated_time_at_power(self, simple_track_points, rider_params):
         result = analyze(simple_track_points, rider_params)
         assert result.estimated_moving_time_at_power.total_seconds() > 0
-        expected_seconds = result.estimated_work / rider_params.assumed_avg_power
+        expected_seconds = result.estimated_work / rider_params.climbing_power
         assert result.estimated_moving_time_at_power.total_seconds() == pytest.approx(
             expected_seconds
         )

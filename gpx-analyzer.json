@@ -2,7 +2,7 @@
     "mass": 84.0,
     "power": 100.0,
 
-    "crr": 0.01,
+    "crr": 0.005,
     "cda": 0.3971,
     "coasting_grade": -5.8614,
     "max_coast_speed": 57.999,

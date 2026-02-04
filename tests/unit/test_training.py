@@ -141,7 +141,7 @@ class TestTrainingRoute:
 
 class TestFormatTrainingSummary:
     def test_includes_model_params(self):
-        params = RiderParams(total_mass=80.0, cda=0.30, crr=0.010, assumed_avg_power=150.0)
+        params = RiderParams(total_mass=80.0, cda=0.30, crr=0.010, climbing_power=150.0, flat_power=120.0)
         summary = TrainingSummary(
             total_routes=0,
             total_distance_km=0,
@@ -311,8 +311,8 @@ class TestVerboseMetrics:
 
         params = RiderParams(
             total_mass=80.0,
-            assumed_avg_power=150.0,
-            climb_power_factor=1.5,
+            climbing_power=225.0,  # Direct climbing power
+            flat_power=150.0,  # Direct flat power
         )
 
         # This should not raise an ImportError
@@ -320,12 +320,12 @@ class TestVerboseMetrics:
 
         # Basic checks
         assert result is not None
-        assert result.avg_power_climbing == 150.0 * 1.5  # base_power * climb_power_factor
-        assert result.avg_power_flat == 150.0  # base_power * flat_power_factor (1.0 default)
+        assert result.avg_power_climbing == 225.0  # climbing_power
+        assert result.avg_power_flat == 150.0  # flat_power
         assert result.avg_power_descending == 0.0  # Model assumes coasting
 
-    def test_flat_power_factor_applied(self):
-        """Ensure flat_power_factor is applied to flat power calculation."""
+    def test_flat_power_applied(self):
+        """Ensure flat_power is used correctly in calculations."""
         from gpx_analyzer.training import _calculate_estimated_verbose_metrics
         from gpx_analyzer.models import TrackPoint
 
@@ -339,16 +339,15 @@ class TestVerboseMetrics:
 
         params = RiderParams(
             total_mass=80.0,
-            assumed_avg_power=150.0,
-            climb_power_factor=1.5,
-            flat_power_factor=0.9,  # 90% power on flats
+            climbing_power=225.0,  # 225W on climbs
+            flat_power=135.0,  # 135W on flats
         )
 
         result = _calculate_estimated_verbose_metrics(points, params)
 
-        # Verify flat_power_factor is applied
-        assert result.avg_power_climbing == 150.0 * 1.5  # 225W
-        assert result.avg_power_flat == 150.0 * 0.9  # 135W (not 150W)
+        # Verify direct power values are used
+        assert result.avg_power_climbing == 225.0
+        assert result.avg_power_flat == 135.0
         assert result.avg_power_descending == 0.0
 
     def test_actual_verbose_metrics_calculation(self):

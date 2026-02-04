@@ -64,9 +64,8 @@ def _analyze_segments(
 def analyze(points: list[TrackPoint], params: RiderParams) -> RideAnalysis:
     """Analyze a list of TrackPoints and return a RideAnalysis summary.
 
-    When time data is missing and speed is estimated from power, the analyzer
-    calibrates the internal nominal power so that the resulting time-weighted
-    average power matches the user's assumed_avg_power.
+    Uses climbing_power and flat_power directly to estimate speeds and times.
+    No calibration needed - power values are used as specified.
     """
     if len(points) < 2:
         return RideAnalysis(
@@ -82,31 +81,9 @@ def analyze(points: list[TrackPoint], params: RiderParams) -> RideAnalysis:
             estimated_moving_time_at_power=timedelta(),
         )
 
-    target_power = params.assumed_avg_power
-    calibrated_params = params
-
-    # Iteratively adjust nominal power so average power matches the target
-    # Use pedaling_seconds (not moving_seconds) to avoid descent time affecting calibration
-    for _ in range(_MAX_CALIBRATION_ITERATIONS):
-        totals = _analyze_segments(points, calibrated_params)
-        total_distance, elevation_gain, elevation_loss, total_work, moving_seconds, pedaling_seconds, max_speed = totals
-
-        if target_power <= 0 or pedaling_seconds <= 0:
-            break
-
-        # Calibrate using pedaling time only (excludes coasting descents)
-        avg_power = total_work / pedaling_seconds
-        if avg_power <= 0:
-            break
-
-        ratio = target_power / avg_power
-        if abs(ratio - 1.0) < _POWER_TOLERANCE:
-            break
-
-        calibrated_params = replace(
-            calibrated_params,
-            assumed_avg_power=calibrated_params.assumed_avg_power * ratio,
-        )
+    # Run segment analysis with the user's power settings directly
+    totals = _analyze_segments(points, params)
+    total_distance, elevation_gain, elevation_loss, total_work, moving_seconds, pedaling_seconds, max_speed = totals
 
     # Duration from timestamps (if available)
     if points[0].time is not None and points[-1].time is not None:
@@ -118,8 +95,10 @@ def analyze(points: list[TrackPoint], params: RiderParams) -> RideAnalysis:
     avg_speed = total_distance / moving_seconds if moving_seconds > 0 else 0.0
     avg_power = total_work / moving_seconds if moving_seconds > 0 else 0.0
 
-    if target_power > 0 and total_work > 0:
-        est_seconds = total_work / target_power
+    # Use climbing_power as reference for estimated time at power
+    # (most work is done on climbs)
+    if params.climbing_power > 0 and total_work > 0:
+        est_seconds = total_work / params.climbing_power
         estimated_moving_time_at_power = timedelta(seconds=est_seconds)
     else:
         estimated_moving_time_at_power = timedelta()

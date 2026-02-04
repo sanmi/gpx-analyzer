@@ -80,7 +80,8 @@ class TestCompareRouteWithTrip:
     @pytest.fixture
     def params(self):
         return RiderParams(
-            assumed_avg_power=100.0,
+            climbing_power=100.0,
+            flat_power=80.0,
             max_coasting_speed=15.0,
         )
 
@@ -196,7 +197,7 @@ class TestFormatComparisonReport:
             has_power_data=False,
             actual_avg_power=None,
         )
-        params = RiderParams(assumed_avg_power=100.0)
+        params = RiderParams(climbing_power=100.0, flat_power=80.0)
         report = format_comparison_report(result, params)
         assert "10.0 km" in report
         assert "10.5 km" in report
@@ -214,7 +215,7 @@ class TestFormatComparisonReport:
             has_power_data=False,
             actual_avg_power=None,
         )
-        params = RiderParams(assumed_avg_power=150.0)
+        params = RiderParams(climbing_power=150.0, flat_power=120.0)
         report = format_comparison_report(result, params)
         assert "2.00 h" in report
         assert "+20.0%" in report
@@ -232,7 +233,7 @@ class TestFormatComparisonReport:
             has_power_data=True,
             actual_avg_power=120.0,
         )
-        params = RiderParams(assumed_avg_power=100.0)
+        params = RiderParams(climbing_power=100.0, flat_power=80.0)
         report = format_comparison_report(result, params)
         assert "120 W" in report
         assert "100 W" in report
@@ -250,7 +251,7 @@ class TestFormatComparisonReport:
             has_power_data=True,
             actual_avg_power=100.0,
         )
-        params = RiderParams(assumed_avg_power=100.0)
+        params = RiderParams(climbing_power=100.0, flat_power=80.0)
         report = format_comparison_report(result, params)
         assert "500 kJ" in report
         assert "400 kJ" in report
@@ -276,7 +277,7 @@ class TestFormatComparisonReport:
             has_power_data=True,
             actual_avg_power=150.0,
         )
-        params = RiderParams(assumed_avg_power=100.0)
+        params = RiderParams(climbing_power=100.0, flat_power=80.0)
         report = format_comparison_report(result, params)
         assert "+4%" in report
         assert "150W" in report

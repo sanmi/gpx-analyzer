@@ -91,7 +91,7 @@ class TestCalculateSegmentWork:
         work_no_time, _, _ = calculate_segment_work(a, b, params)
 
         # Compare with zero-aero case (params with zero CdA)
-        no_aero_params = RiderParams(cda=0.0, assumed_avg_power=params.assumed_avg_power)
+        no_aero_params = RiderParams(cda=0.0, climbing_power=params.climbing_power, flat_power=params.flat_power)
         work_no_aero, _, _ = calculate_segment_work(a, b, no_aero_params)
         assert work_no_time > work_no_aero
 
@@ -112,26 +112,24 @@ class TestCalculateSegmentWork:
 
 class TestEffectivePower:
     def test_flat_base_power(self, params):
-        # With default flat_power_factor=1.0, flat power equals base power
-        expected = params.assumed_avg_power * params.flat_power_factor
-        assert effective_power(0.0, params) == expected
+        # On flat terrain, power should equal flat_power
+        assert effective_power(0.0, params) == params.flat_power
 
     def test_steep_climb_increased_power(self, params):
-        # Beyond climb threshold should have full climb power factor
+        # Beyond climb threshold should have full climbing_power
         steep_rad = math.radians(params.climb_threshold_grade + 2.0)
-        expected = params.assumed_avg_power * params.climb_power_factor
-        assert effective_power(steep_rad, params) == pytest.approx(expected)
+        assert effective_power(steep_rad, params) == pytest.approx(params.climbing_power)
 
     def test_moderate_climb_partial_increase(self, params):
         # Halfway to climb threshold should have partial increase
         # Default climb_threshold_grade is 4°, so 2° is halfway
         mid_rad = math.radians(2.0)
         power = effective_power(mid_rad, params)
-        # Should be between base and max climb power
-        assert power > params.assumed_avg_power
-        assert power < params.assumed_avg_power * params.climb_power_factor
-        # At halfway, factor should be 1.0 + 0.5 * (1.5 - 1.0) = 1.25
-        expected = params.assumed_avg_power * 1.25
+        # Should be between flat and max climb power
+        assert power > params.flat_power
+        assert power < params.climbing_power
+        # At halfway, should be: flat_power + 0.5 * (climbing_power - flat_power)
+        expected = params.flat_power + 0.5 * (params.climbing_power - params.flat_power)
         assert power == pytest.approx(expected, rel=0.01)
 
     def test_at_coasting_threshold_zero_power(self, params):
@@ -146,45 +144,44 @@ class TestEffectivePower:
         # Halfway between 0 and threshold (-5°) is -2.5°
         mid_rad = math.radians(-2.5)
         power = effective_power(mid_rad, params)
-        assert 0 < power < params.assumed_avg_power
-        assert power == pytest.approx(params.assumed_avg_power * 0.5, rel=0.01)
+        assert 0 < power < params.flat_power
+        assert power == pytest.approx(params.flat_power * 0.5, rel=0.01)
 
     def test_gentle_downhill_mostly_full_power(self, params):
         # -1° on a -5° threshold → 80% power
         gentle_rad = math.radians(-1.0)
         power = effective_power(gentle_rad, params)
-        assert power == pytest.approx(params.assumed_avg_power * 0.8, rel=0.01)
+        assert power == pytest.approx(params.flat_power * 0.8, rel=0.01)
 
-    def test_custom_climb_power_factor(self):
+    def test_custom_climbing_power(self):
         params = RiderParams(
-            assumed_avg_power=100.0,
-            climb_power_factor=2.0,
+            climbing_power=200.0,
+            flat_power=100.0,
             climb_threshold_grade=5.0,
         )
         steep_rad = math.radians(6.0)  # Beyond threshold
         assert effective_power(steep_rad, params) == pytest.approx(200.0)
 
-    def test_custom_flat_power_factor(self):
+    def test_custom_flat_power(self):
         params = RiderParams(
-            assumed_avg_power=100.0,
-            flat_power_factor=0.9,  # 90% power on flats
+            climbing_power=150.0,
+            flat_power=90.0,
         )
-        # On flat terrain, power should be base * flat_power_factor
+        # On flat terrain, power should be flat_power
         assert effective_power(0.0, params) == pytest.approx(90.0)
 
-    def test_flat_power_factor_ramp_to_climb(self):
-        """Power should ramp from flat_power to climb_power on climbs."""
+    def test_flat_power_ramp_to_climb(self):
+        """Power should ramp from flat_power to climbing_power on climbs."""
         params = RiderParams(
-            assumed_avg_power=100.0,
-            flat_power_factor=0.8,  # 80W on flat
-            climb_power_factor=1.5,  # 150W on steep climb
+            flat_power=80.0,
+            climbing_power=150.0,
             climb_threshold_grade=4.0,
         )
-        # At 2° (halfway to threshold), factor should interpolate
+        # At 2° (halfway to threshold), should interpolate
         mid_rad = math.radians(2.0)
         power = effective_power(mid_rad, params)
-        # Expected: 0.8 + 0.5 * (1.5 - 0.8) = 0.8 + 0.35 = 1.15
-        expected = 100.0 * 1.15
+        # Expected: 80 + 0.5 * (150 - 80) = 80 + 35 = 115
+        expected = 115.0
         assert power == pytest.approx(expected, rel=0.01)
 
 
@@ -205,12 +202,12 @@ class TestEstimateSpeedFromPower:
         assert downhill_speed > flat_speed
 
     def test_higher_power_faster(self):
-        low = RiderParams(assumed_avg_power=100.0)
-        high = RiderParams(assumed_avg_power=250.0)
+        low = RiderParams(climbing_power=100.0, flat_power=80.0)
+        high = RiderParams(climbing_power=250.0, flat_power=200.0)
         assert estimate_speed_from_power(0.0, high) > estimate_speed_from_power(0.0, low)
 
     def test_zero_power_downhill_coasts(self):
-        params = RiderParams(assumed_avg_power=0.0)
+        params = RiderParams(climbing_power=0.0, flat_power=0.0)
         speed = estimate_speed_from_power(math.radians(-5), params)
         assert speed > 0, "Should coast downhill even with zero power"
 

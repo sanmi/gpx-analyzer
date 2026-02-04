@@ -173,17 +173,19 @@ def _build_rider_params(opt_values: np.ndarray, param_names: list[str],
     climb_threshold_frac = params.get("climb_threshold_grade", 4.0) / 100
     steep_descent_frac = FIXED_PARAMS["steep_descent_grade"] / 100
 
+    # Use power as climbing_power; flat_power is ~80% of climbing power (default ratio)
+    flat_power = power * 0.8
     return RiderParams(
         total_mass=mass,
         cda=params.get("cda", 0.3),
         crr=params.get("crr", 0.005),
         air_density=FIXED_PARAMS["air_density"],
-        assumed_avg_power=power,
+        climbing_power=power,
+        flat_power=flat_power,
         coasting_grade_threshold=coasting_grade_frac,
         max_coasting_speed=max_coast_speed_ms,
         max_coasting_speed_unpaved=FIXED_PARAMS["max_coasting_speed_unpaved"] / 3.6,
         headwind=headwind / 3.6,
-        climb_power_factor=params.get("climb_power_factor", 1.5),
         climb_threshold_grade=climb_threshold_frac,
         steep_descent_speed=FIXED_PARAMS["steep_descent_speed"] / 3.6,
         steep_descent_grade=steep_descent_frac,

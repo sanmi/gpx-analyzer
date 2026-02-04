@@ -368,10 +368,10 @@ def format_comparison_report(result: ComparisonResult, params: RiderParams) -> s
     lines.append(f"{'Avg speed':<16} {est_speed_str:>12} {act_speed_str:>12} {speed_diff:>+7.1f}%")
 
     # Average power
-    est_power = f"{params.assumed_avg_power:.0f} W"
+    est_power = f"{params.climbing_power:.0f} W"
     if result.has_power_data and result.actual_avg_power:
         act_power = f"{result.actual_avg_power:.0f} W"
-        power_diff = ((params.assumed_avg_power - result.actual_avg_power)
+        power_diff = ((params.climbing_power - result.actual_avg_power)
                       / result.actual_avg_power * 100 if result.actual_avg_power > 0 else 0.0)
         lines.append(f"{'Avg power':<16} {est_power:>12} {act_power:>12} {power_diff:>+7.1f}%")
     else:
