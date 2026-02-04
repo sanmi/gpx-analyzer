@@ -128,10 +128,11 @@ MAX_CACHED_PROFILES = 150  # ~150 images, each ~60KB = ~9MB max
 
 def _make_profile_cache_key(url: str, climbing_power: float, flat_power: float, mass: float, headwind: float,
                             descent_braking_factor: float = 1.0, collapse_stops: bool = False,
-                            max_xlim_hours: float | None = None, descending_power: float = 20.0) -> str:
+                            max_xlim_hours: float | None = None, descending_power: float = 20.0,
+                            overlay: str = "", imperial: bool = False) -> str:
     """Create a unique cache key for elevation profile parameters."""
     config_hash = _get_config_hash()
-    key_str = f"{url}|{climbing_power}|{flat_power}|{descending_power}|{mass}|{headwind}|{descent_braking_factor}|{collapse_stops}|{max_xlim_hours}|{config_hash}"
+    key_str = f"{url}|{climbing_power}|{flat_power}|{descending_power}|{mass}|{headwind}|{descent_braking_factor}|{collapse_stops}|{max_xlim_hours}|{overlay}|{imperial}|{config_hash}"
     return hashlib.md5(key_str.encode()).hexdigest()
 
 
@@ -541,6 +542,11 @@ HTML_TEMPLATE = """
         }
         .elevation-profile-header h4 {
             margin: 0;
+        }
+        .elevation-profile-toggles {
+            display: flex;
+            gap: 16px;
+            align-items: center;
         }
         .collapse-stops-toggle {
             display: flex;
@@ -1966,6 +1972,14 @@ HTML_TEMPLATE = """
             document.getElementById('descending_power').value = {{ defaults.descending_power|int }};
         }
 
+        function _buildOverlayParams() {
+            var params = '';
+            var speedCheckbox = document.getElementById('overlay_speed');
+            if (speedCheckbox && speedCheckbox.checked) params += '&overlay=speed';
+            if (isImperial()) params += '&imperial=true';
+            return params;
+        }
+
         function toggleCollapseStops(profileNum) {
             // Handle both single profile (no num) and comparison mode (1 or 2)
             var suffix = profileNum ? profileNum : '';
@@ -1984,17 +1998,18 @@ HTML_TEMPLATE = """
             if (!baseProfileUrl) return;
 
             var collapseParam = checkbox.checked ? '&collapse_stops=true' : '';
+            var overlayParams = _buildOverlayParams();
 
             // Show loading spinner
             loading.classList.remove('hidden');
             img.classList.add('loading');
 
             // Update image source (max_xlim_hours is already in base URL for comparison mode)
-            img.src = baseProfileUrl + collapseParam;
+            img.src = baseProfileUrl + collapseParam + overlayParams;
 
             // Re-setup the elevation profile tooltip with new data URL and maxXlimHours
-            if (typeof setupElevationProfile === 'function' && baseDataUrl) {
-                setupElevationProfile(
+            if (typeof window.setupElevationProfile === 'function' && baseDataUrl) {
+                window.setupElevationProfile(
                     'elevationContainer' + suffix,
                     'elevationImg' + suffix,
                     'elevationTooltip' + suffix,
@@ -2017,6 +2032,60 @@ HTML_TEMPLATE = """
                     if (saved) {
                         checkbox.checked = true;
                         toggleCollapseStops(suffix === '' ? null : parseInt(suffix));
+                    }
+                }
+            });
+        }
+
+        function toggleOverlay(type) {
+            var checkbox = document.getElementById('overlay_' + type);
+            if (!checkbox) return;
+
+            // Refresh all visible elevation profiles
+            ['', '1', '2'].forEach(function(suffix) {
+                var container = document.getElementById('elevationContainer' + suffix);
+                var img = document.getElementById('elevationImg' + suffix);
+                var loading = document.getElementById('elevationLoading' + suffix);
+                if (!container || !img) return;
+
+                var baseProfileUrl = container.getAttribute('data-base-profile-url');
+                var baseDataUrl = container.getAttribute('data-base-data-url');
+                var maxXlimHours = container.getAttribute('data-max-xlim-hours');
+                var maxXlim = maxXlimHours ? parseFloat(maxXlimHours) : null;
+                if (!baseProfileUrl) return;
+
+                // Build collapse_stops param for this specific profile
+                var collapseCheckbox = document.getElementById('collapseStops' + suffix);
+                var collapseParam = (collapseCheckbox && collapseCheckbox.checked) ? '&collapse_stops=true' : '';
+                var overlayParams = _buildOverlayParams();
+
+                loading.classList.remove('hidden');
+                img.classList.add('loading');
+                img.src = baseProfileUrl + collapseParam + overlayParams;
+
+                if (typeof window.setupElevationProfile === 'function' && baseDataUrl) {
+                    window.setupElevationProfile(
+                        'elevationContainer' + suffix,
+                        'elevationImg' + suffix,
+                        'elevationTooltip' + suffix,
+                        'elevationCursor' + suffix,
+                        baseDataUrl + collapseParam,
+                        maxXlim
+                    );
+                }
+            });
+
+            localStorage.setItem('overlay_' + type, checkbox.checked);
+        }
+
+        function initOverlays() {
+            ['speed'].forEach(function(type) {
+                var checkbox = document.getElementById('overlay_' + type);
+                if (checkbox) {
+                    var saved = localStorage.getItem('overlay_' + type) === 'true';
+                    if (saved) {
+                        checkbox.checked = true;
+                        toggleOverlay(type);
                     }
                 }
             });
@@ -2460,6 +2529,11 @@ HTML_TEMPLATE = """
             rerenderCollectionTable();
             updateSingleRouteUnits();
             updateComparisonTableUnits();
+            // Refresh elevation profiles if speed overlay is active (axis labels change units)
+            var speedCheckbox = document.getElementById('overlay_speed');
+            if (speedCheckbox && speedCheckbox.checked) {
+                toggleOverlay('speed');
+            }
         });
 
         // Auto-trigger collection analysis when loaded via shared link
@@ -3045,6 +3119,14 @@ HTML_TEMPLATE = """
         <!-- Stacked elevation profiles for comparison -->
         {% set max_time_hours = [result.time_seconds / 3600, result2.time_seconds / 3600] | max %}
         <div class="elevation-profiles-stacked">
+            <div class="elevation-profile-header" style="margin-bottom: 8px;">
+                <div class="elevation-profile-toggles">
+                    <div class="collapse-stops-toggle">
+                        <input type="checkbox" id="overlay_speed" onchange="toggleOverlay('speed')">
+                        <label for="overlay_speed">Show speed</label>
+                    </div>
+                </div>
+            </div>
             <div class="elevation-profile">
                 <div class="elevation-profile-header">
                     <h4>{{ (result.name or ('Trip 1' if is_trip else 'Route 1'))|truncate(40) }} <span class="result-badge {% if is_trip %}trip-badge{% else %}route-badge{% endif %}">{% if is_trip %}Ride{% else %}Route{% endif %}</span></h4>
@@ -3058,12 +3140,14 @@ HTML_TEMPLATE = """
                 <div class="elevation-profile-container" id="elevationContainer1"
                      data-url="{{ url|urlencode }}"
                      data-max-xlim-hours="{{ '%.4f'|format(max_time_hours) }}"
-                     data-base-profile-url="/elevation-profile?url={{ url|urlencode }}&climbing_power={{ climbing_power }}&flat_power={{ flat_power }}&mass={{ mass }}&headwind={{ headwind }}&descending_power={{ descending_power }}&descent_braking_factor={{ descent_braking_factor }}&max_xlim_hours={{ '%.4f'|format(max_time_hours) }}"
+                     {% if compare_ylim %}data-max-ylim="{{ '%.2f'|format(compare_ylim) }}"{% endif %}
+                     {% if compare_speed_ylim %}data-max-speed-ylim="{{ '%.2f'|format(compare_speed_ylim) }}"{% endif %}
+                     data-base-profile-url="/elevation-profile?url={{ url|urlencode }}&climbing_power={{ climbing_power }}&flat_power={{ flat_power }}&mass={{ mass }}&headwind={{ headwind }}&descending_power={{ descending_power }}&descent_braking_factor={{ descent_braking_factor }}&max_xlim_hours={{ '%.4f'|format(max_time_hours) }}{% if compare_ylim %}&max_ylim={{ '%.2f'|format(compare_ylim) }}{% endif %}{% if compare_speed_ylim %}&max_speed_ylim={{ '%.2f'|format(compare_speed_ylim) }}{% endif %}"
                      data-base-data-url="/elevation-profile-data?url={{ url|urlencode }}&climbing_power={{ climbing_power }}&flat_power={{ flat_power }}&mass={{ mass }}&headwind={{ headwind }}&descending_power={{ descending_power }}&descent_braking_factor={{ descent_braking_factor }}">
                     <div class="elevation-loading" id="elevationLoading1">
                         <div class="elevation-spinner"></div>
                     </div>
-                    <img src="/elevation-profile?url={{ url|urlencode }}&climbing_power={{ climbing_power }}&flat_power={{ flat_power }}&mass={{ mass }}&headwind={{ headwind }}&descending_power={{ descending_power }}&descent_braking_factor={{ descent_braking_factor }}&max_xlim_hours={{ '%.4f'|format(max_time_hours) }}"
+                    <img src="/elevation-profile?url={{ url|urlencode }}&climbing_power={{ climbing_power }}&flat_power={{ flat_power }}&mass={{ mass }}&headwind={{ headwind }}&descending_power={{ descending_power }}&descent_braking_factor={{ descent_braking_factor }}&max_xlim_hours={{ '%.4f'|format(max_time_hours) }}{% if compare_ylim %}&max_ylim={{ '%.2f'|format(compare_ylim) }}{% endif %}"
                          alt="Elevation profile - Route 1" id="elevationImg1" class="loading"
                          onload="document.getElementById('elevationLoading1').classList.add('hidden'); this.classList.remove('loading');">
                     <div class="elevation-cursor" id="elevationCursor1"></div>
@@ -3094,12 +3178,14 @@ HTML_TEMPLATE = """
                 <div class="elevation-profile-container" id="elevationContainer2"
                      data-url="{{ url2|urlencode }}"
                      data-max-xlim-hours="{{ '%.4f'|format(max_time_hours) }}"
-                     data-base-profile-url="/elevation-profile?url={{ url2|urlencode }}&climbing_power={{ climbing_power }}&flat_power={{ flat_power }}&mass={{ mass }}&headwind={{ headwind }}&descending_power={{ descending_power }}&descent_braking_factor={{ descent_braking_factor }}&max_xlim_hours={{ '%.4f'|format(max_time_hours) }}"
+                     {% if compare_ylim %}data-max-ylim="{{ '%.2f'|format(compare_ylim) }}"{% endif %}
+                     {% if compare_speed_ylim %}data-max-speed-ylim="{{ '%.2f'|format(compare_speed_ylim) }}"{% endif %}
+                     data-base-profile-url="/elevation-profile?url={{ url2|urlencode }}&climbing_power={{ climbing_power }}&flat_power={{ flat_power }}&mass={{ mass }}&headwind={{ headwind }}&descending_power={{ descending_power }}&descent_braking_factor={{ descent_braking_factor }}&max_xlim_hours={{ '%.4f'|format(max_time_hours) }}{% if compare_ylim %}&max_ylim={{ '%.2f'|format(compare_ylim) }}{% endif %}{% if compare_speed_ylim %}&max_speed_ylim={{ '%.2f'|format(compare_speed_ylim) }}{% endif %}"
                      data-base-data-url="/elevation-profile-data?url={{ url2|urlencode }}&climbing_power={{ climbing_power }}&flat_power={{ flat_power }}&mass={{ mass }}&headwind={{ headwind }}&descending_power={{ descending_power }}&descent_braking_factor={{ descent_braking_factor }}">
                     <div class="elevation-loading" id="elevationLoading2">
                         <div class="elevation-spinner"></div>
                     </div>
-                    <img src="/elevation-profile?url={{ url2|urlencode }}&climbing_power={{ climbing_power }}&flat_power={{ flat_power }}&mass={{ mass }}&headwind={{ headwind }}&descending_power={{ descending_power }}&descent_braking_factor={{ descent_braking_factor }}&max_xlim_hours={{ '%.4f'|format(max_time_hours) }}"
+                    <img src="/elevation-profile?url={{ url2|urlencode }}&climbing_power={{ climbing_power }}&flat_power={{ flat_power }}&mass={{ mass }}&headwind={{ headwind }}&descending_power={{ descending_power }}&descent_braking_factor={{ descent_braking_factor }}&max_xlim_hours={{ '%.4f'|format(max_time_hours) }}{% if compare_ylim %}&max_ylim={{ '%.2f'|format(compare_ylim) }}{% endif %}"
                          alt="Elevation profile - Route 2" id="elevationImg2" class="loading"
                          onload="document.getElementById('elevationLoading2').classList.add('hidden'); this.classList.remove('loading');">
                     <div class="elevation-cursor" id="elevationCursor2"></div>
@@ -3115,12 +3201,18 @@ HTML_TEMPLATE = """
         <div class="elevation-profile">
             <div class="elevation-profile-header">
                 <h4>Time-Based Elevation Profile</h4>
-                {% if is_trip %}
-                <div class="collapse-stops-toggle">
-                    <input type="checkbox" id="collapseStops" onchange="toggleCollapseStops()">
-                    <label for="collapseStops">Show moving time only</label>
+                <div class="elevation-profile-toggles">
+                    {% if is_trip %}
+                    <div class="collapse-stops-toggle">
+                        <input type="checkbox" id="collapseStops" onchange="toggleCollapseStops()">
+                        <label for="collapseStops">Show moving time only</label>
+                    </div>
+                    {% endif %}
+                    <div class="collapse-stops-toggle">
+                        <input type="checkbox" id="overlay_speed" onchange="toggleOverlay('speed')">
+                        <label for="overlay_speed">Show speed</label>
+                    </div>
                 </div>
-                {% endif %}
             </div>
             <div class="elevation-profile-container" id="elevationContainer"
                  data-url="{{ url|urlencode }}"
@@ -3191,149 +3283,172 @@ HTML_TEMPLATE = """
         updateComparisonTableUnits();
 
         // Elevation profile hover interaction
-        (function() {
-            // Setup function for a single profile
-            // maxXlimHours: optional max x-axis time (for synchronized comparison profiles)
-            function setupElevationProfile(containerId, imgId, tooltipId, cursorId, dataUrl, maxXlimHours) {
-                const container = document.getElementById(containerId);
-                const img = document.getElementById(imgId);
-                const tooltip = document.getElementById(tooltipId);
-                const cursor = document.getElementById(cursorId);
-                if (!container || !img || !tooltip || !cursor) return;
+        // Setup function for a single profile (global so toggleCollapseStops/toggleOverlay can call it)
+        // maxXlimHours: optional max x-axis time (for synchronized comparison profiles)
+        window.setupElevationProfile = function(containerId, imgId, tooltipId, cursorId, dataUrl, maxXlimHours) {
+            const container = document.getElementById(containerId);
+            const img = document.getElementById(imgId);
+            const tooltip = document.getElementById(tooltipId);
+            const cursor = document.getElementById(cursorId);
+            if (!container || !img || !tooltip || !cursor) return;
 
-                let profileData = null;
-                let xlimHours = maxXlimHours || null;
+            let profileData = null;
+            let xlimHours = maxXlimHours || null;
 
-                // Fetch profile data
-                fetch(dataUrl)
-                    .then(r => r.json())
-                    .then(data => {
-                        if (!data.error) {
-                            profileData = data;
-                            // Use max_xlim_hours if provided, otherwise use data's total time
-                            if (!xlimHours) xlimHours = profileData.total_time;
-                        }
-                    })
-                    .catch(() => {});
-
-                // The plot area is approximately 85% of image width (matplotlib default margins)
-                const plotLeftPct = 0.10;
-                const plotRightPct = 0.98;
-
-                function getGradeAtPosition(xPct) {
-                    if (!profileData || !profileData.times || profileData.times.length < 2) return null;
-
-                    const plotXPct = (xPct - plotLeftPct) / (plotRightPct - plotLeftPct);
-                    if (plotXPct < 0 || plotXPct > 1) return null;
-
-                    // Use xlimHours for x-axis range (may be larger than data's total_time)
-                    const time = plotXPct * (xlimHours || profileData.total_time);
-
-                    // If time is beyond the actual data, return null (no data there)
-                    if (time > profileData.total_time) return null;
-
-                    for (let i = 0; i < profileData.times.length - 1; i++) {
-                        if (time >= profileData.times[i] && time < profileData.times[i + 1]) {
-                            return {
-                                grade: profileData.grades[i],  // Keep null for stopped segments
-                                elevation: profileData.elevations[i] || 0,
-                                time: time
-                            };
-                        }
+            // Fetch profile data
+            fetch(dataUrl)
+                .then(r => r.json())
+                .then(data => {
+                    if (!data.error) {
+                        profileData = data;
+                        // Use max_xlim_hours if provided, otherwise use data's total time
+                        if (!xlimHours) xlimHours = profileData.total_time;
                     }
-                    const lastIdx = profileData.grades.length - 1;
-                    return {
-                        grade: profileData.grades[lastIdx],
-                        elevation: profileData.elevations[lastIdx + 1] || 0,
-                        time: time
-                    };
-                }
+                })
+                .catch(() => {});
 
-                function formatGrade(g) {
-                    if (g === null || g === undefined) {
-                        return 'Stopped';
-                    }
-                    const sign = g >= 0 ? '+' : '';
-                    return sign + g.toFixed(1) + '%';
-                }
+            // The plot area margins depend on whether a right-axis overlay is active
+            const plotLeftPct = 0.10;
+            var speedCheckbox = document.getElementById('overlay_speed');
+            const hasOverlay = speedCheckbox && speedCheckbox.checked;
+            const plotRightPct = hasOverlay ? 0.90 : 0.98;
 
-                function formatTime(hours) {
-                    const h = Math.floor(hours);
-                    const m = Math.floor((hours - h) * 60);
-                    return h + 'h ' + m.toString().padStart(2, '0') + 'm';
-                }
+            function getDataAtPosition(xPct) {
+                if (!profileData || !profileData.times || profileData.times.length < 2) return null;
 
-                function handleMove(e) {
-                    if (!profileData) return;
+                const plotXPct = (xPct - plotLeftPct) / (plotRightPct - plotLeftPct);
+                if (plotXPct < 0 || plotXPct > 1) return null;
 
-                    const rect = img.getBoundingClientRect();
-                    let clientX;
+                // Use xlimHours for x-axis range (may be larger than data's total_time)
+                const time = plotXPct * (xlimHours || profileData.total_time);
 
-                    if (e.touches) {
-                        clientX = e.touches[0].clientX;
-                    } else {
-                        clientX = e.clientX;
-                    }
+                // If time is beyond the actual data, return null (no data there)
+                if (time > profileData.total_time) return null;
 
-                    const xPct = (clientX - rect.left) / rect.width;
-                    const data = getGradeAtPosition(xPct);
-
-                    if (data) {
-                        tooltip.querySelector('.grade').textContent = formatGrade(data.grade);
-                        const elevUnit = isImperial() ? 'ft' : 'm';
-                        const elevVal = isImperial() ? data.elevation * 3.28084 : data.elevation;
-                        tooltip.querySelector('.elev').textContent = Math.round(elevVal) + ' ' + elevUnit + ' | ' + formatTime(data.time);
-
-                        const xPos = clientX - rect.left;
-                        tooltip.style.left = xPos + 'px';
-                        tooltip.style.bottom = '60px';
-                        tooltip.classList.add('visible');
-
-                        cursor.style.left = xPos + 'px';
-                        cursor.classList.add('visible');
-                    } else {
-                        tooltip.classList.remove('visible');
-                        cursor.classList.remove('visible');
+                for (let i = 0; i < profileData.times.length - 1; i++) {
+                    if (time >= profileData.times[i] && time < profileData.times[i + 1]) {
+                        return {
+                            grade: profileData.grades[i],  // Keep null for stopped segments
+                            elevation: profileData.elevations[i] || 0,
+                            speed: profileData.speeds ? profileData.speeds[i] : null,
+                            time: time
+                        };
                     }
                 }
+                const lastIdx = profileData.grades.length - 1;
+                return {
+                    grade: profileData.grades[lastIdx],
+                    elevation: profileData.elevations[lastIdx + 1] || 0,
+                    speed: profileData.speeds ? profileData.speeds[lastIdx] : null,
+                    time: time
+                };
+            }
 
-                function handleLeave() {
+            function formatGrade(g) {
+                if (g === null || g === undefined) {
+                    return 'Stopped';
+                }
+                const sign = g >= 0 ? '+' : '';
+                return sign + g.toFixed(1) + '%';
+            }
+
+            function formatTime(hours) {
+                const h = Math.floor(hours);
+                const m = Math.floor((hours - h) * 60);
+                return h + 'h ' + m.toString().padStart(2, '0') + 'm';
+            }
+
+            function handleMove(e) {
+                if (!profileData) return;
+
+                const rect = img.getBoundingClientRect();
+                let clientX;
+
+                if (e.touches) {
+                    clientX = e.touches[0].clientX;
+                } else {
+                    clientX = e.clientX;
+                }
+
+                const xPct = (clientX - rect.left) / rect.width;
+                const data = getDataAtPosition(xPct);
+
+                if (data) {
+                    tooltip.querySelector('.grade').textContent = formatGrade(data.grade);
+                    const elevUnit = isImperial() ? 'ft' : 'm';
+                    const elevVal = isImperial() ? data.elevation * 3.28084 : data.elevation;
+                    var speedText = '';
+                    if (data.speed !== null && data.speed !== undefined) {
+                        var speedUnit = isImperial() ? 'mph' : 'km/h';
+                        var speedVal = isImperial() ? data.speed * 0.621371 : data.speed;
+                        speedText = ' | ' + speedVal.toFixed(1) + ' ' + speedUnit;
+                    }
+                    tooltip.querySelector('.elev').textContent = Math.round(elevVal) + ' ' + elevUnit + speedText + ' | ' + formatTime(data.time);
+
+                    const xPos = clientX - rect.left;
+                    tooltip.style.left = xPos + 'px';
+                    tooltip.style.bottom = '60px';
+                    tooltip.classList.add('visible');
+
+                    cursor.style.left = xPos + 'px';
+                    cursor.classList.add('visible');
+                } else {
                     tooltip.classList.remove('visible');
                     cursor.classList.remove('visible');
                 }
-
-                container.addEventListener('mousemove', handleMove);
-                container.addEventListener('mouseleave', handleLeave);
-                container.addEventListener('touchmove', function(e) {
-                    e.preventDefault();
-                    handleMove(e);
-                }, { passive: false });
-                container.addEventListener('touchend', handleLeave);
             }
 
+            function handleLeave() {
+                tooltip.classList.remove('visible');
+                cursor.classList.remove('visible');
+            }
+
+            // Clean up old listeners if this profile was previously set up
+            if (container._profileCleanup) {
+                container._profileCleanup();
+            }
+
+            var abortController = new AbortController();
+            container.addEventListener('mousemove', handleMove, { signal: abortController.signal });
+            container.addEventListener('mouseleave', handleLeave, { signal: abortController.signal });
+            container.addEventListener('touchmove', function(e) {
+                e.preventDefault();
+                handleMove(e);
+            }, { passive: false, signal: abortController.signal });
+            container.addEventListener('touchend', handleLeave, { signal: abortController.signal });
+
+            container._profileCleanup = function() {
+                abortController.abort();
+            };
+        };
+
+        (function() {
             // Check for comparison mode (two profiles)
             var container1 = document.getElementById('elevationContainer1');
             var container2 = document.getElementById('elevationContainer2');
             if (container1 && container2) {
                 // Comparison mode - setup both profiles with synchronized x-axis
                 var maxXlimHours = parseFloat(container1.getAttribute('data-max-xlim-hours')) || null;
-                setupElevationProfile(
+                window.setupElevationProfile(
                     'elevationContainer1', 'elevationImg1', 'elevationTooltip1', 'elevationCursor1',
                     '/elevation-profile-data?url={{ url|urlencode }}&climbing_power={{ climbing_power }}&flat_power={{ flat_power }}&mass={{ mass }}&headwind={{ headwind }}&descending_power={{ descending_power }}&descent_braking_factor={{ descent_braking_factor }}',
                     maxXlimHours
                 );
-                setupElevationProfile(
+                window.setupElevationProfile(
                     'elevationContainer2', 'elevationImg2', 'elevationTooltip2', 'elevationCursor2',
                     '/elevation-profile-data?url={{ url2|urlencode if url2 else "" }}&climbing_power={{ climbing_power }}&flat_power={{ flat_power }}&mass={{ mass }}&headwind={{ headwind }}&descending_power={{ descending_power }}&descent_braking_factor={{ descent_braking_factor }}',
                     maxXlimHours
                 );
             } else {
                 // Single route mode
-                setupElevationProfile(
+                window.setupElevationProfile(
                     'elevationContainer', 'elevationImg', 'elevationTooltip', 'elevationCursor',
                     '/elevation-profile-data?url={{ url|urlencode }}&climbing_power={{ climbing_power }}&flat_power={{ flat_power }}&mass={{ mass }}&headwind={{ headwind }}&descending_power={{ descending_power }}&descent_braking_factor={{ descent_braking_factor }}'
                 );
             }
+
+            // Initialize overlays from localStorage (after profiles are set up)
+            initOverlays();
         })();
     </script>
     {% endif %}
@@ -3948,6 +4063,77 @@ def generate_histogram_image(result: dict):
     return send_file(buf, mimetype='image/png')
 
 
+def _smooth_speeds(speeds_ms: list, cum_dist: list, window_m: float = 300) -> list:
+    """Apply distance-based running average to speed data.
+
+    Args:
+        speeds_ms: Speed in m/s for each segment (len = N).
+        cum_dist: Cumulative distance at each point (len = N+1).
+        window_m: Smoothing window in meters.
+
+    Returns list of smoothed speeds in km/h (len = N).
+    """
+    n = len(speeds_ms)
+    if n == 0:
+        return []
+    # Compute segment centers
+    seg_centers = [(cum_dist[j] + cum_dist[j + 1]) / 2 for j in range(n)]
+    half = window_m / 2
+    smoothed = []
+    left = 0
+    running_sum = 0.0
+    window_count = 0
+    right = 0
+    for i in range(n):
+        # Expand right pointer to include segments within window
+        while right < n and seg_centers[right] <= seg_centers[i] + half:
+            running_sum += speeds_ms[right]
+            window_count += 1
+            right += 1
+        # Shrink left pointer to exclude segments outside window
+        while left < n and seg_centers[left] < seg_centers[i] - half:
+            running_sum -= speeds_ms[left]
+            window_count -= 1
+            left += 1
+        smoothed.append((running_sum / window_count * 3.6) if window_count > 0 else 0.0)
+    return smoothed
+
+
+def _add_speed_overlay(ax, times_hours: list, speeds_kmh: list, imperial: bool = False,
+                       max_speed_ylim: float | None = None):
+    """Add speed line overlay with right Y-axis to an elevation profile plot.
+
+    Args:
+        max_speed_ylim: Optional max speed in km/h for synchronized Y-axis.
+                        Converted to display units internally.
+    """
+    if imperial:
+        speeds = [s * 0.621371 for s in speeds_kmh]
+        label = 'Speed (mph)'
+        tick_interval = 5
+        max_display = max_speed_ylim * 0.621371 if max_speed_ylim is not None else None
+    else:
+        speeds = list(speeds_kmh)
+        label = 'Speed (km/h)'
+        tick_interval = 10
+        max_display = max_speed_ylim if max_speed_ylim is not None else None
+
+    # Segment midpoint times
+    speed_times = [(times_hours[i] + times_hours[i + 1]) / 2
+                   for i in range(len(speeds))]
+
+    ax2 = ax.twinx()
+    ax2.plot(speed_times, speeds, color='#2196F3', linewidth=1.2, alpha=0.7)
+    ax2.set_ylabel(label, fontsize=10, color='#2196F3')
+    ax2.tick_params(axis='y', labelcolor='#2196F3')
+
+    max_speed = max_display if max_display is not None else (max(speeds) if speeds else 50)
+    max_tick = int(max_speed / tick_interval + 1) * tick_interval
+    ax2.set_yticks(range(0, max_tick + 1, tick_interval))
+    ax2.set_ylim(0, max_tick)
+    ax2.spines['top'].set_visible(False)
+
+
 def _calculate_elevation_profile_data(url: str, params: RiderParams) -> dict:
     """Calculate elevation profile data for a route.
 
@@ -3979,20 +4165,27 @@ def _calculate_elevation_profile_data(url: str, params: RiderParams) -> dict:
     max_grade_window = config.get("max_grade_window_route", DEFAULT_MAX_GRADE_WINDOW)
     rolling_grades = _calculate_rolling_grades(points, max_grade_window)
 
-    # Calculate cumulative time and elevation at each point
+    # Calculate cumulative time, elevation, and speed at each point
     cum_time = [0.0]
+    cum_dist = [0.0]
     elevations = [points[0].elevation or 0.0]
+    speeds_ms = []
 
     for i in range(1, len(points)):
         _, dist, elapsed = calculate_segment_work(points[i-1], points[i], params)
         cum_time.append(cum_time[-1] + elapsed)
+        cum_dist.append(cum_dist[-1] + dist)
         elevations.append(points[i].elevation or elevations[-1])
+        speeds_ms.append(dist / elapsed if elapsed > 0 else 0.0)
 
     # Convert to hours
     times_hours = [t / 3600 for t in cum_time]
 
     # Use rolling grades (one fewer than points, like segment grades)
     grades = rolling_grades if rolling_grades else [0.0] * (len(points) - 1)
+
+    # Smooth speeds
+    speeds_kmh = _smooth_speeds(speeds_ms, cum_dist, window_m=300)
 
     route_name = route_metadata.get("name", "Elevation Profile") if route_metadata else "Elevation Profile"
 
@@ -4007,6 +4200,7 @@ def _calculate_elevation_profile_data(url: str, params: RiderParams) -> dict:
         "times_hours": times_hours,
         "elevations": elevations,
         "grades": grades,
+        "speeds_kmh": speeds_kmh,
         "route_name": route_name,
         "tunnel_time_ranges": tunnel_time_ranges,
     }
@@ -4066,14 +4260,16 @@ def _calculate_trip_elevation_profile_data(url: str, collapse_stops: bool = Fals
     STOPPED_SPEED_THRESHOLD = 2.0  # km/h
     STOPPED_SPEED_MS = STOPPED_SPEED_THRESHOLD / 3.6  # m/s
 
-    # Calculate segment speeds for stop detection
+    # Calculate segment speeds and cumulative distances
     segment_speeds = []  # speed in m/s for each segment
+    cum_dist = [0.0]
     for i in range(len(trip_points) - 1):
         tp0, tp1 = trip_points[i], trip_points[i + 1]
+        dist = haversine_distance(tp0.lat, tp0.lon, tp1.lat, tp1.lon)
+        cum_dist.append(cum_dist[-1] + dist)
         if tp0.timestamp is not None and tp1.timestamp is not None:
             time_delta = tp1.timestamp - tp0.timestamp
             if time_delta > 0:
-                dist = haversine_distance(tp0.lat, tp0.lon, tp1.lat, tp1.lon)
                 segment_speeds.append(dist / time_delta)
             else:
                 segment_speeds.append(0.0)
@@ -4119,6 +4315,9 @@ def _calculate_trip_elevation_profile_data(url: str, collapse_stops: bool = Fals
 
     trip_name = trip_metadata.get("name", "Trip Profile") if trip_metadata else "Trip Profile"
 
+    # Smooth speeds
+    speeds_kmh = _smooth_speeds(segment_speeds, cum_dist, window_m=300)
+
     # Convert tunnel corrections to time ranges for highlighting
     tunnel_time_ranges = []
     for tc in tunnel_corrections:
@@ -4130,6 +4329,7 @@ def _calculate_trip_elevation_profile_data(url: str, collapse_stops: bool = Fals
         "times_hours": times_hours,
         "elevations": elevations,
         "grades": grades,
+        "speeds_kmh": speeds_kmh,
         "route_name": trip_name,
         "tunnel_time_ranges": tunnel_time_ranges,
         "is_collapsed": collapse_stops,
@@ -4137,7 +4337,10 @@ def _calculate_trip_elevation_profile_data(url: str, collapse_stops: bool = Fals
 
 
 def generate_elevation_profile(url: str, params: RiderParams, title_time_hours: float | None = None,
-                               max_xlim_hours: float | None = None) -> bytes:
+                               max_xlim_hours: float | None = None,
+                               overlay: str | None = None, imperial: bool = False,
+                               max_ylim: float | None = None,
+                               max_speed_ylim: float | None = None) -> bytes:
     """Generate elevation profile image with grade-based coloring.
 
     Args:
@@ -4147,6 +4350,10 @@ def generate_elevation_profile(url: str, params: RiderParams, title_time_hours: 
                           If None, uses uncalibrated time from profile data.
         max_xlim_hours: Optional max x-axis limit in hours (for synchronized comparison).
                         If None, uses the profile's own max time.
+        overlay: Optional overlay type (e.g. "speed").
+        imperial: If True, use imperial units for overlay axis.
+        max_ylim: Optional max y-axis limit in meters (for synchronized comparison).
+        max_speed_ylim: Optional max speed y-axis limit in km/h (for synchronized comparison).
 
     Returns PNG image as bytes.
     """
@@ -4211,7 +4418,7 @@ def generate_elevation_profile(url: str, params: RiderParams, title_time_hours: 
     ax.plot(times_hours, elevations, color='#333333', linewidth=0.5)
 
     # Highlight tunnel-corrected regions with vertical bands and markers
-    max_elev = max(elevations) * 1.1
+    max_elev = max_ylim if max_ylim is not None else max(elevations) * 1.1
     for start_time, end_time in tunnel_time_ranges:
         ax.axvspan(start_time, end_time, alpha=0.25, color='#FFC107', zorder=0.5,
                    label='Tunnel corrected' if start_time == tunnel_time_ranges[0][0] else None)
@@ -4233,7 +4440,12 @@ def generate_elevation_profile(url: str, params: RiderParams, title_time_hours: 
     ax.set_title(f"{route_name} - {display_time:.1f}h", fontsize=12, fontweight='bold')
 
     ax.spines['top'].set_visible(False)
-    ax.spines['right'].set_visible(False)
+
+    if overlay == "speed" and data.get("speeds_kmh"):
+        _add_speed_overlay(ax, times_hours, data["speeds_kmh"], imperial, max_speed_ylim=max_speed_ylim)
+    else:
+        ax.spines['right'].set_visible(False)
+
     ax.grid(axis='y', alpha=0.3, linestyle='-', linewidth=0.5)
 
     plt.tight_layout()
@@ -4247,7 +4459,10 @@ def generate_elevation_profile(url: str, params: RiderParams, title_time_hours: 
 
 
 def generate_trip_elevation_profile(url: str, title_time_hours: float | None = None, collapse_stops: bool = False,
-                                    max_xlim_hours: float | None = None) -> bytes:
+                                    max_xlim_hours: float | None = None,
+                                    overlay: str | None = None, imperial: bool = False,
+                                    max_ylim: float | None = None,
+                                    max_speed_ylim: float | None = None) -> bytes:
     """Generate elevation profile image for a trip with grade-based coloring.
 
     Args:
@@ -4256,6 +4471,10 @@ def generate_trip_elevation_profile(url: str, title_time_hours: float | None = N
         collapse_stops: If True, use moving time (excludes stops) for x-axis.
         max_xlim_hours: Optional max x-axis limit in hours (for synchronized comparison).
                         If None, uses the profile's own max time.
+        overlay: Optional overlay type (e.g. "speed").
+        imperial: If True, use imperial units for overlay axis.
+        max_ylim: Optional max y-axis limit in meters (for synchronized comparison).
+        max_speed_ylim: Optional max speed y-axis limit in km/h (for synchronized comparison).
 
     Returns PNG image as bytes.
     """
@@ -4311,7 +4530,7 @@ def generate_trip_elevation_profile(url: str, title_time_hours: float | None = N
     ax.plot(times_hours, elevations, color='#333333', linewidth=0.5)
 
     # Highlight tunnel-corrected regions with vertical bands and markers
-    max_elev = max(elevations) * 1.1
+    max_elev = max_ylim if max_ylim is not None else max(elevations) * 1.1
     for start_time, end_time in tunnel_time_ranges:
         ax.axvspan(start_time, end_time, alpha=0.25, color='#FFC107', zorder=0.5,
                    label='Tunnel corrected' if start_time == tunnel_time_ranges[0][0] else None)
@@ -4332,7 +4551,12 @@ def generate_trip_elevation_profile(url: str, title_time_hours: float | None = N
     ax.set_title(f"{route_name} - {display_time:.1f}h", fontsize=12, fontweight='bold')
 
     ax.spines['top'].set_visible(False)
-    ax.spines['right'].set_visible(False)
+
+    if overlay == "speed" and data.get("speeds_kmh"):
+        _add_speed_overlay(ax, times_hours, data["speeds_kmh"], imperial, max_speed_ylim=max_speed_ylim)
+    else:
+        ax.spines['right'].set_visible(False)
+
     ax.grid(axis='y', alpha=0.3, linestyle='-', linewidth=0.5)
 
     plt.tight_layout()
@@ -4359,6 +4583,12 @@ def elevation_profile():
     collapse_stops = request.args.get("collapse_stops", "false").lower() == "true"
     max_xlim_str = request.args.get("max_xlim_hours", "")
     max_xlim_hours = float(max_xlim_str) if max_xlim_str else None
+    overlay = request.args.get("overlay", "") or None
+    imperial = request.args.get("imperial", "false").lower() == "true"
+    max_ylim_str = request.args.get("max_ylim", "")
+    max_ylim = float(max_ylim_str) if max_ylim_str else None
+    max_speed_ylim_str = request.args.get("max_speed_ylim", "")
+    max_speed_ylim = float(max_speed_ylim_str) if max_speed_ylim_str else None
 
     if not url or not (is_ridewithgps_url(url) or is_ridewithgps_trip_url(url)):
         # Return a placeholder image
@@ -4372,7 +4602,7 @@ def elevation_profile():
         return send_file(buf, mimetype='image/png')
 
     # Check disk cache first
-    cache_key = _make_profile_cache_key(url, climbing_power, flat_power, mass, headwind, descent_braking_factor, collapse_stops, max_xlim_hours, descending_power)
+    cache_key = _make_profile_cache_key(url, climbing_power, flat_power, mass, headwind, descent_braking_factor, collapse_stops, max_xlim_hours, descending_power, overlay=overlay or "", imperial=imperial)
     cached_bytes = _get_cached_profile(cache_key)
     if cached_bytes:
         return send_file(io.BytesIO(cached_bytes), mimetype='image/png')
@@ -4382,13 +4612,13 @@ def elevation_profile():
             # Trip: use actual timestamps, no physics params needed
             trip_result = analyze_trip(url)
             title_time_hours = trip_result["time_seconds"] / 3600
-            img_bytes = generate_trip_elevation_profile(url, title_time_hours, collapse_stops=collapse_stops, max_xlim_hours=max_xlim_hours)
+            img_bytes = generate_trip_elevation_profile(url, title_time_hours, collapse_stops=collapse_stops, max_xlim_hours=max_xlim_hours, overlay=overlay, imperial=imperial, max_ylim=max_ylim, max_speed_ylim=max_speed_ylim)
         else:
             # Route: use physics estimation
             params = build_params(climbing_power, flat_power, mass, headwind, descent_braking_factor, descending_power)
             analysis = analyze_single_route(url, params)
             title_time_hours = analysis["time_seconds"] / 3600
-            img_bytes = generate_elevation_profile(url, params, title_time_hours, max_xlim_hours=max_xlim_hours)
+            img_bytes = generate_elevation_profile(url, params, title_time_hours, max_xlim_hours=max_xlim_hours, overlay=overlay, imperial=imperial, max_ylim=max_ylim, max_speed_ylim=max_speed_ylim)
         # Save to disk cache
         _save_profile_to_cache(cache_key, img_bytes)
         return send_file(io.BytesIO(img_bytes), mimetype='image/png')
@@ -4434,19 +4664,25 @@ def elevation_profile_data():
         times = data["times_hours"]
         elevations = data["elevations"]
         grades = data["grades"]
+        speeds = data.get("speeds_kmh", [])
 
         if len(times) > max_points:
             step = len(times) // max_points
             times = times[::step]
             elevations = elevations[::step]
             grades = grades[::step]
+            if speeds:
+                speeds = speeds[::step]
 
-        return jsonify({
+        result = {
             "times": times,
             "elevations": elevations,
             "grades": grades,
             "total_time": data["times_hours"][-1],
-        })
+        }
+        if speeds:
+            result["speeds"] = speeds
+        return jsonify(result)
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
@@ -4517,6 +4753,8 @@ def index():
     privacy_code2 = None
     share_url = None
     compare_mode = False  # Flag for comparison mode
+    compare_ylim = None  # Synchronized elevation Y-axis limit for comparison
+    compare_speed_ylim = None  # Synchronized speed Y-axis limit for comparison
     is_trip = False  # Flag for trip vs route
     is_trip2 = False  # Flag for second URL trip vs route
 
@@ -4616,6 +4854,37 @@ def index():
                             error = "Invalid second RideWithGPS URL"
             # Collection mode is handled by JavaScript + SSE
 
+    # Compute synchronized Y-axis limits for comparison mode
+    if compare_mode and result and result2 and not error:
+        try:
+            if is_trip:
+                data1 = _calculate_trip_elevation_profile_data(url)
+            else:
+                params = build_params(climbing_power, flat_power, mass, headwind, descent_braking_factor, descending_power)
+                data1 = _calculate_elevation_profile_data(url, params)
+            if is_trip2:
+                data2 = _calculate_trip_elevation_profile_data(url2)
+            else:
+                if not is_trip:
+                    # params already built above
+                    pass
+                else:
+                    params = build_params(climbing_power, flat_power, mass, headwind, descent_braking_factor, descending_power)
+                data2 = _calculate_elevation_profile_data(url2, params)
+
+            max_elev1 = max(data1["elevations"]) * 1.1
+            max_elev2 = max(data2["elevations"]) * 1.1
+            compare_ylim = max(max_elev1, max_elev2)
+
+            speeds1 = data1.get("speeds_kmh", [])
+            speeds2 = data2.get("speeds_kmh", [])
+            if speeds1 or speeds2:
+                max_speed1 = max(speeds1) if speeds1 else 0
+                max_speed2 = max(speeds2) if speeds2 else 0
+                compare_speed_ylim = max(max_speed1, max_speed2)
+        except Exception:
+            pass  # Fall back to independent Y-axes if computation fails
+
     # Build share URL if we have results
     if result and url:
         from urllib.parse import urlencode
@@ -4659,6 +4928,8 @@ def index():
         privacy_code=privacy_code,
         privacy_code2=privacy_code2,
         share_url=share_url,
+        compare_ylim=compare_ylim,
+        compare_speed_ylim=compare_speed_ylim,
         version_date=__version_date__,
         git_hash=get_git_hash(),
         # Helper functions for comparison formatting
