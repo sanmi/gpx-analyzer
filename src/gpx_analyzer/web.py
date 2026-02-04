@@ -933,6 +933,107 @@ HTML_TEMPLATE = """
             cursor: pointer;
             accent-color: var(--primary);
         }
+        /* Advanced options */
+        .advanced-row {
+            margin-top: 15px;
+            display: flex;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+        .advanced-toggle {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            cursor: pointer;
+            color: #666;
+            font-size: 0.9em;
+            user-select: none;
+        }
+        .advanced-toggle:hover {
+            color: var(--primary);
+        }
+        .advanced-toggle .chevron {
+            transition: transform 0.2s ease;
+            font-size: 0.8em;
+        }
+        .advanced-toggle.expanded .chevron {
+            transform: rotate(90deg);
+        }
+        .advanced-options {
+            display: none;
+            margin-top: 10px;
+            padding: 15px;
+            background: #f8f9fa;
+            border-radius: 8px;
+            border: 1px solid #e9ecef;
+        }
+        .advanced-options.visible {
+            display: block;
+        }
+        .advanced-options .param-row {
+            margin-top: 0;
+        }
+        .advanced-options label {
+            font-size: 0.85em;
+            margin-top: 10px;
+        }
+        .advanced-options label:first-child {
+            margin-top: 0;
+        }
+        .advanced-options input[type="number"] {
+            padding: 8px 10px;
+            font-size: 14px;
+        }
+        .advanced-reset {
+            margin-top: 12px;
+            text-align: right;
+        }
+        .reset-btn {
+            background: none;
+            border: 1px solid #ccc;
+            color: #666;
+            padding: 6px 12px;
+            border-radius: 4px;
+            font-size: 0.85em;
+            cursor: pointer;
+        }
+        .reset-btn:hover {
+            border-color: var(--primary);
+            color: var(--primary);
+        }
+        .custom-settings {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            margin-left: 12px;
+            padding-left: 12px;
+            border-left: 1px solid #ccc;
+            font-size: 0.85em;
+            color: #555;
+        }
+        .custom-settings .setting {
+            white-space: nowrap;
+        }
+        .custom-settings .setting-label {
+            color: #888;
+        }
+        .custom-settings .setting-value {
+            font-weight: 500;
+        }
+        @media (max-width: 600px) {
+            .custom-settings {
+                margin-left: 0;
+                margin-top: 4px;
+                padding-left: 0;
+                border-left: none;
+                font-size: 0.8em;
+                flex-basis: 100%;
+            }
+            .units-row {
+                flex-wrap: wrap;
+            }
+        }
         .footer {
             margin-top: 30px;
             padding-top: 20px;
@@ -1302,11 +1403,54 @@ HTML_TEMPLATE = """
             </div>
         </div>
 
-        <div class="units-row">
+        <div class="units-row" id="unitsRow">
             <label class="toggle-label">
                 <input type="checkbox" id="imperial" name="imperial" {{ 'checked' if imperial else '' }}>
                 <span>Imperial units (mi, ft)</span>
             </label>
+        </div>
+
+        <div class="advanced-row">
+            <div class="advanced-toggle" id="advancedToggle" onclick="toggleAdvanced()">
+                <span class="chevron">▶</span>
+                <span>Advanced Options</span>
+            </div>
+            {% if result and (climb_power_factor != defaults.climb_power_factor or flat_power_factor != defaults.flat_power_factor or descent_speed_factor != defaults.descent_speed_factor) %}
+            <span class="custom-settings" title="Custom physics model settings">
+                <span class="setting"><span class="setting-label">Climb:</span> <span class="setting-value">{{ "%.2f"|format(climb_power_factor) }}</span></span>
+                <span class="setting"><span class="setting-label">Flat:</span> <span class="setting-value">{{ "%.2f"|format(flat_power_factor) }}</span></span>
+                <span class="setting"><span class="setting-label">Descent:</span> <span class="setting-value">{{ "%.2f"|format(descent_speed_factor) }}</span></span>
+            </span>
+            {% endif %}
+        </div>
+
+        <div class="advanced-options" id="advancedOptions">
+            <div class="param-row">
+                <div>
+                    <div class="label-row">
+                        <label for="climb_power_factor">Climb Power Factor</label>
+                        <button type="button" class="info-btn" onclick="showModal('climbPowerModal')">?</button>
+                    </div>
+                    <input type="number" id="climb_power_factor" name="climb_power_factor" value="{{ climb_power_factor }}" step="0.01" min="0.5" max="3.0">
+                </div>
+                <div>
+                    <div class="label-row">
+                        <label for="flat_power_factor">Flat Power Factor</label>
+                        <button type="button" class="info-btn" onclick="showModal('flatPowerModal')">?</button>
+                    </div>
+                    <input type="number" id="flat_power_factor" name="flat_power_factor" value="{{ flat_power_factor }}" step="0.01" min="0.5" max="2.0">
+                </div>
+                <div>
+                    <div class="label-row">
+                        <label for="descent_speed_factor">Descent Speed Factor</label>
+                        <button type="button" class="info-btn" onclick="showModal('descentSpeedModal')">?</button>
+                    </div>
+                    <input type="number" id="descent_speed_factor" name="descent_speed_factor" value="{{ descent_speed_factor }}" step="0.01" min="0.2" max="1.5">
+                </div>
+            </div>
+            <div class="advanced-reset">
+                <button type="button" class="reset-btn" onclick="resetAdvancedOptions()">Reset to defaults</button>
+            </div>
         </div>
 
         <button type="submit" id="submitBtn">Analyze</button>
@@ -1464,6 +1608,42 @@ HTML_TEMPLATE = """
             </ul>
 
             <button class="modal-close" onclick="hideModal('physicsModal')">Got it</button>
+        </div>
+    </div>
+
+    <div id="climbPowerModal" class="modal-overlay" onclick="hideModal('climbPowerModal')">
+        <div class="modal" onclick="event.stopPropagation()">
+            <h3>Climb Power Factor</h3>
+            <p>Multiplier for power output on steep climbs. Riders typically push harder when climbing.</p>
+            <p><strong>1.0</strong> = same power as flat terrain<br>
+            <strong>1.4</strong> = 40% more power on climbs (typical)<br>
+            <strong>1.6</strong> = 60% more power (aggressive climbing)</p>
+            <p>Full factor applies at ~4° grade and above. Power ramps up linearly from flat to that threshold.</p>
+            <button class="modal-close" onclick="hideModal('climbPowerModal')">Got it</button>
+        </div>
+    </div>
+
+    <div id="flatPowerModal" class="modal-overlay" onclick="hideModal('flatPowerModal')">
+        <div class="modal" onclick="event.stopPropagation()">
+            <h3>Flat Power Factor</h3>
+            <p>Multiplier for power output on flat terrain relative to your base power input.</p>
+            <p><strong>1.0</strong> = base power (as entered above)<br>
+            <strong>1.15</strong> = 15% more power on flats (typical)<br>
+            <strong>0.9</strong> = 10% less power (conserving energy)</p>
+            <p>Power ramps from this value up to climb power factor as grade increases.</p>
+            <button class="modal-close" onclick="hideModal('flatPowerModal')">Got it</button>
+        </div>
+    </div>
+
+    <div id="descentSpeedModal" class="modal-overlay" onclick="hideModal('descentSpeedModal')">
+        <div class="modal" onclick="event.stopPropagation()">
+            <h3>Descent Speed Factor</h3>
+            <p>Multiplier for descent speeds. Models how cautiously you descend relative to pure physics.</p>
+            <p><strong>1.0</strong> = physics-based speed (aggressive)<br>
+            <strong>0.5</strong> = 50% of physics speed (typical/cautious)<br>
+            <strong>0.3</strong> = very cautious descending</p>
+            <p>Lower values model riders who brake more on descents due to comfort, experience, or road conditions.</p>
+            <button class="modal-close" onclick="hideModal('descentSpeedModal')">Got it</button>
         </div>
     </div>
 
@@ -1682,6 +1862,19 @@ HTML_TEMPLATE = """
 
         function hideModal(id) {
             document.getElementById(id).classList.remove('active');
+        }
+
+        function toggleAdvanced() {
+            var toggle = document.getElementById('advancedToggle');
+            var options = document.getElementById('advancedOptions');
+            toggle.classList.toggle('expanded');
+            options.classList.toggle('visible');
+        }
+
+        function resetAdvancedOptions() {
+            document.getElementById('climb_power_factor').value = {{ defaults.climb_power_factor }};
+            document.getElementById('flat_power_factor').value = {{ defaults.flat_power_factor }};
+            document.getElementById('descent_speed_factor').value = {{ defaults.descent_speed_factor }};
         }
 
         function toggleCompareMode() {
@@ -2967,10 +3160,18 @@ def get_defaults():
         "power": config.get("power", DEFAULTS["power"]),
         "mass": config.get("mass", DEFAULTS["mass"]),
         "headwind": config.get("headwind", DEFAULTS["headwind"]),
+        "climb_power_factor": config.get("climb_power_factor", DEFAULTS["climb_power_factor"]),
+        "flat_power_factor": config.get("flat_power_factor", DEFAULTS["flat_power_factor"]),
+        "descent_speed_factor": config.get("descent_speed_factor", DEFAULTS["descent_speed_factor"]),
     }
 
 
-def build_params(power: float, mass: float, headwind: float) -> RiderParams:
+def build_params(
+    power: float, mass: float, headwind: float,
+    climb_power_factor: float | None = None,
+    flat_power_factor: float | None = None,
+    descent_speed_factor: float | None = None,
+) -> RiderParams:
     """Build RiderParams from user inputs and config defaults."""
     config = _load_config() or {}
     return RiderParams(
@@ -2982,12 +3183,12 @@ def build_params(power: float, mass: float, headwind: float) -> RiderParams:
         max_coasting_speed=config.get("max_coast_speed", DEFAULTS["max_coast_speed"]) / 3.6,
         max_coasting_speed_unpaved=config.get("max_coast_speed_unpaved", DEFAULTS["max_coast_speed_unpaved"]) / 3.6,
         headwind=headwind / 3.6,
-        climb_power_factor=config.get("climb_power_factor", DEFAULTS["climb_power_factor"]),
-        flat_power_factor=config.get("flat_power_factor", DEFAULTS["flat_power_factor"]),
+        climb_power_factor=climb_power_factor if climb_power_factor is not None else config.get("climb_power_factor", DEFAULTS["climb_power_factor"]),
+        flat_power_factor=flat_power_factor if flat_power_factor is not None else config.get("flat_power_factor", DEFAULTS["flat_power_factor"]),
         climb_threshold_grade=config.get("climb_threshold_grade", DEFAULTS["climb_threshold_grade"]),
         steep_descent_speed=config.get("steep_descent_speed", DEFAULTS["steep_descent_speed"]) / 3.6,
         steep_descent_grade=config.get("steep_descent_grade", DEFAULTS["steep_descent_grade"]),
-        descent_speed_factor=config.get("descent_speed_factor", DEFAULTS["descent_speed_factor"]),
+        descent_speed_factor=descent_speed_factor if descent_speed_factor is not None else config.get("descent_speed_factor", DEFAULTS["descent_speed_factor"]),
         drivetrain_efficiency=config.get("drivetrain_efficiency", DEFAULTS["drivetrain_efficiency"]),
     )
 
@@ -4051,6 +4252,9 @@ def index():
     power = defaults["power"]
     mass = defaults["mass"]
     headwind = defaults["headwind"]
+    climb_power_factor = defaults["climb_power_factor"]
+    flat_power_factor = defaults["flat_power_factor"]
+    descent_speed_factor = defaults["descent_speed_factor"]
 
     # Check for GET parameters (shared link)
     if request.method == "GET" and request.args.get("url"):
@@ -4062,6 +4266,9 @@ def index():
             power = float(request.args.get("power", defaults["power"]))
             mass = float(request.args.get("mass", defaults["mass"]))
             headwind = float(request.args.get("headwind", defaults["headwind"]))
+            climb_power_factor = float(request.args.get("climb_power_factor", defaults["climb_power_factor"]))
+            flat_power_factor = float(request.args.get("flat_power_factor", defaults["flat_power_factor"]))
+            descent_speed_factor = float(request.args.get("descent_speed_factor", defaults["descent_speed_factor"]))
         except ValueError:
             error = "Invalid number in parameters"
 
@@ -4072,7 +4279,7 @@ def index():
             elif _is_valid_rwgps_url(url):
                 # Single route or trip - analyze server-side
                 try:
-                    params = build_params(power, mass, headwind)
+                    params = build_params(power, mass, headwind, climb_power_factor, flat_power_factor, descent_speed_factor)
                     result, is_trip = _analyze_url(url, params)
                     route_id = _extract_id_from_url(url)
                     privacy_code = extract_privacy_code(url)
@@ -4103,6 +4310,9 @@ def index():
             power = float(request.form.get("power", defaults["power"]))
             mass = float(request.form.get("mass", defaults["mass"]))
             headwind = float(request.form.get("headwind", defaults["headwind"]))
+            climb_power_factor = float(request.form.get("climb_power_factor", defaults["climb_power_factor"]))
+            flat_power_factor = float(request.form.get("flat_power_factor", defaults["flat_power_factor"]))
+            descent_speed_factor = float(request.form.get("descent_speed_factor", defaults["descent_speed_factor"]))
         except ValueError:
             error = "Invalid number in parameters"
 
@@ -4114,7 +4324,7 @@ def index():
                     error = "Invalid RideWithGPS URL. Expected format: https://ridewithgps.com/routes/XXXXX or /trips/XXXXX"
                 else:
                     try:
-                        params = build_params(power, mass, headwind)
+                        params = build_params(power, mass, headwind, climb_power_factor, flat_power_factor, descent_speed_factor)
                         result, is_trip = _analyze_url(url, params)
                         route_id = _extract_id_from_url(url)
                         privacy_code = extract_privacy_code(url)
@@ -4143,6 +4353,9 @@ def index():
             "power": power,
             "mass": mass,
             "headwind": headwind,
+            "climb_power_factor": climb_power_factor,
+            "flat_power_factor": flat_power_factor,
+            "descent_speed_factor": descent_speed_factor,
         }
         if url2 and compare_mode:
             share_params["url2"] = url2
@@ -4162,6 +4375,10 @@ def index():
         power=power,
         mass=mass,
         headwind=headwind,
+        climb_power_factor=climb_power_factor,
+        flat_power_factor=flat_power_factor,
+        descent_speed_factor=descent_speed_factor,
+        defaults=defaults,
         imperial=imperial,
         error=error,
         result=result,
