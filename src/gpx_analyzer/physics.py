@@ -11,13 +11,16 @@ def effective_power(slope_angle: float, params: RiderParams) -> float:
 
     Models how riders modulate power based on terrain:
     - Steep descents (beyond coasting threshold): zero power (coasting/braking)
-    - Gentle descents (threshold to 0): descending_power (light pedaling)
+    - Moderate descents (descent_transition to coasting threshold): descending_power
+    - Near-flat descents (0 to descent_transition): ramps from flat_power to descending_power
     - Flat (0 degrees): flat_power
     - Climbs (0 to climb threshold): linearly increases from flat power to climbing power
     - Steep climbs (beyond climb threshold): plateau at climbing_power
     """
     coasting_threshold_rad = math.radians(params.coasting_grade_threshold)
     climb_threshold_rad = math.radians(params.climb_threshold_grade)
+    # Transition from flat pedaling to descent pedaling over ~1.75% grade
+    descent_transition_rad = math.radians(-1.0)
     flat_power = params.flat_power
     climbing_power = params.climbing_power
     descending_power = params.descending_power
@@ -26,9 +29,14 @@ def effective_power(slope_angle: float, params: RiderParams) -> float:
     if slope_angle <= coasting_threshold_rad:
         return 0.0
 
-    # Gentle descent: use descending_power (light pedaling)
-    if slope_angle < 0:
+    # Moderate descent: use descending_power
+    if slope_angle <= descent_transition_rad:
         return descending_power
+
+    # Near-flat descent: ramp from flat_power (at 0) to descending_power (at transition)
+    if slope_angle < 0:
+        fraction = slope_angle / descent_transition_rad  # 0 at flat, 1 at transition
+        return flat_power + (descending_power - flat_power) * fraction
 
     # Steep climb: plateau at max climbing power
     if slope_angle >= climb_threshold_rad:

@@ -140,17 +140,18 @@ class TestEffectivePower:
         beyond_rad = math.radians(params.coasting_grade_threshold - 3.0)
         assert effective_power(beyond_rad, params) == 0.0
 
-    def test_mid_downhill_uses_descending_power(self, params):
-        # Any descent between 0 and threshold uses descending_power
+    def test_moderate_downhill_uses_descending_power(self, params):
+        # Beyond the 1-degree transition, power equals descending_power
         mid_rad = math.radians(-2.5)
         power = effective_power(mid_rad, params)
         assert power == pytest.approx(params.descending_power, rel=0.01)
 
-    def test_gentle_downhill_uses_descending_power(self, params):
-        # Gentle descent also uses descending_power
-        gentle_rad = math.radians(-1.0)
+    def test_gentle_downhill_ramps_from_flat(self, params):
+        # Near-flat descents (within 1-degree transition) ramp from flat to descending power
+        gentle_rad = math.radians(-0.5)
         power = effective_power(gentle_rad, params)
-        assert power == pytest.approx(params.descending_power, rel=0.01)
+        assert power > params.descending_power
+        assert power < params.flat_power
 
     def test_custom_climbing_power(self):
         params = RiderParams(
