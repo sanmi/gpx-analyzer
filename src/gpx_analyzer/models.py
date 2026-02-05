@@ -41,6 +41,7 @@ class RiderParams:
     # Rider descent behavior
     descent_braking_factor: float = 1.0  # multiplier for descent speeds (1.0 = full physics, 0.5 = cautious)
     drivetrain_efficiency: float = 0.97  # fraction of power reaching wheel (1.0 = no loss)
+    unpaved_power_factor: float = 0.90  # power multiplier on unpaved (traction limits, vibration fatigue)
 
 
 @dataclass

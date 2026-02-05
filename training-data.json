@@ -102,7 +102,8 @@
       "trip_url": "https://ridewithgps.com/trips/280527062",
       "tags": ["road", "flat", "gravel", "france"],
       "notes": "Road with climbing",
-      "mass": 90
+      "mass": 90,
+      "headwind": 7
     },
     {
       "name": "Sacramento River Loop",

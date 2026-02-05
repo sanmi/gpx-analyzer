@@ -49,6 +49,7 @@ DEFAULTS = {
     "hairpin_curvature": 3.0,
     "descent_braking_factor": 1.0,
     "drivetrain_efficiency": 0.97,
+    "unpaved_power_factor": 0.90,
     "smoothing": 50.0,
     "elevation_scale": 1.0,
     "headwind": 0.0,
@@ -244,6 +245,12 @@ See README.md for detailed parameter descriptions.""",
         type=float,
         default=get_default("drivetrain_efficiency"),
         help=f"Drivetrain efficiency as fraction 0-1 (default: {DEFAULTS['drivetrain_efficiency']})",
+    )
+    parser.add_argument(
+        "--unpaved-power-factor",
+        type=float,
+        default=get_default("unpaved_power_factor"),
+        help=f"Power multiplier on unpaved surfaces 0-1 (default: {DEFAULTS['unpaved_power_factor']})",
     )
     parser.add_argument(
         "--smoothing",
@@ -555,6 +562,7 @@ def main(argv: list[str] | None = None) -> None:
         hairpin_curvature=args.hairpin_curvature,
         descent_braking_factor=args.descent_braking_factor,
         drivetrain_efficiency=args.drivetrain_efficiency,
+        unpaved_power_factor=args.unpaved_power_factor,
     )
 
     # Optimization mode

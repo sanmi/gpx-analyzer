@@ -152,6 +152,8 @@ def estimate_speed_from_power(
     )
     # Power at wheel after drivetrain losses
     P = effective_power(slope_angle, params) * params.drivetrain_efficiency
+    if unpaved:
+        P *= params.unpaved_power_factor
     max_speed = _gradient_limited_speed(slope_angle, params, unpaved, curvature)
 
     # Apply hard cap on descent speed

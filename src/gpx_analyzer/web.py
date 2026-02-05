@@ -43,7 +43,7 @@ def _get_config_hash() -> str:
         "crr", "cda", "coasting_grade", "max_coast_speed", "max_coast_speed_unpaved",
         "climb_threshold_grade", "steep_descent_speed", "steep_descent_grade",
         "straight_descent_speed", "hairpin_speed", "straight_curvature", "hairpin_curvature",
-        "drivetrain_efficiency", "smoothing", "elevation_scale",
+        "drivetrain_efficiency", "unpaved_power_factor", "smoothing", "elevation_scale",
     ]
     config_str = "|".join(f"{k}={config.get(k, '')}" for k in relevant_keys)
     return hashlib.md5(config_str.encode()).hexdigest()[:8]
@@ -129,10 +129,11 @@ MAX_CACHED_PROFILES = 150  # ~150 images, each ~60KB = ~9MB max
 def _make_profile_cache_key(url: str, climbing_power: float, flat_power: float, mass: float, headwind: float,
                             descent_braking_factor: float = 1.0, collapse_stops: bool = False,
                             max_xlim_hours: float | None = None, descending_power: float = 20.0,
-                            overlay: str = "", imperial: bool = False) -> str:
+                            overlay: str = "", imperial: bool = False,
+                            show_gravel: bool = False) -> str:
     """Create a unique cache key for elevation profile parameters."""
     config_hash = _get_config_hash()
-    key_str = f"{url}|{climbing_power}|{flat_power}|{descending_power}|{mass}|{headwind}|{descent_braking_factor}|{collapse_stops}|{max_xlim_hours}|{overlay}|{imperial}|{config_hash}"
+    key_str = f"{url}|{climbing_power}|{flat_power}|{descending_power}|{mass}|{headwind}|{descent_braking_factor}|{collapse_stops}|{max_xlim_hours}|{overlay}|{imperial}|{show_gravel}|{config_hash}"
     return hashlib.md5(key_str.encode()).hexdigest()
 
 
@@ -2034,6 +2035,8 @@ HTML_TEMPLATE = """
             var params = '';
             var speedCheckbox = document.getElementById('overlay_speed');
             if (speedCheckbox && speedCheckbox.checked) params += '&overlay=speed';
+            var gravelCheckbox = document.getElementById('overlay_gravel');
+            if (gravelCheckbox && gravelCheckbox.checked) params += '&show_gravel=true';
             if (isImperial()) params += '&imperial=true';
             return params;
         }
@@ -2137,7 +2140,7 @@ HTML_TEMPLATE = """
         }
 
         function initOverlays() {
-            ['speed'].forEach(function(type) {
+            ['speed', 'gravel'].forEach(function(type) {
                 var checkbox = document.getElementById('overlay_' + type);
                 if (checkbox) {
                     var saved = localStorage.getItem('overlay_' + type) === 'true';
@@ -3183,6 +3186,12 @@ HTML_TEMPLATE = """
                         <input type="checkbox" id="overlay_speed" onchange="toggleOverlay('speed')">
                         <label for="overlay_speed">Show speed</label>
                     </div>
+                    {% if not is_trip %}
+                    <div class="collapse-stops-toggle">
+                        <input type="checkbox" id="overlay_gravel" onchange="toggleOverlay('gravel')">
+                        <label for="overlay_gravel">Show gravel</label>
+                    </div>
+                    {% endif %}
                 </div>
             </div>
             <div class="elevation-profile">
@@ -3274,6 +3283,12 @@ HTML_TEMPLATE = """
                         <input type="checkbox" id="overlay_speed" onchange="toggleOverlay('speed')">
                         <label for="overlay_speed">Show speed</label>
                     </div>
+                    {% if not is_trip %}
+                    <div class="collapse-stops-toggle">
+                        <input type="checkbox" id="overlay_gravel" onchange="toggleOverlay('gravel')">
+                        <label for="overlay_gravel">Show gravel</label>
+                    </div>
+                    {% endif %}
                 </div>
             </div>
             <div class="elevation-profile-container" id="elevationContainer"
@@ -3840,6 +3855,7 @@ def build_params(
         hairpin_curvature=config.get("hairpin_curvature", DEFAULTS["hairpin_curvature"]),
         descent_braking_factor=descent_braking_factor if descent_braking_factor is not None else config.get("descent_braking_factor", DEFAULTS["descent_braking_factor"]),
         drivetrain_efficiency=config.get("drivetrain_efficiency", DEFAULTS["drivetrain_efficiency"]),
+        unpaved_power_factor=config.get("unpaved_power_factor", DEFAULTS["unpaved_power_factor"]),
     )
 
 
@@ -4545,6 +4561,21 @@ def _calculate_elevation_profile_data(url: str, params: RiderParams) -> dict:
         end_time = times_hours[tc.end_idx] if tc.end_idx < len(times_hours) else times_hours[-1]
         tunnel_time_ranges.append((start_time, end_time))
 
+    # Coalesce consecutive unpaved points into time ranges
+    unpaved_time_ranges = []
+    in_unpaved = False
+    for i, pt in enumerate(display_points):
+        if getattr(pt, 'unpaved', False):
+            if not in_unpaved:
+                unpaved_start = times_hours[i]
+                in_unpaved = True
+        else:
+            if in_unpaved:
+                unpaved_time_ranges.append((unpaved_start, times_hours[i]))
+                in_unpaved = False
+    if in_unpaved:
+        unpaved_time_ranges.append((unpaved_start, times_hours[-1]))
+
     return {
         "times_hours": times_hours,
         "elevations": elevations,
@@ -4556,6 +4587,7 @@ def _calculate_elevation_profile_data(url: str, params: RiderParams) -> dict:
         "elev_losses": segment_elev_losses,
         "route_name": route_name,
         "tunnel_time_ranges": tunnel_time_ranges,
+        "unpaved_time_ranges": unpaved_time_ranges,
     }
 
 
@@ -4710,7 +4742,8 @@ def generate_elevation_profile(url: str, params: RiderParams, title_time_hours: 
                                max_xlim_hours: float | None = None,
                                overlay: str | None = None, imperial: bool = False,
                                max_ylim: float | None = None,
-                               max_speed_ylim: float | None = None) -> bytes:
+                               max_speed_ylim: float | None = None,
+                               show_gravel: bool = False) -> bytes:
     """Generate elevation profile image with grade-based coloring.
 
     Args:
@@ -4724,6 +4757,7 @@ def generate_elevation_profile(url: str, params: RiderParams, title_time_hours: 
         imperial: If True, use imperial units for overlay axis.
         max_ylim: Optional max y-axis limit in meters (for synchronized comparison).
         max_speed_ylim: Optional max speed y-axis limit in km/h (for synchronized comparison).
+        show_gravel: If True, highlight unpaved/gravel sections with a brown strip.
 
     Returns PNG image as bytes.
     """
@@ -4796,6 +4830,13 @@ def generate_elevation_profile(url: str, params: RiderParams, title_time_hours: 
         ax.text(mid_time, max_elev * 0.92, 'T', fontsize=9, fontweight='bold',
                 color='#E65100', ha='center', va='center',
                 bbox=dict(boxstyle='circle,pad=0.2', facecolor='#FFF3E0', edgecolor='#FF9800', linewidth=1))
+
+    # Highlight unpaved/gravel sections with a thin brown strip at the bottom
+    if show_gravel:
+        strip_height = max_elev * 0.03
+        for start_time, end_time in data.get("unpaved_time_ranges", []):
+            ax.fill_between([start_time, end_time], 0, strip_height,
+                            color='#8B6914', alpha=0.5, zorder=1)
 
     # Style the plot - use max_xlim_hours if provided for synchronized comparison
     xlim = max_xlim_hours if max_xlim_hours is not None else times_hours[-1]
@@ -4950,6 +4991,7 @@ def elevation_profile():
     max_ylim = float(max_ylim_str) if max_ylim_str else None
     max_speed_ylim_str = request.args.get("max_speed_ylim", "")
     max_speed_ylim = float(max_speed_ylim_str) if max_speed_ylim_str else None
+    show_gravel = request.args.get("show_gravel", "false").lower() == "true"
 
     if not url or not (is_ridewithgps_url(url) or is_ridewithgps_trip_url(url)):
         # Return a placeholder image
@@ -4963,7 +5005,7 @@ def elevation_profile():
         return send_file(buf, mimetype='image/png')
 
     # Check disk cache first
-    cache_key = _make_profile_cache_key(url, climbing_power, flat_power, mass, headwind, descent_braking_factor, collapse_stops, max_xlim_hours, descending_power, overlay=overlay or "", imperial=imperial)
+    cache_key = _make_profile_cache_key(url, climbing_power, flat_power, mass, headwind, descent_braking_factor, collapse_stops, max_xlim_hours, descending_power, overlay=overlay or "", imperial=imperial, show_gravel=show_gravel)
     cached_bytes = _get_cached_profile(cache_key)
     if cached_bytes:
         return send_file(io.BytesIO(cached_bytes), mimetype='image/png')
@@ -4979,7 +5021,7 @@ def elevation_profile():
             params = build_params(climbing_power, flat_power, mass, headwind, descent_braking_factor, descending_power)
             analysis = analyze_single_route(url, params)
             title_time_hours = analysis["time_seconds"] / 3600
-            img_bytes = generate_elevation_profile(url, params, title_time_hours, max_xlim_hours=max_xlim_hours, overlay=overlay, imperial=imperial, max_ylim=max_ylim, max_speed_ylim=max_speed_ylim)
+            img_bytes = generate_elevation_profile(url, params, title_time_hours, max_xlim_hours=max_xlim_hours, overlay=overlay, imperial=imperial, max_ylim=max_ylim, max_speed_ylim=max_speed_ylim, show_gravel=show_gravel)
         # Save to disk cache
         _save_profile_to_cache(cache_key, img_bytes)
         return send_file(io.BytesIO(img_bytes), mimetype='image/png')
