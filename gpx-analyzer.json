@@ -21,6 +21,7 @@
     "straight_curvature": 0.3,
     "hairpin_curvature": 2.5,
     "descent_braking_factor": 1.0,
+    "unpaved_power_factor": 0.90,
     "elevation_scale": 1.0,
     "headwind": 0.0,
     "max_grade_window_route": 106.8617,
