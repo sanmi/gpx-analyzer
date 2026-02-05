@@ -132,10 +132,13 @@ def _make_profile_cache_key(url: str, climbing_power: float, flat_power: float, 
                             descent_braking_factor: float = 1.0, collapse_stops: bool = False,
                             max_xlim_hours: float | None = None, descending_power: float = 20.0,
                             overlay: str = "", imperial: bool = False,
-                            show_gravel: bool = False) -> str:
+                            show_gravel: bool = False,
+                            max_ylim: float | None = None,
+                            max_speed_ylim: float | None = None,
+                            unpaved_power_factor: float = 0.0) -> str:
     """Create a unique cache key for elevation profile parameters."""
     config_hash = _get_config_hash()
-    key_str = f"{url}|{climbing_power}|{flat_power}|{descending_power}|{mass}|{headwind}|{descent_braking_factor}|{collapse_stops}|{max_xlim_hours}|{overlay}|{imperial}|{show_gravel}|{config_hash}"
+    key_str = f"{url}|{climbing_power}|{flat_power}|{descending_power}|{mass}|{headwind}|{descent_braking_factor}|{collapse_stops}|{max_xlim_hours}|{overlay}|{imperial}|{show_gravel}|{max_ylim}|{max_speed_ylim}|{unpaved_power_factor}|{config_hash}"
     return hashlib.md5(key_str.encode()).hexdigest()
 
 
@@ -3193,7 +3196,9 @@ HTML_TEMPLATE = """
 
         {% if compare_mode and result2 %}
         <!-- Stacked elevation profiles for comparison -->
-        {% set max_time_hours = [result.time_seconds / 3600, result2.time_seconds / 3600] | max %}
+        {% set t1 = (result.elapsed_time_seconds | default(result.time_seconds)) / 3600 %}
+        {% set t2 = (result2.elapsed_time_seconds | default(result2.time_seconds)) / 3600 %}
+        {% set max_time_hours = [t1, t2] | max %}
         <div class="elevation-profiles-stacked">
             <div class="elevation-profile-header" style="margin-bottom: 8px;">
                 <div class="elevation-profile-toggles">
@@ -3562,17 +3567,8 @@ HTML_TEMPLATE = """
                 }
                 const avgGrade = gradeCount > 0 ? gradeSum / gradeCount : null;
 
-                // Avg speed (km/h)
-                let speedSum = 0, speedCount = 0;
-                if (d.speeds) {
-                    for (let k = i; k <= j; k++) {
-                        if (d.speeds[k] !== null && d.speeds[k] !== undefined) {
-                            speedSum += d.speeds[k];
-                            speedCount++;
-                        }
-                    }
-                }
-                const avgSpeed = speedCount > 0 ? speedSum / speedCount : null;
+                // Avg speed (km/h) = total distance / total time
+                const avgSpeed = (duration > 0 && distKm > 0) ? distKm / duration : null;
 
                 // Avg power and total work
                 let powerSum = 0, powerCount = 0, workJ = 0;
@@ -4174,6 +4170,12 @@ def analyze_trip(url: str) -> dict:
     avg_speed = trip_metadata.get("avg_speed")  # m/s
     avg_watts = trip_metadata.get("avg_watts") or calculated_avg_watts
 
+    # Compute elapsed time from timestamps (includes stops)
+    if trip_points[-1].timestamp is not None and trip_points[0].timestamp is not None:
+        elapsed_time = trip_points[-1].timestamp - trip_points[0].timestamp
+    else:
+        elapsed_time = moving_time
+
     # Calculate avg_speed from distance/time if not in metadata
     if avg_speed is None and moving_time > 0:
         avg_speed = distance / moving_time  # m/s
@@ -4193,6 +4195,7 @@ def analyze_trip(url: str) -> dict:
         "elevation_loss_ft": elevation_loss * 3.28084,
         "time_str": format_duration_long(moving_time),
         "time_seconds": moving_time,
+        "elapsed_time_seconds": elapsed_time,
         "avg_speed_kmh": (avg_speed * 3.6) if avg_speed else 0,
         "avg_speed_mph": (avg_speed * 3.6 * 0.621371) if avg_speed else 0,
         "work_kj": work_kj,
@@ -4638,18 +4641,22 @@ def _calculate_trip_elevation_profile_data(url: str, collapse_stops: bool = Fals
     # Detect and correct tunnel artifacts
     track_points, tunnel_corrections = detect_and_correct_tunnels(track_points)
 
-    # Apply smoothing — display_points (unscaled) for elevations/grades;
-    # no physics_points needed since trips use actual timestamps
+    # Apply smoothing with API elevation scaling
     api_elevation_gain = trip_metadata.get("elevation_gain")
     api_elevation_scale = 1.0
-    display_points = smooth_elevations(track_points, smoothing_radius, 1.0)
+    unscaled_points = smooth_elevations(track_points, smoothing_radius, 1.0)
     if api_elevation_gain and api_elevation_gain > 0:
-        smoothed_gain = calculate_elevation_gain(display_points)
+        smoothed_gain = calculate_elevation_gain(unscaled_points)
         if smoothed_gain > 0:
             api_elevation_scale = api_elevation_gain / smoothed_gain
 
-    # Calculate rolling grades from display points (actual terrain steepness)
-    rolling_grades = _calculate_rolling_grades(display_points, max_grade_window)
+    if api_elevation_scale != 1.0:
+        scaled_points = smooth_elevations(track_points, smoothing_radius, api_elevation_scale)
+    else:
+        scaled_points = unscaled_points
+
+    # Calculate rolling grades from scaled points (consistent with summary)
+    rolling_grades = _calculate_rolling_grades(scaled_points, max_grade_window)
 
     # Use actual timestamps for x-axis
     if trip_points[0].timestamp is None:
@@ -4688,7 +4695,7 @@ def _calculate_trip_elevation_profile_data(url: str, collapse_stops: bool = Fals
         # Use cumulative moving time (excludes stopped segments)
         moving_time_seconds = 0.0
         times_hours.append(0.0)
-        elevations.append(display_points[0].elevation or 0.0)
+        elevations.append(scaled_points[0].elevation or 0.0)
 
         for i in range(1, len(trip_points)):
             tp_prev, tp_curr = trip_points[i - 1], trip_points[i]
@@ -4698,26 +4705,25 @@ def _calculate_trip_elevation_profile_data(url: str, collapse_stops: bool = Fals
                 if i - 1 < len(segment_speeds) and segment_speeds[i - 1] >= STOPPED_SPEED_MS:
                     moving_time_seconds += time_delta
             times_hours.append(moving_time_seconds / 3600)
-            elevations.append(display_points[i].elevation or 0.0)
+            elevations.append(scaled_points[i].elevation or 0.0)
     else:
         # Use actual elapsed time
         base_time = trip_points[0].timestamp
-        for i, (tp, dp) in enumerate(zip(trip_points, display_points)):
+        for i, (tp, sp) in enumerate(zip(trip_points, scaled_points)):
             if tp.timestamp is not None:
                 hours = (tp.timestamp - base_time) / 3600
             else:
                 hours = times_hours[-1] if times_hours else 0.0
             times_hours.append(hours)
-            elevations.append(dp.elevation or 0.0)
+            elevations.append(sp.elevation or 0.0)
 
-    # Pre-compute per-segment elevation gains and losses from display elevations,
-    # scaled by api_elevation_scale to match API gain totals
+    # Pre-compute per-segment elevation gains and losses from scaled elevations
     segment_elev_gains = []
     segment_elev_losses = []
     for i in range(len(elevations) - 1):
         delta = elevations[i + 1] - elevations[i]
-        segment_elev_gains.append(delta * api_elevation_scale if delta > 0 else 0.0)
-        segment_elev_losses.append(delta * api_elevation_scale if delta < 0 else 0.0)
+        segment_elev_gains.append(delta if delta > 0 else 0.0)
+        segment_elev_losses.append(delta if delta < 0 else 0.0)
 
     grades = rolling_grades if rolling_grades else [0.0] * (len(trip_points) - 1)
 
@@ -5021,7 +5027,7 @@ def elevation_profile():
         return send_file(buf, mimetype='image/png')
 
     # Check disk cache first
-    cache_key = _make_profile_cache_key(url, climbing_power, flat_power, mass, headwind, descent_braking_factor, collapse_stops, max_xlim_hours, descending_power, overlay=overlay or "", imperial=imperial, show_gravel=show_gravel)
+    cache_key = _make_profile_cache_key(url, climbing_power, flat_power, mass, headwind, descent_braking_factor, collapse_stops, max_xlim_hours, descending_power, overlay=overlay or "", imperial=imperial, show_gravel=show_gravel, max_ylim=max_ylim, max_speed_ylim=max_speed_ylim, unpaved_power_factor=unpaved_power_factor)
     cached_bytes = _get_cached_profile(cache_key)
     if cached_bytes:
         return send_file(io.BytesIO(cached_bytes), mimetype='image/png')
