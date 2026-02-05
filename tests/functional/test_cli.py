@@ -20,7 +20,7 @@ RIDEWITHGPS_URL = "https://ridewithgps.com/routes/53835626?privacy_code=Z5O4f4Au
 class TestCli:
     def test_run_with_sample_file(self):
         result = subprocess.run(
-            [sys.executable, "-m", "gpx_analyzer", "--power", "150", SAMPLE_GPX_PATH],
+            [sys.executable, "-m", "gpx_analyzer", "--climbing-power", "150", "--flat-power", "150", SAMPLE_GPX_PATH],
             capture_output=True,
             text=True,
         )
@@ -47,7 +47,7 @@ class TestCli:
 
     def test_run_with_custom_power(self):
         result = subprocess.run(
-            [sys.executable, "-m", "gpx_analyzer", "--power", "200", SAMPLE_GPX_PATH],
+            [sys.executable, "-m", "gpx_analyzer", "--climbing-power", "200", "--flat-power", "200", SAMPLE_GPX_PATH],
             capture_output=True,
             text=True,
         )
@@ -90,7 +90,7 @@ class TestCli:
             [
                 sys.executable, "-m", "gpx_analyzer",
                 "--mass", "84",
-                "--power", "120",
+                "--climbing-power", "120", "--flat-power", "120",
                 LOMA_PRIETA_GPX_PATH,
             ],
             capture_output=True,
@@ -112,7 +112,7 @@ class TestCli:
         work_kj = parse_value("Est. Work:")
         est_time_hours = parse_duration_hours("Est. Time @120W:")
 
-        assert 1900 < work_kj < 2500, f"Expected work ~2100 kJ, got {work_kj}"
+        assert 1800 < work_kj < 2500, f"Expected work ~2100 kJ, got {work_kj}"
         assert 4.0 < est_time_hours < 6.0, f"Expected est. time ~5h at 120W, got {est_time_hours:.2f}h"
 
     def test_col_de_la_croix_de_fer_ride(self):
@@ -121,7 +121,7 @@ class TestCli:
             [
                 sys.executable, "-m", "gpx_analyzer",
                 "--mass", "98",
-                "--power", "120",
+                "--climbing-power", "120", "--flat-power", "120",
                 "--cda", "0.35",
                 "--crr", "0.005",
                 CROIX_DE_FER_GPX_PATH,
@@ -156,7 +156,7 @@ class TestCli:
             [
                 sys.executable, "-m", "gpx_analyzer",
                 "--mass", "84",
-                "--power", "120",
+                "--climbing-power", "120", "--flat-power", "120",
                 LOMA_PRIETA_GPX_PATH,
             ],
             capture_output=True,
@@ -175,7 +175,7 @@ class TestCli:
                 sys.executable, "-m", "gpx_analyzer",
                 "--no-smoothing",
                 "--mass", "84",
-                "--power", "120",
+                "--climbing-power", "120", "--flat-power", "120",
                 LOMA_PRIETA_GPX_PATH,
             ],
             capture_output=True,

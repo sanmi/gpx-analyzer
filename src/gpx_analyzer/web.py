@@ -1517,13 +1517,6 @@ HTML_TEMPLATE = """
             </div>
             <div>
                 <div class="label-row">
-                    <label for="descending_power">Descent Power (W)</label>
-                    <button type="button" class="info-btn" onclick="showModal('descentPowerModal')">?</button>
-                </div>
-                <input type="number" id="descending_power" name="descending_power" value="{{ descending_power }}" step="1">
-            </div>
-            <div>
-                <div class="label-row">
                     <label for="mass">Mass (kg)</label>
                     <button type="button" class="info-btn" onclick="showModal('massModal')">?</button>
                 </div>
@@ -1564,6 +1557,13 @@ HTML_TEMPLATE = """
 
         <div class="advanced-options" id="advancedOptions">
             <div class="param-row">
+                <div>
+                    <div class="label-row">
+                        <label for="descending_power">Descent Power (W)</label>
+                        <button type="button" class="info-btn" onclick="showModal('descentPowerModal')">?</button>
+                    </div>
+                    <input type="number" id="descending_power" name="descending_power" value="{{ descending_power }}" step="1">
+                </div>
                 <div>
                     <div class="label-row">
                         <label for="descent_braking_factor">Descent Braking Factor</label>
