@@ -543,6 +543,14 @@ HTML_TEMPLATE = """
         .elevation-profile-header h4 {
             margin: 0;
         }
+        .elevation-profile-header h4 a {
+            color: #333;
+            text-decoration: none;
+        }
+        .elevation-profile-header h4 a:hover {
+            color: #1a73e8;
+            text-decoration: underline;
+        }
         .elevation-profile-toggles {
             display: flex;
             gap: 16px;
@@ -3179,7 +3187,7 @@ HTML_TEMPLATE = """
             </div>
             <div class="elevation-profile">
                 <div class="elevation-profile-header">
-                    <h4>{{ (result.name or ('Trip 1' if is_trip else 'Route 1'))|truncate(40) }} <span class="result-badge {% if is_trip %}trip-badge{% else %}route-badge{% endif %}">{% if is_trip %}Ride{% else %}Route{% endif %}</span></h4>
+                    <h4><a href="{{ url }}" target="_blank">{{ (result.name or ('Trip 1' if is_trip else 'Route 1'))|truncate(40) }}</a> <span class="result-badge {% if is_trip %}trip-badge{% else %}route-badge{% endif %}">{% if is_trip %}Ride{% else %}Route{% endif %}</span> - {{ "%.1f"|format(result.time_seconds / 3600) }}h</h4>
                     {% if is_trip %}
                     <div class="collapse-stops-toggle">
                         <input type="checkbox" id="collapseStops1" onchange="toggleCollapseStops(1)">
@@ -3219,7 +3227,7 @@ HTML_TEMPLATE = """
             {% endif %}
             <div class="elevation-profile">
                 <div class="elevation-profile-header">
-                    <h4>{{ (result2.name or ('Trip 2' if is_trip2 else 'Route 2'))|truncate(40) }} <span class="result-badge {% if is_trip2 %}trip-badge{% else %}route-badge{% endif %}">{% if is_trip2 %}Ride{% else %}Route{% endif %}</span></h4>
+                    <h4><a href="{{ url2 }}" target="_blank">{{ (result2.name or ('Trip 2' if is_trip2 else 'Route 2'))|truncate(40) }}</a> <span class="result-badge {% if is_trip2 %}trip-badge{% else %}route-badge{% endif %}">{% if is_trip2 %}Ride{% else %}Route{% endif %}</span> - {{ "%.1f"|format(result2.time_seconds / 3600) }}h</h4>
                     {% if is_trip2 %}
                     <div class="collapse-stops-toggle">
                         <input type="checkbox" id="collapseStops2" onchange="toggleCollapseStops(2)">
@@ -3254,7 +3262,7 @@ HTML_TEMPLATE = """
         <!-- Single elevation profile -->
         <div class="elevation-profile">
             <div class="elevation-profile-header">
-                <h4>Time-Based Elevation Profile</h4>
+                <h4><a href="{{ url }}" target="_blank">{{ result.name or ('Trip' if is_trip else 'Route') }}</a> - {{ "%.1f"|format(result.time_seconds / 3600) }}h</h4>
                 <div class="elevation-profile-toggles">
                     {% if is_trip %}
                     <div class="collapse-stops-toggle">
@@ -4723,7 +4731,6 @@ def generate_elevation_profile(url: str, params: RiderParams, title_time_hours: 
     times_hours = data["times_hours"]
     elevations = data["elevations"]
     grades = data["grades"]
-    route_name = data["route_name"]
     tunnel_time_ranges = data.get("tunnel_time_ranges", [])
 
     # Grade to color mapping - matches histogram colors exactly
@@ -4797,10 +4804,6 @@ def generate_elevation_profile(url: str, params: RiderParams, title_time_hours: 
     ax.set_xlabel('Time (hours)', fontsize=10)
     ax.set_ylabel('Elevation (m)', fontsize=10)
 
-    # Add title with route info (use calibrated time if provided)
-    display_time = title_time_hours if title_time_hours is not None else times_hours[-1]
-    ax.set_title(f"{route_name} - {display_time:.1f}h", fontsize=12, fontweight='bold')
-
     ax.spines['top'].set_visible(False)
 
     if overlay == "speed" and data.get("speeds_kmh"):
@@ -4844,7 +4847,6 @@ def generate_trip_elevation_profile(url: str, title_time_hours: float | None = N
     times_hours = data["times_hours"]
     elevations = data["elevations"]
     grades = data["grades"]
-    route_name = data["route_name"]
     tunnel_time_ranges = data.get("tunnel_time_ranges", [])
 
     # Reuse the same grade-to-color mapping from route profile
@@ -4908,9 +4910,6 @@ def generate_trip_elevation_profile(url: str, title_time_hours: float | None = N
     ax.set_ylim(0, max_elev)
     ax.set_xlabel('Time (hours)', fontsize=10)
     ax.set_ylabel('Elevation (m)', fontsize=10)
-
-    display_time = title_time_hours if title_time_hours is not None else times_hours[-1]
-    ax.set_title(f"{route_name} - {display_time:.1f}h", fontsize=12, fontweight='bold')
 
     ax.spines['top'].set_visible(False)
 
