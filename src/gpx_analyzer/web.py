@@ -4516,55 +4516,53 @@ def _calculate_elevation_profile_data(url: str, params: RiderParams) -> dict:
     # Detect and correct tunnel artifacts
     points, tunnel_corrections = detect_and_correct_tunnels(points)
 
-    # Apply smoothing — display_points (unscaled) for elevations/grades,
-    # physics_points (scaled) for speed/time estimation via calculate_segment_work
+    # Apply smoothing with API elevation scaling
     api_elevation_scale = 1.0
     api_elevation_gain = route_metadata.get("elevation_gain") if route_metadata else None
-    display_points = smooth_elevations(points, smoothing_radius, 1.0)
+    unscaled_points = smooth_elevations(points, smoothing_radius, 1.0)
     if api_elevation_gain and api_elevation_gain > 0:
-        smoothed_gain = calculate_elevation_gain(display_points)
+        smoothed_gain = calculate_elevation_gain(unscaled_points)
         if smoothed_gain > 0:
             api_elevation_scale = api_elevation_gain / smoothed_gain
 
     if api_elevation_scale != 1.0:
-        physics_points = smooth_elevations(points, smoothing_radius, api_elevation_scale)
+        scaled_points = smooth_elevations(points, smoothing_radius, api_elevation_scale)
     else:
-        physics_points = display_points
+        scaled_points = unscaled_points
 
-    # Calculate rolling grades from display points (actual terrain steepness)
+    # Calculate rolling grades from scaled points (consistent with analysis)
     max_grade_window = config.get("max_grade_window_route", DEFAULT_MAX_GRADE_WINDOW)
-    rolling_grades = _calculate_rolling_grades(display_points, max_grade_window)
+    rolling_grades = _calculate_rolling_grades(scaled_points, max_grade_window)
 
     # Calculate cumulative time, elevation, and speed at each point
-    # Use physics_points for speed/time (consistent with summary), display_points for elevations
     cum_time = [0.0]
     cum_dist = [0.0]
-    elevations = [display_points[0].elevation or 0.0]
+    elevations = [scaled_points[0].elevation or 0.0]
     speeds_ms = []
     segment_distances = []
     segment_powers = []
     segment_elev_gains = []
     segment_elev_losses = []
 
-    for i in range(1, len(display_points)):
-        work, dist, elapsed = calculate_segment_work(physics_points[i-1], physics_points[i], params)
+    for i in range(1, len(scaled_points)):
+        work, dist, elapsed = calculate_segment_work(scaled_points[i-1], scaled_points[i], params)
         cum_time.append(cum_time[-1] + elapsed)
         cum_dist.append(cum_dist[-1] + dist)
         prev_elev = elevations[-1]
-        curr_elev = display_points[i].elevation or prev_elev
+        curr_elev = scaled_points[i].elevation or prev_elev
         elevations.append(curr_elev)
         speeds_ms.append(dist / elapsed if elapsed > 0 else 0.0)
         segment_distances.append(dist)
         segment_powers.append(work / elapsed if elapsed > 0 else 0.0)
         delta = curr_elev - prev_elev
-        segment_elev_gains.append(delta * api_elevation_scale if delta > 0 else 0.0)
-        segment_elev_losses.append(delta * api_elevation_scale if delta < 0 else 0.0)
+        segment_elev_gains.append(delta if delta > 0 else 0.0)
+        segment_elev_losses.append(delta if delta < 0 else 0.0)
 
     # Convert to hours
     times_hours = [t / 3600 for t in cum_time]
 
     # Use rolling grades (one fewer than points, like segment grades)
-    grades = rolling_grades if rolling_grades else [0.0] * (len(display_points) - 1)
+    grades = rolling_grades if rolling_grades else [0.0] * (len(scaled_points) - 1)
 
     # Smooth speeds
     speeds_kmh = _smooth_speeds(speeds_ms, cum_dist, window_m=300)
@@ -4581,7 +4579,7 @@ def _calculate_elevation_profile_data(url: str, params: RiderParams) -> dict:
     # Coalesce consecutive unpaved points into time ranges
     unpaved_time_ranges = []
     in_unpaved = False
-    for i, pt in enumerate(display_points):
+    for i, pt in enumerate(scaled_points):
         if getattr(pt, 'unpaved', False):
             if not in_unpaved:
                 unpaved_start = times_hours[i]
