@@ -751,3 +751,232 @@ class TestTripSupport:
         assert "Planned Route" in html
         assert "route-badge" in html
         assert "route-results" in html
+
+
+class TestElevationProfileData:
+    """Tests for elevation profile data endpoint structure and values."""
+
+    @pytest.fixture
+    def mock_route_points(self):
+        """Create mock track points with varied elevation."""
+        return [
+            TrackPoint(lat=37.7749, lon=-122.4194, elevation=100.0, time=None),
+            TrackPoint(lat=37.7758, lon=-122.4183, elevation=150.0, time=None),
+            TrackPoint(lat=37.7767, lon=-122.4172, elevation=200.0, time=None),
+            TrackPoint(lat=37.7776, lon=-122.4161, elevation=180.0, time=None),
+            TrackPoint(lat=37.7785, lon=-122.4150, elevation=120.0, time=None),
+        ]
+
+    @patch.object(web, "get_route_with_surface")
+    def test_route_profile_data_structure(self, mock_get_route, client, no_config, mock_route_points):
+        """Route profile data should include all required fields."""
+        mock_get_route.return_value = (
+            mock_route_points,
+            {"name": "Test Route", "elevation_gain": 100},
+        )
+
+        response = client.get("/elevation-profile-data", query_string={
+            "url": "https://ridewithgps.com/routes/12345",
+            "climbing_power": "150",
+            "flat_power": "120",
+            "mass": "85",
+            "headwind": "0",
+        })
+
+        assert response.status_code == 200
+        data = json.loads(response.data)
+
+        # Check required fields
+        assert "times" in data
+        assert "elevations" in data
+        assert "grades" in data
+        assert "total_time" in data
+        assert "speeds" in data
+        assert "distances" in data
+        assert "elev_gains" in data
+        assert "elev_losses" in data
+
+        # Check data consistency
+        assert len(data["times"]) == len(data["elevations"])
+        assert len(data["grades"]) == len(data["times"]) - 1 or len(data["grades"]) == len(data["times"])
+        assert data["total_time"] > 0
+
+    @patch.object(web, "get_route_with_surface")
+    def test_route_profile_elevations_match_input(self, mock_get_route, client, no_config, mock_route_points):
+        """Route profile elevations should be close to input values (smoothed, unscaled for display)."""
+        mock_get_route.return_value = (
+            mock_route_points,
+            {"name": "Test Route", "elevation_gain": 100},
+        )
+
+        response = client.get("/elevation-profile-data", query_string={
+            "url": "https://ridewithgps.com/routes/12345",
+            "climbing_power": "150",
+            "flat_power": "120",
+            "mass": "85",
+            "headwind": "0",
+        })
+
+        data = json.loads(response.data)
+        elevations = data["elevations"]
+
+        # First elevation should be close to input (100m)
+        assert 90 <= elevations[0] <= 110
+        # Max elevation should be close to input max (200m)
+        assert max(elevations) >= 180
+
+    @patch.object(web, "get_route_with_surface")
+    def test_route_profile_gain_loss_consistency(self, mock_get_route, client, no_config, mock_route_points):
+        """Sum of elev_gains and elev_losses should be consistent."""
+        mock_get_route.return_value = (
+            mock_route_points,
+            {"name": "Test Route", "elevation_gain": 100},
+        )
+
+        response = client.get("/elevation-profile-data", query_string={
+            "url": "https://ridewithgps.com/routes/12345",
+            "climbing_power": "150",
+            "flat_power": "120",
+            "mass": "85",
+            "headwind": "0",
+        })
+
+        data = json.loads(response.data)
+        total_gain = sum(data["elev_gains"])
+        total_loss = sum(abs(l) for l in data["elev_losses"])
+
+        # Should have both gain and loss
+        assert total_gain > 0
+        assert total_loss > 0
+
+    @patch.object(web, "get_trip_data")
+    def test_trip_profile_collapse_stops_changes_total_time(self, mock_get_trip, client, no_config):
+        """Trip profile with collapse_stops should have different total_time."""
+        from gpx_analyzer.ridewithgps import TripPoint
+
+        # Create trip with a stop (0 speed segment)
+        mock_get_trip.return_value = (
+            [
+                TripPoint(lat=37.7749, lon=-122.4194, elevation=100.0, distance=0, speed=5.0, timestamp=0, power=None, heart_rate=None, cadence=None),
+                TripPoint(lat=37.7758, lon=-122.4183, elevation=150.0, distance=100, speed=5.0, timestamp=20, power=None, heart_rate=None, cadence=None),
+                TripPoint(lat=37.7758, lon=-122.4183, elevation=150.0, distance=100, speed=0.0, timestamp=120, power=None, heart_rate=None, cadence=None),  # 100s stop
+                TripPoint(lat=37.7767, lon=-122.4172, elevation=200.0, distance=200, speed=5.0, timestamp=140, power=None, heart_rate=None, cadence=None),
+            ],
+            {"name": "Test Trip", "distance": 200, "elevation_gain": 100, "moving_time": 40},
+        )
+
+        # Get elapsed time (includes stop)
+        response1 = client.get("/elevation-profile-data", query_string={
+            "url": "https://ridewithgps.com/trips/12345",
+            "collapse_stops": "false",
+        })
+        data1 = json.loads(response1.data)
+
+        # Get moving time (excludes stop)
+        response2 = client.get("/elevation-profile-data", query_string={
+            "url": "https://ridewithgps.com/trips/12345",
+            "collapse_stops": "true",
+        })
+        data2 = json.loads(response2.data)
+
+        # Moving time should be less than elapsed time
+        assert data2["total_time"] < data1["total_time"]
+
+    @patch.object(web, "get_trip_data")
+    def test_trip_profile_data_structure(self, mock_get_trip, client, no_config):
+        """Trip profile data should include all required fields."""
+        from gpx_analyzer.ridewithgps import TripPoint
+
+        mock_get_trip.return_value = (
+            [
+                TripPoint(lat=37.7749, lon=-122.4194, elevation=100.0, distance=0, speed=5.0, timestamp=0, power=150, heart_rate=None, cadence=None),
+                TripPoint(lat=37.7758, lon=-122.4183, elevation=150.0, distance=100, speed=5.0, timestamp=20, power=150, heart_rate=None, cadence=None),
+                TripPoint(lat=37.7767, lon=-122.4172, elevation=200.0, distance=200, speed=5.0, timestamp=40, power=150, heart_rate=None, cadence=None),
+            ],
+            {"name": "Test Trip", "distance": 200, "elevation_gain": 100, "moving_time": 40},
+        )
+
+        response = client.get("/elevation-profile-data", query_string={
+            "url": "https://ridewithgps.com/trips/12345",
+        })
+
+        assert response.status_code == 200
+        data = json.loads(response.data)
+
+        # Check required fields
+        assert "times" in data
+        assert "elevations" in data
+        assert "grades" in data
+        assert "total_time" in data
+        assert "speeds" in data
+        assert "distances" in data
+        assert "elev_gains" in data
+        assert "elev_losses" in data
+        assert "powers" in data
+
+        # Check data consistency
+        assert len(data["times"]) == len(data["elevations"])
+
+
+class TestComparisonMode:
+    """Tests for route/trip comparison mode."""
+
+    @pytest.fixture
+    def mock_route_points(self):
+        return [
+            TrackPoint(lat=37.7749, lon=-122.4194, elevation=100.0, time=None),
+            TrackPoint(lat=37.7758, lon=-122.4183, elevation=150.0, time=None),
+            TrackPoint(lat=37.7767, lon=-122.4172, elevation=200.0, time=None),
+        ]
+
+    @patch.object(web, "get_route_with_surface")
+    def test_comparison_mode_has_time_data_attributes(self, mock_get_route, client, no_config, mock_route_points):
+        """Comparison mode containers should have moving/elapsed time data attributes."""
+        mock_get_route.return_value = (
+            mock_route_points,
+            {"name": "Test Route", "elevation_gain": 100},
+        )
+
+        response = client.post("/", data={
+            "url": "https://ridewithgps.com/routes/12345",
+            "url2": "https://ridewithgps.com/routes/67890",
+            "compare": "on",
+            "mode": "route",
+            "climbing_power": "150",
+            "flat_power": "120",
+            "mass": "85",
+            "headwind": "0",
+        })
+        html = response.data.decode()
+
+        # Check that comparison mode is active
+        assert 'id="elevationContainer1"' in html
+        assert 'id="elevationContainer2"' in html
+
+        # Check for time data attributes (for x-axis synchronization)
+        assert 'data-moving-time-hours' in html
+        assert 'data-elapsed-time-hours' in html
+        assert 'data-max-xlim-hours' in html
+
+    @patch.object(web, "get_route_with_surface")
+    def test_comparison_mode_has_ylim_attributes(self, mock_get_route, client, no_config, mock_route_points):
+        """Comparison mode containers should have synchronized y-axis limit attributes."""
+        mock_get_route.return_value = (
+            mock_route_points,
+            {"name": "Test Route", "elevation_gain": 100},
+        )
+
+        response = client.post("/", data={
+            "url": "https://ridewithgps.com/routes/12345",
+            "url2": "https://ridewithgps.com/routes/67890",
+            "compare": "on",
+            "mode": "route",
+            "climbing_power": "150",
+            "flat_power": "120",
+            "mass": "85",
+            "headwind": "0",
+        })
+        html = response.data.decode()
+
+        # Check for y-axis limit attributes
+        assert 'data-max-ylim' in html

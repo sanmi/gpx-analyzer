@@ -2059,6 +2059,74 @@ HTML_TEMPLATE = """
             return params;
         }
 
+        function _getEffectiveTimeHours(container, collapseCheckbox) {
+            // Return the effective time (moving or elapsed) based on checkbox state
+            if (collapseCheckbox && collapseCheckbox.checked) {
+                return parseFloat(container.getAttribute('data-moving-time-hours') || 0);
+            } else {
+                return parseFloat(container.getAttribute('data-elapsed-time-hours') ||
+                                  container.getAttribute('data-moving-time-hours') || 0);
+            }
+        }
+
+        function _recalcMaxXlimHours() {
+            // Recalculate synchronized max_xlim_hours based on current checkbox states
+            var container1 = document.getElementById('elevationContainer1');
+            var container2 = document.getElementById('elevationContainer2');
+            if (!container1 || !container2) return null;  // Not in comparison mode
+
+            var cb1 = document.getElementById('collapseStops1');
+            var cb2 = document.getElementById('collapseStops2');
+            var t1 = _getEffectiveTimeHours(container1, cb1);
+            var t2 = _getEffectiveTimeHours(container2, cb2);
+            return Math.max(t1, t2);
+        }
+
+        function _refreshComparisonProfiles() {
+            // Refresh both profiles with synchronized max_xlim_hours
+            var maxXlim = _recalcMaxXlimHours();
+            if (maxXlim === null) return;  // Not in comparison mode
+
+            ['1', '2'].forEach(function(suffix) {
+                var container = document.getElementById('elevationContainer' + suffix);
+                var img = document.getElementById('elevationImg' + suffix);
+                var loading = document.getElementById('elevationLoading' + suffix);
+                if (!container || !img) return;
+
+                var baseProfileUrl = container.getAttribute('data-base-profile-url');
+                var baseDataUrl = container.getAttribute('data-base-data-url');
+                if (!baseProfileUrl) return;
+
+                var collapseCheckbox = document.getElementById('collapseStops' + suffix);
+                var collapseParam = (collapseCheckbox && collapseCheckbox.checked) ? '&collapse_stops=true' : '';
+                var overlayParams = _buildOverlayParams();
+
+                // Update stored max_xlim_hours
+                container.setAttribute('data-max-xlim-hours', maxXlim.toFixed(4));
+
+                // Show loading spinner
+                if (loading) {
+                    loading.classList.remove('hidden');
+                    img.classList.add('loading');
+                }
+
+                // Update image source with new max_xlim_hours
+                img.src = baseProfileUrl + '&max_xlim_hours=' + maxXlim.toFixed(4) + collapseParam + overlayParams;
+
+                // Re-setup the elevation profile tooltip
+                if (typeof window.setupElevationProfile === 'function' && baseDataUrl) {
+                    window.setupElevationProfile(
+                        'elevationContainer' + suffix,
+                        'elevationImg' + suffix,
+                        'elevationTooltip' + suffix,
+                        'elevationCursor' + suffix,
+                        baseDataUrl + collapseParam,
+                        maxXlim
+                    );
+                }
+            });
+        }
+
         function toggleCollapseStops(profileNum) {
             // Handle both single profile (no num) and comparison mode (1 or 2)
             var suffix = profileNum ? profileNum : '';
@@ -2069,6 +2137,18 @@ HTML_TEMPLATE = """
 
             if (!checkbox || !container || !img) return;
 
+            // Save preference to localStorage
+            localStorage.setItem('collapseStops' + suffix, checkbox.checked);
+
+            // In comparison mode, refresh both profiles with synchronized x-axis
+            var container1 = document.getElementById('elevationContainer1');
+            var container2 = document.getElementById('elevationContainer2');
+            if (container1 && container2) {
+                _refreshComparisonProfiles();
+                return;
+            }
+
+            // Single profile mode - original behavior
             var baseProfileUrl = container.getAttribute('data-base-profile-url');
             var baseDataUrl = container.getAttribute('data-base-data-url');
             var maxXlimHours = container.getAttribute('data-max-xlim-hours');
@@ -2083,10 +2163,10 @@ HTML_TEMPLATE = """
             loading.classList.remove('hidden');
             img.classList.add('loading');
 
-            // Update image source (max_xlim_hours is already in base URL for comparison mode)
+            // Update image source
             img.src = baseProfileUrl + collapseParam + overlayParams;
 
-            // Re-setup the elevation profile tooltip with new data URL and maxXlimHours
+            // Re-setup the elevation profile tooltip with new data URL
             if (typeof window.setupElevationProfile === 'function' && baseDataUrl) {
                 window.setupElevationProfile(
                     'elevationContainer' + suffix,
@@ -2097,9 +2177,6 @@ HTML_TEMPLATE = """
                     maxXlim
                 );
             }
-
-            // Save preference to localStorage
-            localStorage.setItem('collapseStops' + suffix, checkbox.checked);
         }
 
         function initCollapseStops() {
@@ -3196,9 +3273,11 @@ HTML_TEMPLATE = """
 
         {% if compare_mode and result2 %}
         <!-- Stacked elevation profiles for comparison -->
-        {% set t1 = (result.elapsed_time_seconds | default(result.time_seconds)) / 3600 %}
-        {% set t2 = (result2.elapsed_time_seconds | default(result2.time_seconds)) / 3600 %}
-        {% set max_time_hours = [t1, t2] | max %}
+        {% set t1_moving = result.time_seconds / 3600 %}
+        {% set t1_elapsed = (result.elapsed_time_seconds | default(result.time_seconds)) / 3600 %}
+        {% set t2_moving = result2.time_seconds / 3600 %}
+        {% set t2_elapsed = (result2.elapsed_time_seconds | default(result2.time_seconds)) / 3600 %}
+        {% set max_time_hours = [t1_elapsed, t2_elapsed] | max %}
         <div class="elevation-profiles-stacked">
             <div class="elevation-profile-header" style="margin-bottom: 8px;">
                 <div class="elevation-profile-toggles">
@@ -3226,15 +3305,17 @@ HTML_TEMPLATE = """
                 </div>
                 <div class="elevation-profile-container" id="elevationContainer1"
                      data-url="{{ url|urlencode }}"
+                     data-moving-time-hours="{{ '%.4f'|format(t1_moving) }}"
+                     data-elapsed-time-hours="{{ '%.4f'|format(t1_elapsed) }}"
                      data-max-xlim-hours="{{ '%.4f'|format(max_time_hours) }}"
                      {% if compare_ylim %}data-max-ylim="{{ '%.2f'|format(compare_ylim) }}"{% endif %}
                      {% if compare_speed_ylim %}data-max-speed-ylim="{{ '%.2f'|format(compare_speed_ylim) }}"{% endif %}
-                     data-base-profile-url="/elevation-profile?url={{ url|urlencode }}&climbing_power={{ climbing_power }}&flat_power={{ flat_power }}&mass={{ mass }}&headwind={{ headwind }}&descending_power={{ descending_power }}&descent_braking_factor={{ descent_braking_factor }}&unpaved_power_factor={{ unpaved_power_factor }}&max_xlim_hours={{ '%.4f'|format(max_time_hours) }}{% if compare_ylim %}&max_ylim={{ '%.2f'|format(compare_ylim) }}{% endif %}{% if compare_speed_ylim %}&max_speed_ylim={{ '%.2f'|format(compare_speed_ylim) }}{% endif %}"
+                     data-base-profile-url="/elevation-profile?url={{ url|urlencode }}&climbing_power={{ climbing_power }}&flat_power={{ flat_power }}&mass={{ mass }}&headwind={{ headwind }}&descending_power={{ descending_power }}&descent_braking_factor={{ descent_braking_factor }}&unpaved_power_factor={{ unpaved_power_factor }}{% if compare_ylim %}&max_ylim={{ '%.2f'|format(compare_ylim) }}{% endif %}{% if compare_speed_ylim %}&max_speed_ylim={{ '%.2f'|format(compare_speed_ylim) }}{% endif %}"
                      data-base-data-url="/elevation-profile-data?url={{ url|urlencode }}&climbing_power={{ climbing_power }}&flat_power={{ flat_power }}&mass={{ mass }}&headwind={{ headwind }}&descending_power={{ descending_power }}&descent_braking_factor={{ descent_braking_factor }}&unpaved_power_factor={{ unpaved_power_factor }}">
                     <div class="elevation-loading" id="elevationLoading1">
                         <div class="elevation-spinner"></div>
                     </div>
-                    <img src="/elevation-profile?url={{ url|urlencode }}&climbing_power={{ climbing_power }}&flat_power={{ flat_power }}&mass={{ mass }}&headwind={{ headwind }}&descending_power={{ descending_power }}&descent_braking_factor={{ descent_braking_factor }}&unpaved_power_factor={{ unpaved_power_factor }}&max_xlim_hours={{ '%.4f'|format(max_time_hours) }}{% if compare_ylim %}&max_ylim={{ '%.2f'|format(compare_ylim) }}{% endif %}"
+                    <img src="/elevation-profile?url={{ url|urlencode }}&climbing_power={{ climbing_power }}&flat_power={{ flat_power }}&mass={{ mass }}&headwind={{ headwind }}&descending_power={{ descending_power }}&descent_braking_factor={{ descent_braking_factor }}&unpaved_power_factor={{ unpaved_power_factor }}&max_xlim_hours={{ '%.4f'|format(max_time_hours) }}{% if compare_ylim %}&max_ylim={{ '%.2f'|format(compare_ylim) }}{% endif %}{% if compare_speed_ylim %}&max_speed_ylim={{ '%.2f'|format(compare_speed_ylim) }}{% endif %}"
                          alt="Elevation profile - Route 1" id="elevationImg1" class="loading"
                          onload="document.getElementById('elevationLoading1').classList.add('hidden'); this.classList.remove('loading');">
                     <div class="elevation-cursor" id="elevationCursor1"></div>
@@ -3266,15 +3347,17 @@ HTML_TEMPLATE = """
                 </div>
                 <div class="elevation-profile-container" id="elevationContainer2"
                      data-url="{{ url2|urlencode }}"
+                     data-moving-time-hours="{{ '%.4f'|format(t2_moving) }}"
+                     data-elapsed-time-hours="{{ '%.4f'|format(t2_elapsed) }}"
                      data-max-xlim-hours="{{ '%.4f'|format(max_time_hours) }}"
                      {% if compare_ylim %}data-max-ylim="{{ '%.2f'|format(compare_ylim) }}"{% endif %}
                      {% if compare_speed_ylim %}data-max-speed-ylim="{{ '%.2f'|format(compare_speed_ylim) }}"{% endif %}
-                     data-base-profile-url="/elevation-profile?url={{ url2|urlencode }}&climbing_power={{ climbing_power }}&flat_power={{ flat_power }}&mass={{ mass }}&headwind={{ headwind }}&descending_power={{ descending_power }}&descent_braking_factor={{ descent_braking_factor }}&unpaved_power_factor={{ unpaved_power_factor }}&max_xlim_hours={{ '%.4f'|format(max_time_hours) }}{% if compare_ylim %}&max_ylim={{ '%.2f'|format(compare_ylim) }}{% endif %}{% if compare_speed_ylim %}&max_speed_ylim={{ '%.2f'|format(compare_speed_ylim) }}{% endif %}"
+                     data-base-profile-url="/elevation-profile?url={{ url2|urlencode }}&climbing_power={{ climbing_power }}&flat_power={{ flat_power }}&mass={{ mass }}&headwind={{ headwind }}&descending_power={{ descending_power }}&descent_braking_factor={{ descent_braking_factor }}&unpaved_power_factor={{ unpaved_power_factor }}{% if compare_ylim %}&max_ylim={{ '%.2f'|format(compare_ylim) }}{% endif %}{% if compare_speed_ylim %}&max_speed_ylim={{ '%.2f'|format(compare_speed_ylim) }}{% endif %}"
                      data-base-data-url="/elevation-profile-data?url={{ url2|urlencode }}&climbing_power={{ climbing_power }}&flat_power={{ flat_power }}&mass={{ mass }}&headwind={{ headwind }}&descending_power={{ descending_power }}&descent_braking_factor={{ descent_braking_factor }}&unpaved_power_factor={{ unpaved_power_factor }}">
                     <div class="elevation-loading" id="elevationLoading2">
                         <div class="elevation-spinner"></div>
                     </div>
-                    <img src="/elevation-profile?url={{ url2|urlencode }}&climbing_power={{ climbing_power }}&flat_power={{ flat_power }}&mass={{ mass }}&headwind={{ headwind }}&descending_power={{ descending_power }}&descent_braking_factor={{ descent_braking_factor }}&unpaved_power_factor={{ unpaved_power_factor }}&max_xlim_hours={{ '%.4f'|format(max_time_hours) }}{% if compare_ylim %}&max_ylim={{ '%.2f'|format(compare_ylim) }}{% endif %}"
+                    <img src="/elevation-profile?url={{ url2|urlencode }}&climbing_power={{ climbing_power }}&flat_power={{ flat_power }}&mass={{ mass }}&headwind={{ headwind }}&descending_power={{ descending_power }}&descent_braking_factor={{ descent_braking_factor }}&unpaved_power_factor={{ unpaved_power_factor }}&max_xlim_hours={{ '%.4f'|format(max_time_hours) }}{% if compare_ylim %}&max_ylim={{ '%.2f'|format(compare_ylim) }}{% endif %}{% if compare_speed_ylim %}&max_speed_ylim={{ '%.2f'|format(compare_speed_ylim) }}{% endif %}"
                          alt="Elevation profile - Route 2" id="elevationImg2" class="loading"
                          onload="document.getElementById('elevationLoading2').classList.add('hidden'); this.classList.remove('loading');">
                     <div class="elevation-cursor" id="elevationCursor2"></div>
@@ -4538,9 +4621,11 @@ def _calculate_elevation_profile_data(url: str, params: RiderParams) -> dict:
     rolling_grades = _calculate_rolling_grades(scaled_points, max_grade_window)
 
     # Calculate cumulative time, elevation, and speed at each point
+    # Use unscaled elevations for Y-axis display (accurate absolute heights)
+    # Use scaled points for physics (speed/time) and gain/loss calculations
     cum_time = [0.0]
     cum_dist = [0.0]
-    elevations = [scaled_points[0].elevation or 0.0]
+    elevations = [unscaled_points[0].elevation or 0.0]
     speeds_ms = []
     segment_distances = []
     segment_powers = []
@@ -4551,15 +4636,15 @@ def _calculate_elevation_profile_data(url: str, params: RiderParams) -> dict:
         work, dist, elapsed = calculate_segment_work(scaled_points[i-1], scaled_points[i], params)
         cum_time.append(cum_time[-1] + elapsed)
         cum_dist.append(cum_dist[-1] + dist)
-        prev_elev = elevations[-1]
-        curr_elev = scaled_points[i].elevation or prev_elev
-        elevations.append(curr_elev)
+        # Display elevation from unscaled points (accurate absolute heights)
+        elevations.append(unscaled_points[i].elevation or elevations[-1])
         speeds_ms.append(dist / elapsed if elapsed > 0 else 0.0)
         segment_distances.append(dist)
         segment_powers.append(work / elapsed if elapsed > 0 else 0.0)
-        delta = curr_elev - prev_elev
-        segment_elev_gains.append(delta if delta > 0 else 0.0)
-        segment_elev_losses.append(delta if delta < 0 else 0.0)
+        # Gain/loss from scaled points (accurate total gain matching API)
+        scaled_delta = (scaled_points[i].elevation or 0) - (scaled_points[i-1].elevation or 0)
+        segment_elev_gains.append(scaled_delta if scaled_delta > 0 else 0.0)
+        segment_elev_losses.append(scaled_delta if scaled_delta < 0 else 0.0)
 
     # Convert to hours
     times_hours = [t / 3600 for t in cum_time]
@@ -4687,7 +4772,7 @@ def _calculate_trip_elevation_profile_data(url: str, collapse_stops: bool = Fals
         else:
             segment_speeds.append(0.0)
 
-    # Build times array - either elapsed time or moving time
+    # Build times array - use unscaled elevations for display (accurate absolute heights)
     times_hours = []
     elevations = []
 
@@ -4695,7 +4780,7 @@ def _calculate_trip_elevation_profile_data(url: str, collapse_stops: bool = Fals
         # Use cumulative moving time (excludes stopped segments)
         moving_time_seconds = 0.0
         times_hours.append(0.0)
-        elevations.append(scaled_points[0].elevation or 0.0)
+        elevations.append(unscaled_points[0].elevation or 0.0)
 
         for i in range(1, len(trip_points)):
             tp_prev, tp_curr = trip_points[i - 1], trip_points[i]
@@ -4705,25 +4790,26 @@ def _calculate_trip_elevation_profile_data(url: str, collapse_stops: bool = Fals
                 if i - 1 < len(segment_speeds) and segment_speeds[i - 1] >= STOPPED_SPEED_MS:
                     moving_time_seconds += time_delta
             times_hours.append(moving_time_seconds / 3600)
-            elevations.append(scaled_points[i].elevation or 0.0)
+            elevations.append(unscaled_points[i].elevation or 0.0)
     else:
         # Use actual elapsed time
         base_time = trip_points[0].timestamp
-        for i, (tp, sp) in enumerate(zip(trip_points, scaled_points)):
+        for i, (tp, up) in enumerate(zip(trip_points, unscaled_points)):
             if tp.timestamp is not None:
                 hours = (tp.timestamp - base_time) / 3600
             else:
                 hours = times_hours[-1] if times_hours else 0.0
             times_hours.append(hours)
-            elevations.append(sp.elevation or 0.0)
+            elevations.append(up.elevation or 0.0)
 
-    # Pre-compute per-segment elevation gains and losses from scaled elevations
+    # Pre-compute per-segment elevation gains and losses from scaled points
+    # (accurate total gain matching API, while display elevations are unscaled)
     segment_elev_gains = []
     segment_elev_losses = []
     for i in range(len(elevations) - 1):
-        delta = elevations[i + 1] - elevations[i]
-        segment_elev_gains.append(delta if delta > 0 else 0.0)
-        segment_elev_losses.append(delta if delta < 0 else 0.0)
+        scaled_delta = (scaled_points[i + 1].elevation or 0) - (scaled_points[i].elevation or 0)
+        segment_elev_gains.append(scaled_delta if scaled_delta > 0 else 0.0)
+        segment_elev_losses.append(scaled_delta if scaled_delta < 0 else 0.0)
 
     grades = rolling_grades if rolling_grades else [0.0] * (len(trip_points) - 1)
 
