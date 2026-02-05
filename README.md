@@ -10,7 +10,8 @@ Speed is calculated by solving the power balance equation: your power output equ
 
 ### Primary Parameters (Biggest Impact)
 
-- **Power (W)** — Your sustained power output. This is the most important input; doubling power roughly doubles your speed on flat ground.
+- **Climbing Power (W)** — Your sustained power output on steep climbs. This is the most important input for hilly routes.
+- **Flat Power (W)** — Power output on flat terrain. On grades between flat and the climb threshold, power ramps linearly between flat and climbing power.
 - **Mass (kg)** — Total weight of rider + bike + gear. Dominates climbing speed since you're lifting this weight against gravity.
 - **CdA (m²)** — Aerodynamic drag coefficient × frontal area. Controls air resistance, which grows with the cube of speed. Typical values: 0.25 (racing tuck) to 0.45 (upright touring).
 - **Crr** — Rolling resistance coefficient. Energy lost to tire deformation and surface friction. Road tires ~0.004, gravel ~0.008-0.012.
@@ -20,10 +21,14 @@ Speed is calculated by solving the power balance equation: your power output equ
 - **Headwind (km/h)** — Wind adds to or subtracts from your effective air speed. A 15 km/h headwind at 25 km/h means you experience drag as if riding 40 km/h.
 - **Air density (kg/m³)** — Affects aerodynamic drag. Lower at altitude (1.225 at sea level, ~1.0 at 2000m).
 
-### Climbing Model
+### Power Model
 
-- **Climb power factor** — Multiplier for power on steep climbs (e.g., 1.5 = 50% more power when climbing hard). Models the tendency to push harder uphill.
-- **Climb threshold grade** — Grade (in degrees) where full climb power factor kicks in. Below this, power scales linearly.
+The model uses three power levels that vary with gradient:
+
+- **Climbing power** — Applied on grades above the climb threshold (~4°). Models the tendency to push harder uphill.
+- **Flat power** — Applied on flat terrain. Power ramps linearly from flat to climbing power as grade increases toward the threshold.
+- **Descending power** — Light pedaling on gentle descents (grade between -2% and the coasting threshold). Drops to zero on steep descents.
+- **Climb threshold grade** — Grade (in degrees) where full climbing power kicks in.
 
 ### Descent Model
 
@@ -35,6 +40,7 @@ Descent speed is limited by two factors: gradient steepness and road curvature.
 - **Steep descent speed** — Even slower limit for very steep descents (technical terrain).
 - **Steep descent grade** — Grade threshold where steep descent speed applies.
 - **Coasting grade threshold** — Grade where you stop pedaling entirely and coast.
+- **Descent braking factor** — Multiplier for descent speeds (1.0 = full physics-based speed, 0.5 = cautious braking). Models how aggressively you descend relative to pure physics.
 
 **Curvature-based limits:**
 Road curvature is calculated as heading change rate (degrees per meter) using GPS coordinates. On descents, the model limits speed based on how twisty the road is:
@@ -44,13 +50,19 @@ Road curvature is calculated as heading change rate (degrees per meter) using GP
 
 The final descent speed is the more restrictive of gradient and curvature limits. This models real-world behavior: you brake harder on steep grades AND through tight turns.
 
+### Gravel/Unpaved Model
+
+For routes with surface type data from RideWithGPS, the model applies two adjustments on unpaved segments:
+
+- **Surface Crr deltas** — Per-surface-type rolling resistance increases based on RideWithGPS surface codes. Rougher surfaces get higher Crr, increasing the energy cost of rolling.
+- **Unpaved power factor** — Multiplier on effective power for unpaved surfaces (default 0.90 = 10% power reduction). Models reduced output due to traction limits, vibration fatigue, and the need to stay seated on rough terrain. Works alongside the Crr increase — Crr dominates the effect on flat terrain while the power factor has more impact on climbs where gravity dominates.
+- **Max coasting speed unpaved** — Lower descent speed limit on gravel/dirt (see Descent Model above).
+
 ### Data Processing
 
 - **Smoothing radius (m)** — Gaussian smoothing applied to elevation data before analysis. GPS elevation is noisy and can show unrealistic grade spikes (e.g., 20%+ grades that don't exist). Smoothing averages elevation over a rolling window, reducing these artifacts while preserving the overall climb profile. Default is 30m; increase for noisier data.
 
 - **Elevation scale** — Multiplier for elevation changes after smoothing. Auto-calculated from RideWithGPS API data when available. The API provides DEM-corrected elevation gain which is typically more accurate than GPS-derived values. The scale factor adjusts the smoothed elevation to match this reference.
-
-- **Surface Crr deltas** — Per-surface-type rolling resistance adjustments based on RideWithGPS surface data. The S field indicates surface type (50-89 = unpaved, others = paved/unknown).
 
 - **Tunnel correction** — Automatic detection and correction of tunnel artifacts in elevation data. DEM (Digital Elevation Model) data shows the mountain surface above tunnels rather than the tunnel floor, creating artificial elevation spikes. The algorithm detects "Λ" shaped patterns (steep up, peak, steep down, returning near entry elevation) and replaces them with linear interpolation. Corrected tunnels are highlighted with yellow bands in the elevation profile. Typical savings: 5-10% reduction in estimated time/work for routes with tunnels.
 
@@ -109,10 +121,15 @@ gpx-analyzer-web
 ```
 
 Then open http://localhost:5050 in your browser. The web interface supports:
-- Single route analysis
+- Single route analysis with shareable URLs
+- Side-by-side route comparison
 - Collection analysis with real-time progress
 - Imperial/metric unit toggle
-- Customizable power, mass, and headwind parameters
+- Customizable climbing/flat/descending power, mass, and headwind parameters
+- Advanced options (descent braking factor, gravel power factor)
+- Interactive elevation profiles with click-drag selection and summary stats
+- Speed overlay and gravel section overlay on elevation profiles
+- Tunnel detection and correction with visual highlighting
 
 ### Caching
 
@@ -134,7 +151,7 @@ curl https://your-server/cache-stats
 curl https://your-server/cache-clear
 ```
 
-Both caches are keyed by `(url, power, mass, headwind)` - changing any parameter triggers a fresh computation.
+Both caches are keyed by URL and all physics parameters — changing any parameter triggers a fresh computation.
 
 ### RideWithGPS Integration
 
@@ -162,7 +179,7 @@ COLLECTION ANALYSIS: Summer Tour 2024
 ===============================================================================================
 
 Model params: mass=85kg cda=0.35 crr=0.005
-              power=150W max_coast=48km/h
+              climb=150W flat=150W max_coast=48km/h
 
 Routes analyzed: 3
 Total distance:  249 km
@@ -185,21 +202,21 @@ TOTAL                         14.5h  4050k    249k  3200m
 
 Run `gpx-analyzer --help` for the full list of options and defaults.
 
-Key options: `--mass`, `--power`, `--cda`, `--crr`, `--headwind`, `--smoothing`, `--imperial`
+Key options: `--mass`, `--climbing-power`, `--flat-power`, `--cda`, `--crr`, `--headwind`, `--smoothing`, `--imperial`
 
 Batch modes: `--collection URL`, `--training FILE`, `--compare-trip URL`, `--optimize FILE`
 
 ### Example
 
 ```bash
-gpx-analyzer ride.gpx --mass 75 --cda 0.30 --power 120
+gpx-analyzer ride.gpx --mass 75 --cda 0.30 --climbing-power 120 --flat-power 120
 ```
 
 Output:
 
 ```
 === GPX Route Analysis ===
-Config: mass=75kg cda=0.30 crr=0.005 power=120W ...
+Config: mass=75kg cda=0.30 crr=0.005 climb=120W flat=120W ...
 ========================================
   Est. Time @120W: 5h 18m 22s
   Est. Work:       1901.4 kJ
@@ -269,7 +286,7 @@ The gradient breakdown shows how well the model predicts speed at different grad
 
 ## Training Data for Parameter Tuning
 
-The physics model parameters (CdA, Crr, coasting speeds, climb power factors, etc.) have been calibrated against a training set of planned routes compared with actual ride data. You can run the same analysis on your own routes to tune parameters for your riding style:
+The physics model parameters (CdA, Crr, coasting speeds, gravel power factor, etc.) have been calibrated against a training set of planned routes compared with actual ride data. You can run the same analysis on your own routes to tune parameters for your riding style:
 
 
 ```bash
@@ -293,7 +310,7 @@ Training data JSON format:
 }
 ```
 
-The `avg_watts` field specifies the average power for that specific ride (from power meter data). This allows comparing rides at different intensities. If omitted, the default `--power` value is used.
+The `avg_watts` field specifies the average power for that specific ride (from power meter data). This allows comparing rides at different intensities. If omitted, the default `--climbing-power` value is used.
 
 Output shows aggregate statistics and per-route breakdown:
 
@@ -303,7 +320,7 @@ TRAINING DATA ANALYSIS SUMMARY
 ============================================================
 
 Model params: mass=84.0kg cda=0.32 crr=0.012
-              power=100.0W max_coast=52km/h
+              climb=100.0W flat=100.0W max_coast=52km/h
 
 Routes analyzed: 5
 Total distance:  334 km
@@ -343,9 +360,10 @@ This uses differential evolution to find optimal values for:
 - **cda** — Aerodynamic drag area
 - **coasting_grade** — Grade threshold for coasting
 - **max_coast_speed** — Maximum coasting speed
-- **climb_power_factor** — Power multiplier on climbs
-- **climb_threshold_grade** — Grade where climb power kicks in
+- **climb_threshold_grade** — Grade where full climbing power kicks in
 - **smoothing** — Elevation smoothing radius
+- **unpaved_power_factor** — Power multiplier on gravel/unpaved surfaces
+- **descent_braking_factor** — Multiplier for descent speeds
 
 The optimizer minimizes weighted error across estimated work, time, and max grade for all routes in your training set.
 
@@ -372,15 +390,18 @@ Create `gpx-analyzer.json` in the project directory or `~/.config/gpx-analyzer/g
   "ridewithgps_api_key": "your-api-key",
   "ridewithgps_auth_token": "your-auth-token",
   "mass": 84.0,
-  "power": 100.0,
-  "cda": 0.32,
-  "crr": 0.012,
-  "max_coast_speed": 52.0,
+  "climbing_power": 150.0,
+  "flat_power": 120.0,
+  "descending_power": 20.0,
+  "cda": 0.40,
+  "crr": 0.005,
+  "max_coast_speed": 58.0,
   "max_coast_speed_unpaved": 24.0,
-  "climb_power_factor": 1.5,
-  "climb_threshold_grade": 4.0,
-  "steep_descent_speed": 20.0,
-  "steep_descent_grade": -4.0
+  "climb_threshold_grade": 3.8,
+  "descent_braking_factor": 1.0,
+  "unpaved_power_factor": 0.90,
+  "steep_descent_speed": 18.0,
+  "steep_descent_grade": -10.0
 }
 ```
 

@@ -1667,10 +1667,10 @@ HTML_TEMPLATE = """
 
     <div id="powerModal" class="modal-overlay" onclick="hideModal('powerModal')">
         <div class="modal" onclick="event.stopPropagation()">
-            <h3>Average Power</h3>
-            <p>Your expected average power output in watts. This is the sustained power you can maintain over the ride duration. For reference:</p>
-            <p>• Casual riding: 80-120W<br>• Moderate effort: 120-180W<br>• Strong rider: 180-250W</p>
-            <p>If you have a power meter, use your typical average from similar rides.</p>
+            <h3>Climbing Power</h3>
+            <p>Your sustained power output on steep climbs (above ~4° grade). Riders typically push harder uphill. For reference:</p>
+            <p>• Casual climbing: 80-120W<br>• Moderate effort: 120-180W<br>• Strong rider: 180-250W</p>
+            <p>Power ramps linearly from flat power to this value as grade increases toward the climb threshold.</p>
             <button class="modal-close" onclick="hideModal('powerModal')">Got it</button>
         </div>
     </div>
@@ -1701,7 +1701,8 @@ HTML_TEMPLATE = """
 
             <h4>Primary Parameters (Biggest Impact)</h4>
             <ul class="param-list">
-                <li><span class="param-name">Average Power (W)</span> — Your sustained power output. This is the most important input; doubling power roughly doubles your speed on flat ground.</li>
+                <li><span class="param-name">Climbing Power (W)</span> — Power output on steep climbs. Most important input for hilly routes.</li>
+                <li><span class="param-name">Flat Power (W)</span> — Power output on flat terrain. Power ramps linearly from flat to climbing power as grade increases.</li>
                 <li><span class="param-name">Mass (kg)</span> — Total weight of rider + bike + gear. Dominates climbing speed since you're lifting this weight against gravity.</li>
                 <li><span class="param-name">CdA (m²)</span> — Aerodynamic drag coefficient × frontal area. Controls air resistance, which grows with the cube of speed. Typical values: 0.25 (racing tuck) to 0.45 (upright touring).</li>
                 <li><span class="param-name">Crr</span> — Rolling resistance coefficient. Energy lost to tire deformation and surface friction. Road tires ~0.004, gravel ~0.008-0.012.</li>
@@ -1713,12 +1714,6 @@ HTML_TEMPLATE = """
                 <li><span class="param-name">Air density (kg/m³)</span> — Affects aerodynamic drag. Lower at altitude (1.225 at sea level, ~1.0 at 2000m).</li>
             </ul>
 
-            <h4>Climbing Model</h4>
-            <ul class="param-list">
-                <li><span class="param-name">Climb power factor</span> — Multiplier for power on steep climbs (e.g., 1.5 = 50% more power when climbing hard). Models the tendency to push harder uphill.</li>
-                <li><span class="param-name">Climb threshold grade</span> — Grade (in degrees) where full climb power factor kicks in. Below this, power scales linearly.</li>
-            </ul>
-
             <h4>Descent Model</h4>
             <p style="margin-bottom: 0.5em; font-size: 0.9em;">Descent speed is limited by gradient steepness AND road curvature (the more restrictive wins).</p>
             <p style="margin: 0.5em 0; font-size: 0.85em;"><strong>Gradient-based:</strong></p>
@@ -1728,6 +1723,8 @@ HTML_TEMPLATE = """
                 <li><span class="param-name">Steep descent speed</span> — Even slower limit for very steep descents.</li>
                 <li><span class="param-name">Steep descent grade</span> — Grade threshold where steep descent speed applies.</li>
                 <li><span class="param-name">Coasting grade threshold</span> — Grade where you stop pedaling entirely and coast.</li>
+                <li><span class="param-name">Descent braking factor</span> — Multiplier for descent speeds (1.0 = full physics speed, 0.5 = cautious braking).</li>
+                <li><span class="param-name">Descent power</span> — Light pedaling power on gentle descents (drops to zero on steep grades).</li>
             </ul>
             <p style="margin: 0.5em 0; font-size: 0.85em;"><strong>Curvature-based:</strong></p>
             <ul class="param-list">
@@ -1735,11 +1732,18 @@ HTML_TEMPLATE = """
                 <li><span class="param-name">Hairpin speed</span> — Max speed through tight switchbacks (high curvature).</li>
             </ul>
 
+            <h4>Gravel/Unpaved Model</h4>
+            <ul class="param-list">
+                <li><span class="param-name">Surface Crr deltas</span> — Per-surface-type rolling resistance increases based on RideWithGPS surface data. Rougher surfaces get higher Crr.</li>
+                <li><span class="param-name">Gravel power factor</span> — Multiplier on power for unpaved surfaces (default 0.90 = 10% reduction). Models traction limits, vibration fatigue, and seated climbing on rough terrain.</li>
+                <li><span class="param-name">Max coasting speed unpaved</span> — Lower descent speed limit on gravel/dirt roads.</li>
+            </ul>
+            <p style="margin: 0.3em 0; font-size: 0.85em;">Gravel sections are shown as brown strips on the elevation profile when "Show gravel" is toggled.</p>
+
             <h4>Data Processing</h4>
             <ul class="param-list">
                 <li><span class="param-name">Smoothing radius (m)</span> — Gaussian smoothing applied to elevation data. Reduces GPS noise and unrealistic grade spikes while preserving overall climb profile.</li>
                 <li><span class="param-name">Elevation scale</span> — Multiplier applied after smoothing. Auto-calculated from RideWithGPS API (DEM-corrected) elevation when available.</li>
-                <li><span class="param-name">Surface Crr deltas</span> — Per-surface-type rolling resistance adjustments based on RideWithGPS surface data.</li>
                 <li><span class="param-name">Tunnel correction</span> — Automatic detection of tunnel artifacts in DEM elevation data. Tunnels appear as artificial spikes (DEM shows mountain surface, not tunnel floor). Detected tunnels are corrected by linear interpolation and highlighted with yellow bands in the elevation profile.</li>
             </ul>
 
@@ -1747,26 +1751,12 @@ HTML_TEMPLATE = """
         </div>
     </div>
 
-    <div id="climbPowerModal" class="modal-overlay" onclick="hideModal('climbPowerModal')">
-        <div class="modal" onclick="event.stopPropagation()">
-            <h3>Climb Power Factor</h3>
-            <p>Multiplier for power output on steep climbs. Riders typically push harder when climbing.</p>
-            <p><strong>1.0</strong> = same power as flat terrain<br>
-            <strong>1.4</strong> = 40% more power on climbs (typical)<br>
-            <strong>1.6</strong> = 60% more power (aggressive climbing)</p>
-            <p>Full factor applies at ~4° grade and above. Power ramps up linearly from flat to that threshold.</p>
-            <button class="modal-close" onclick="hideModal('climbPowerModal')">Got it</button>
-        </div>
-    </div>
-
     <div id="flatPowerModal" class="modal-overlay" onclick="hideModal('flatPowerModal')">
         <div class="modal" onclick="event.stopPropagation()">
-            <h3>Flat Power Factor</h3>
-            <p>Multiplier for power output on flat terrain relative to your base power input.</p>
-            <p><strong>1.0</strong> = base power (as entered above)<br>
-            <strong>1.15</strong> = 15% more power on flats (typical)<br>
-            <strong>0.9</strong> = 10% less power (conserving energy)</p>
-            <p>Power ramps from this value up to climb power factor as grade increases.</p>
+            <h3>Flat Power</h3>
+            <p>Your sustained power output on flat terrain. For reference:</p>
+            <p>• Casual riding: 60-100W<br>• Moderate effort: 100-150W<br>• Strong rider: 150-200W</p>
+            <p>Power ramps linearly from this value up to climbing power as grade increases toward the climb threshold (~4°).</p>
             <button class="modal-close" onclick="hideModal('flatPowerModal')">Got it</button>
         </div>
     </div>
@@ -3211,7 +3201,7 @@ HTML_TEMPLATE = """
                         <input type="checkbox" id="overlay_speed" onchange="toggleOverlay('speed')">
                         <label for="overlay_speed">Show speed</label>
                     </div>
-                    {% if not is_trip %}
+                    {% if not is_trip or not is_trip2 %}
                     <div class="collapse-stops-toggle">
                         <input type="checkbox" id="overlay_gravel" onchange="toggleOverlay('gravel')">
                         <label for="overlay_gravel">Show gravel</label>

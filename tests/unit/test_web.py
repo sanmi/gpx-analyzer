@@ -437,7 +437,7 @@ class TestInfoModals:
         response = client.get("/")
         html = response.data.decode()
         assert 'id="powerModal"' in html
-        assert "Average Power" in html
+        assert "Climbing Power" in html
 
     def test_mass_modal_exists(self, client):
         response = client.get("/")
