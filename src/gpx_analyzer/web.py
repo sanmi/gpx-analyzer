@@ -5,6 +5,7 @@ import io
 import json
 import time
 from collections import OrderedDict
+from dataclasses import dataclass
 from pathlib import Path
 from threading import Lock
 
@@ -63,17 +64,19 @@ class AnalysisCache:
 
     def _make_key(self, url: str, climbing_power: float, flat_power: float, mass: float, headwind: float,
                   descent_braking_factor: float = 1.0, descending_power: float = 20.0,
-                  unpaved_power_factor: float = 0.90, smoothing: float = 50.0) -> str:
+                  unpaved_power_factor: float = 0.90, smoothing: float = 50.0,
+                  smoothing_override: bool = False) -> str:
         """Create a cache key from analysis parameters."""
         config_hash = _get_config_hash()
-        key_str = f"{url}|{climbing_power}|{flat_power}|{descending_power}|{mass}|{headwind}|{descent_braking_factor}|{unpaved_power_factor}|{smoothing}|{config_hash}"
+        key_str = f"{url}|{climbing_power}|{flat_power}|{descending_power}|{mass}|{headwind}|{descent_braking_factor}|{unpaved_power_factor}|{smoothing}|{smoothing_override}|{config_hash}"
         return hashlib.md5(key_str.encode()).hexdigest()
 
     def get(self, url: str, climbing_power: float, flat_power: float, mass: float, headwind: float,
             descent_braking_factor: float = 1.0, descending_power: float = 20.0,
-            unpaved_power_factor: float = 0.90, smoothing: float = 50.0) -> dict | None:
+            unpaved_power_factor: float = 0.90, smoothing: float = 50.0,
+            smoothing_override: bool = False) -> dict | None:
         """Get cached result, returns None if not found."""
-        key = self._make_key(url, climbing_power, flat_power, mass, headwind, descent_braking_factor, descending_power, unpaved_power_factor, smoothing)
+        key = self._make_key(url, climbing_power, flat_power, mass, headwind, descent_braking_factor, descending_power, unpaved_power_factor, smoothing, smoothing_override)
         with self.lock:
             if key in self.cache:
                 # Move to end (most recently used)
@@ -84,9 +87,10 @@ class AnalysisCache:
             return None
 
     def set(self, url: str, climbing_power: float, flat_power: float, mass: float, headwind: float,
-            descent_braking_factor: float, descending_power: float, unpaved_power_factor: float, smoothing: float, result: dict) -> None:
+            descent_braking_factor: float, descending_power: float, unpaved_power_factor: float, smoothing: float,
+            smoothing_override: bool, result: dict) -> None:
         """Store result in cache."""
-        key = self._make_key(url, climbing_power, flat_power, mass, headwind, descent_braking_factor, descending_power, unpaved_power_factor, smoothing)
+        key = self._make_key(url, climbing_power, flat_power, mass, headwind, descent_braking_factor, descending_power, unpaved_power_factor, smoothing, smoothing_override)
         with self.lock:
             if key in self.cache:
                 self.cache.move_to_end(key)
@@ -422,6 +426,23 @@ HTML_TEMPLATE = """
             padding: 2px 6px;
             border-radius: 3px;
             margin: 2px 0;
+        }
+        .noise-note {
+            background: #E3F2FD;
+            border-left: 3px solid #2196F3;
+            color: #1565C0;
+            white-space: nowrap;
+            padding: 4px 8px;
+        }
+        .noise-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            font-weight: 500;
+            line-height: 1;
+        }
+        .noise-badge .info-btn {
+            vertical-align: middle;
         }
         .histograms-container {
             display: flex;
@@ -1897,6 +1918,21 @@ HTML_TEMPLATE = """
         </div>
     </div>
 
+    <div id="noiseModal" class="modal-overlay" onclick="hideModal('noiseModal')">
+        <div class="modal" onclick="event.stopPropagation()">
+            <h3>Elevation Noise Ratio</h3>
+            <p>The <strong>noise ratio</strong> compares raw GPS elevation gain to the DEM (Digital Elevation Model) elevation gain from RideWithGPS.</p>
+            <p><strong>What it means:</strong></p>
+            <p>• <strong>1.0x</strong>: GPS and DEM match perfectly (rare)<br>
+            • <strong>1.0-1.5x</strong>: Normal GPS noise<br>
+            • <strong>1.5-1.8x</strong>: Elevated noise (tree cover, canyons)<br>
+            • <strong>&gt;1.8x</strong>: High noise - smoothing auto-increased to 300m</p>
+            <p><strong>Why this matters:</strong> Noisy GPS elevation creates artificial ups and downs that inflate grade calculations. Higher smoothing reduces this noise but may slightly soften real grade changes.</p>
+            <p><strong>Auto-adjustment:</strong> When noise exceeds 1.8x, smoothing is automatically increased to 300m minimum. You can set a higher value in advanced options if needed.</p>
+            <button class="modal-close" onclick="hideModal('noiseModal')">Got it</button>
+        </div>
+    </div>
+
     <script>
         // Recent URLs management
         var MAX_RECENT_URLS = 20;
@@ -3288,6 +3324,15 @@ HTML_TEMPLATE = """
         </div>
         {% endif %}
 
+        {% if result.noise_ratio and result.noise_ratio > 1.2 %}
+        <div class="note noise-note">
+            <span class="noise-badge" title="Ratio of raw GPS elevation gain to DEM elevation gain. Higher values indicate noisier GPS data.">
+                Elevation noise: {{ "%.1f"|format(result.noise_ratio) }}x
+                <button type="button" class="info-btn" onclick="showModal('noiseModal')" aria-label="Info about elevation noise">?</button>
+            </span>
+        </div>
+        {% endif %}
+
         {% if result.tunnels_corrected > 0 %}
         <div class="note tunnel-note">
             <strong>{% if compare_mode %}{{ (result.name or 'Route 1')|truncate(20) }}: {% endif %}{{ result.tunnels_corrected }} tunnel{{ 's' if result.tunnels_corrected > 1 else '' }} detected and corrected:</strong>
@@ -4022,11 +4067,97 @@ def format_pct_diff(val1: float, val2: float) -> str:
     return f"{sign}{diff:.1f}%"
 
 
-def analyze_single_route(url: str, params: RiderParams, smoothing: float | None = None) -> dict:
+# High-noise DEM detection constants
+HIGH_NOISE_RATIO_THRESHOLD = 1.8  # raw_gain / api_gain ratio indicating noisy GPS elevation
+HIGH_NOISE_SMOOTHING_RADIUS = 300.0  # meters, used when GPS elevation is noisy
+
+
+@dataclass
+class ElevationProcessingResult:
+    """Result of processing elevation data with smoothing and scaling."""
+    scaled_points: list  # Points with smoothing and API scaling applied
+    unscaled_points: list  # Points with smoothing only (for display)
+    api_elevation_scale: float  # Scale factor applied to match API elevation
+    noise_ratio: float  # raw_gain / api_gain ratio
+    effective_smoothing: float  # Actual smoothing radius used
+    smoothing_auto_adjusted: bool  # True if smoothing was increased due to noise
+
+
+def process_elevation_data(
+    points: list,
+    route_metadata: dict | None,
+    user_smoothing: float,
+    override_auto_adjust: bool = False,
+) -> ElevationProcessingResult:
+    """Process elevation data with noise detection, smoothing, and API scaling.
+
+    This function handles:
+    1. Detecting high-noise GPS elevation data
+    2. Auto-adjusting smoothing radius for noisy data (unless overridden)
+    3. Applying API elevation scaling to match DEM-derived elevation gain
+
+    Args:
+        points: Track points (after tunnel correction)
+        route_metadata: Route metadata containing api elevation_gain
+        user_smoothing: User-specified smoothing radius
+        override_auto_adjust: If True, skip auto-adjustment and use user_smoothing as-is
+
+    Returns:
+        ElevationProcessingResult with processed points and metadata
+    """
+    api_elevation_gain = route_metadata.get("elevation_gain") if route_metadata else None
+    raw_elevation_gain = calculate_elevation_gain(points)
+
+    # Calculate noise ratio
+    noise_ratio = 0.0
+    if api_elevation_gain and api_elevation_gain > 0 and raw_elevation_gain > 0:
+        noise_ratio = raw_elevation_gain / api_elevation_gain
+
+    # Auto-adjust smoothing for high-noise data (unless user explicitly overrides)
+    effective_smoothing = user_smoothing
+    smoothing_auto_adjusted = False
+    if not override_auto_adjust and noise_ratio > HIGH_NOISE_RATIO_THRESHOLD:
+        if user_smoothing < HIGH_NOISE_SMOOTHING_RADIUS:
+            effective_smoothing = HIGH_NOISE_SMOOTHING_RADIUS
+            smoothing_auto_adjusted = True
+
+    # Smooth without scaling first (for display and gain calculation)
+    unscaled_points = smooth_elevations(points, effective_smoothing, 1.0)
+
+    # Calculate API-based elevation scale factor
+    api_elevation_scale = 1.0
+    if api_elevation_gain and api_elevation_gain > 0:
+        smoothed_gain = calculate_elevation_gain(unscaled_points)
+        if smoothed_gain > 0:
+            api_elevation_scale = api_elevation_gain / smoothed_gain
+
+    # Apply scaling
+    if api_elevation_scale != 1.0:
+        scaled_points = smooth_elevations(points, effective_smoothing, api_elevation_scale)
+    else:
+        scaled_points = unscaled_points
+
+    return ElevationProcessingResult(
+        scaled_points=scaled_points,
+        unscaled_points=unscaled_points,
+        api_elevation_scale=api_elevation_scale,
+        noise_ratio=noise_ratio,
+        effective_smoothing=effective_smoothing,
+        smoothing_auto_adjusted=smoothing_auto_adjusted,
+    )
+
+
+def analyze_single_route(url: str, params: RiderParams, smoothing: float | None = None, smoothing_override: bool = False) -> dict:
     """Analyze a single route and return results dict.
 
     Results are cached based on (url, power, mass, headwind, smoothing) for faster
     repeated access when comparing routes.
+
+    Args:
+        url: RideWithGPS route URL
+        params: Rider parameters
+        smoothing: Smoothing radius in meters (or None for default)
+        smoothing_override: If True, skip auto-adjustment for high-noise data
     """
     config = _load_config() or {}
     smoothing_radius = smoothing if smoothing is not None else config.get("smoothing", DEFAULTS["smoothing"])
@@ -4034,7 +4165,8 @@ def analyze_single_route(url: str, params: RiderParams, smoothing: float | None 
     # Check cache first
     cached = _analysis_cache.get(
         url, params.climbing_power, params.flat_power, params.total_mass, params.headwind,
-        params.descent_braking_factor, params.descending_power, params.unpaved_power_factor, smoothing_radius
+        params.descent_braking_factor, params.descending_power, params.unpaved_power_factor, smoothing_radius,
+        smoothing_override
     )
     if cached is not None:
         return cached
@@ -4047,19 +4179,11 @@ def analyze_single_route(url: str, params: RiderParams, smoothing: float | None 
     # Detect and correct tunnel artifacts in raw elevation data
     points, tunnel_corrections = detect_and_correct_tunnels(points)
 
-    # Smooth without scaling first (for max grade calculation)
-    unscaled_points = smooth_elevations(points, smoothing_radius, 1.0)
-
-    # Calculate API-based elevation scale factor
-    api_elevation_scale = 1.0
-    api_elevation_gain = route_metadata.get("elevation_gain") if route_metadata else None
-    if api_elevation_gain and api_elevation_gain > 0:
-        smoothed_gain = calculate_elevation_gain(unscaled_points)
-        if smoothed_gain > 0:
-            api_elevation_scale = api_elevation_gain / smoothed_gain
-
-    if smoothing_radius > 0 or api_elevation_scale != 1.0:
-        points = smooth_elevations(points, smoothing_radius, api_elevation_scale)
+    # Process elevation with noise detection, smoothing, and API scaling
+    elev_result = process_elevation_data(points, route_metadata, smoothing_radius, smoothing_override)
+    points = elev_result.scaled_points
+    unscaled_points = elev_result.unscaled_points
+    api_elevation_scale = elev_result.api_elevation_scale
 
     analysis = analyze(points, params)
     max_grade_window = config.get("max_grade_window_route", DEFAULTS["max_grade_window_route"])
@@ -4093,6 +4217,9 @@ def analyze_single_route(url: str, params: RiderParams, smoothing: float | None 
         "unpaved_pct": unpaved_pct,
         "elevation_scale": api_elevation_scale,
         "elevation_scaled": abs(api_elevation_scale - 1.0) > 0.05,
+        "noise_ratio": elev_result.noise_ratio,
+        "effective_smoothing": elev_result.effective_smoothing,
+        "smoothing_auto_adjusted": elev_result.smoothing_auto_adjusted,
         "hilliness_score": hilliness.hilliness_score,
         "steepness_score": hilliness.steepness_score,
         "grade_histogram": hilliness.grade_time_histogram,
@@ -4120,7 +4247,7 @@ def analyze_single_route(url: str, params: RiderParams, smoothing: float | None 
     _analysis_cache.set(
         url, params.climbing_power, params.flat_power, params.total_mass, params.headwind,
         params.descent_braking_factor, params.descending_power, params.unpaved_power_factor, smoothing_radius,
-        result
+        smoothing_override, result
     )
 
     return result
@@ -4615,7 +4742,7 @@ def _add_speed_overlay(ax, times_hours: list, speeds_kmh: list, imperial: bool =
     ax2.spines['top'].set_visible(False)
 
 
-def _calculate_elevation_profile_data(url: str, params: RiderParams, smoothing: float | None = None) -> dict:
+def _calculate_elevation_profile_data(url: str, params: RiderParams, smoothing: float | None = None, smoothing_override: bool = False) -> dict:
     """Calculate elevation profile data for a route.
 
     Returns dict with times_hours, elevations, grades, route_name, and tunnel_corrections.
@@ -4631,19 +4758,10 @@ def _calculate_elevation_profile_data(url: str, params: RiderParams, smoothing: 
     # Detect and correct tunnel artifacts
     points, tunnel_corrections = detect_and_correct_tunnels(points)
 
-    # Apply smoothing with API elevation scaling
-    api_elevation_scale = 1.0
-    api_elevation_gain = route_metadata.get("elevation_gain") if route_metadata else None
-    unscaled_points = smooth_elevations(points, smoothing_radius, 1.0)
-    if api_elevation_gain and api_elevation_gain > 0:
-        smoothed_gain = calculate_elevation_gain(unscaled_points)
-        if smoothed_gain > 0:
-            api_elevation_scale = api_elevation_gain / smoothed_gain
-
-    if api_elevation_scale != 1.0:
-        scaled_points = smooth_elevations(points, smoothing_radius, api_elevation_scale)
-    else:
-        scaled_points = unscaled_points
+    # Process elevation with noise detection, smoothing, and API scaling
+    elev_result = process_elevation_data(points, route_metadata, smoothing_radius, smoothing_override)
+    scaled_points = elev_result.scaled_points
+    unscaled_points = elev_result.unscaled_points
 
     # Calculate rolling grades from scaled points (consistent with analysis)
     max_grade_window = config.get("max_grade_window_route", DEFAULT_MAX_GRADE_WINDOW)
@@ -4720,6 +4838,9 @@ def _calculate_elevation_profile_data(url: str, params: RiderParams, smoothing: 
         "route_name": route_name,
         "tunnel_time_ranges": tunnel_time_ranges,
         "unpaved_time_ranges": unpaved_time_ranges,
+        "noise_ratio": elev_result.noise_ratio,
+        "effective_smoothing": elev_result.effective_smoothing,
+        "smoothing_auto_adjusted": elev_result.smoothing_auto_adjusted,
     }
 
 
@@ -5273,13 +5394,14 @@ def extract_trip_id(url: str) -> str | None:
     return match.group(1) if match else None
 
 
-def _analyze_url(url: str, params: RiderParams, smoothing: float | None = None) -> tuple[dict, bool]:
+def _analyze_url(url: str, params: RiderParams, smoothing: float | None = None, smoothing_override: bool = False) -> tuple[dict, bool]:
     """Analyze a URL (route or trip) and return result and is_trip flag.
 
     Args:
         url: RideWithGPS route or trip URL
         params: Rider parameters (only used for routes)
         smoothing: Optional override for elevation smoothing radius
+        smoothing_override: If True, skip auto-adjustment for high-noise data
 
     Returns:
         Tuple of (analysis result dict, is_trip flag)
@@ -5288,7 +5410,7 @@ def _analyze_url(url: str, params: RiderParams, smoothing: float | None = None) 
         result = analyze_trip(url)
         return result, True
     else:
-        result = analyze_single_route(url, params, smoothing)
+        result = analyze_single_route(url, params, smoothing, smoothing_override)
         result["is_trip"] = False
         return result, False
 
@@ -5354,6 +5476,9 @@ def index():
         except ValueError:
             error = "Invalid number in parameters"
 
+        # Check if user explicitly overrides smoothing auto-adjustment
+        smoothing_override = request.args.get("smoothing_override") == "1"
+
         if not error:
             if is_ridewithgps_collection_url(url):
                 # Collection - set mode and let JavaScript handle it
@@ -5362,7 +5487,7 @@ def index():
                 # Single route or trip - analyze server-side
                 try:
                     params = build_params(climbing_power, flat_power, mass, headwind, descent_braking_factor, descending_power, unpaved_power_factor)
-                    result, is_trip = _analyze_url(url, params, smoothing)
+                    result, is_trip = _analyze_url(url, params, smoothing, smoothing_override)
                     route_id = _extract_id_from_url(url)
                     privacy_code = extract_privacy_code(url)
                 except Exception as e:
@@ -5373,7 +5498,7 @@ def index():
                     if _is_valid_rwgps_url(url2):
                         compare_mode = True
                         try:
-                            result2, is_trip2 = _analyze_url(url2, params, smoothing)
+                            result2, is_trip2 = _analyze_url(url2, params, smoothing, smoothing_override)
                             route_id2 = _extract_id_from_url(url2)
                             privacy_code2 = extract_privacy_code(url2)
                         except Exception as e:
@@ -5400,6 +5525,9 @@ def index():
         except ValueError:
             error = "Invalid number in parameters"
 
+        # Check if user explicitly overrides smoothing auto-adjustment
+        smoothing_override = request.form.get("smoothing_override") == "1"
+
         if not error:
             if not url:
                 error = "Please enter a RideWithGPS URL"
@@ -5409,7 +5537,7 @@ def index():
                 else:
                     try:
                         params = build_params(climbing_power, flat_power, mass, headwind, descent_braking_factor, descending_power, unpaved_power_factor)
-                        result, is_trip = _analyze_url(url, params, smoothing)
+                        result, is_trip = _analyze_url(url, params, smoothing, smoothing_override)
                         route_id = _extract_id_from_url(url)
                         privacy_code = extract_privacy_code(url)
                     except Exception as e:
@@ -5420,7 +5548,7 @@ def index():
                         if _is_valid_rwgps_url(url2):
                             compare_mode = True
                             try:
-                                result2, is_trip2 = _analyze_url(url2, params, smoothing)
+                                result2, is_trip2 = _analyze_url(url2, params, smoothing, smoothing_override)
                                 route_id2 = _extract_id_from_url(url2)
                                 privacy_code2 = extract_privacy_code(url2)
                             except Exception as e:
@@ -5436,7 +5564,7 @@ def index():
                 data1 = _calculate_trip_elevation_profile_data(url)
             else:
                 params = build_params(climbing_power, flat_power, mass, headwind, descent_braking_factor, descending_power, unpaved_power_factor)
-                data1 = _calculate_elevation_profile_data(url, params)
+                data1 = _calculate_elevation_profile_data(url, params, smoothing, smoothing_override)
             if is_trip2:
                 data2 = _calculate_trip_elevation_profile_data(url2)
             else:
@@ -5445,7 +5573,7 @@ def index():
                     pass
                 else:
                     params = build_params(climbing_power, flat_power, mass, headwind, descent_braking_factor, descending_power, unpaved_power_factor)
-                data2 = _calculate_elevation_profile_data(url2, params)
+                data2 = _calculate_elevation_profile_data(url2, params, smoothing, smoothing_override)
 
             max_elev1 = max(data1["elevations"]) * 1.1
             max_elev2 = max(data2["elevations"]) * 1.1
