@@ -64,7 +64,7 @@ For routes with surface type data from RideWithGPS, the model applies two adjust
 
 - **Elevation scale** — Multiplier for elevation changes after smoothing. Auto-calculated from RideWithGPS API data when available. The API provides DEM-corrected elevation gain which is typically more accurate than GPS-derived values. The scale factor adjusts the smoothed elevation to match this reference.
 
-- **Tunnel correction** — Automatic detection and correction of tunnel artifacts in elevation data. DEM (Digital Elevation Model) data shows the mountain surface above tunnels rather than the tunnel floor, creating artificial elevation spikes. The algorithm detects "Λ" shaped patterns (steep up, peak, steep down, returning near entry elevation) and replaces them with linear interpolation. Corrected tunnels are highlighted with yellow bands in the elevation profile. Typical savings: 5-10% reduction in estimated time/work for routes with tunnels.
+- **Anomaly detection** — Automatic detection and correction of elevation anomalies in DEM data, such as tunnels or bridges where DEM shows the surface above rather than the actual path. These anomalies create artificial elevation spikes. The algorithm detects "Λ" shaped patterns (steep up, peak, steep down, returning near entry elevation) and replaces them with linear interpolation. Corrected anomalies are highlighted with yellow bands in the elevation profile. Typical savings: 5-10% reduction in estimated time/work for routes with tunnels or bridges.
 
 ### Terrain Metrics
 
@@ -129,7 +129,7 @@ Then open http://localhost:5050 in your browser. The web interface supports:
 - Advanced options (descent braking factor, gravel power factor)
 - Interactive elevation profiles with click-drag selection and summary stats
 - Speed overlay and gravel section overlay on elevation profiles
-- Tunnel detection and correction with visual highlighting
+- Anomaly detection and correction with visual highlighting
 
 ### Caching
 

@@ -412,15 +412,15 @@ HTML_TEMPLATE = """
             background: #f9f9f9;
             border-radius: 4px;
         }
-        .tunnel-note {
+        .anomaly-note {
             background: #FFF3E0;
             border-left: 3px solid #FF9800;
             color: #5D4037;
         }
-        .tunnel-note strong {
+        .anomaly-note strong {
             color: #E65100;
         }
-        .tunnel-item {
+        .anomaly-item {
             display: inline-block;
             background: #FFE0B2;
             padding: 2px 6px;
@@ -1158,6 +1158,10 @@ HTML_TEMPLATE = """
         .custom-settings .setting-value {
             font-weight: 500;
         }
+        .custom-settings .setting.modified .setting-value {
+            color: var(--primary);
+            font-weight: 600;
+        }
         @media (max-width: 600px) {
             .custom-settings {
                 margin-left: 0;
@@ -1571,22 +1575,12 @@ HTML_TEMPLATE = """
                 <span class="chevron">▶</span>
                 <span>Advanced Options</span>
             </div>
-            {% if result and (descent_braking_factor != defaults.descent_braking_factor or descending_power != defaults.descending_power or unpaved_power_factor != defaults.unpaved_power_factor or smoothing != defaults.smoothing) %}
-            <span class="custom-settings" title="Custom physics model settings">
-                {% if descending_power != defaults.descending_power %}
-                <span class="setting"><span class="setting-label">Desc Pwr:</span> <span class="setting-value">{{ descending_power|int }}W</span></span>
-                {% endif %}
-                {% if descent_braking_factor != defaults.descent_braking_factor %}
-                <span class="setting"><span class="setting-label">Braking:</span> <span class="setting-value">{{ "%.2f"|format(descent_braking_factor) }}</span></span>
-                {% endif %}
-                {% if unpaved_power_factor != defaults.unpaved_power_factor %}
-                <span class="setting"><span class="setting-label">Gravel Pwr:</span> <span class="setting-value">{{ "%.2f"|format(unpaved_power_factor) }}</span></span>
-                {% endif %}
-                {% if smoothing != defaults.smoothing %}
-                <span class="setting"><span class="setting-label">Smoothing:</span> <span class="setting-value">{{ smoothing|int }}m</span></span>
-                {% endif %}
+            <span class="custom-settings" title="Advanced physics model settings">
+                <span class="setting{% if descending_power != defaults.descending_power %} modified{% endif %}"><span class="setting-label">Desc Pwr:</span> <span class="setting-value">{{ descending_power|int }}W</span></span>
+                <span class="setting{% if descent_braking_factor != defaults.descent_braking_factor %} modified{% endif %}"><span class="setting-label">Braking:</span> <span class="setting-value">{{ "%.2f"|format(descent_braking_factor) }}</span></span>
+                <span class="setting{% if unpaved_power_factor != defaults.unpaved_power_factor %} modified{% endif %}"><span class="setting-label">Gravel Pwr:</span> <span class="setting-value">{{ "%.2f"|format(unpaved_power_factor) }}</span></span>
+                <span class="setting{% if smoothing != defaults.smoothing %} modified{% endif %}"><span class="setting-label">Smoothing:</span> <span class="setting-value">{% if result and result.effective_smoothing and result.effective_smoothing != smoothing %}{{ smoothing|int }}m → {{ result.effective_smoothing|int }}m{% else %}{{ smoothing|int }}m{% endif %}</span></span>
             </span>
-            {% endif %}
         </div>
 
         <div class="advanced-options" id="advancedOptions">
@@ -1780,7 +1774,7 @@ HTML_TEMPLATE = """
             <ul class="param-list">
                 <li><span class="param-name">Smoothing radius (m)</span> — Gaussian smoothing applied to elevation data. Reduces GPS noise and unrealistic grade spikes while preserving overall climb profile.</li>
                 <li><span class="param-name">Elevation scale</span> — Multiplier applied after smoothing. Auto-calculated from RideWithGPS API (DEM-corrected) elevation when available.</li>
-                <li><span class="param-name">Tunnel correction</span> — Automatic detection of tunnel artifacts in DEM elevation data. Tunnels appear as artificial spikes (DEM shows mountain surface, not tunnel floor). Detected tunnels are corrected by linear interpolation and highlighted with yellow bands in the elevation profile.</li>
+                <li><span class="param-name">Anomaly detection</span> — Automatic detection of elevation anomalies in DEM (Digital Elevation Model) data, such as tunnels or bridges where DEM shows the surface above rather than the actual path. Anomalies appear as artificial elevation spikes. Detected anomalies are corrected by linear interpolation and highlighted with yellow bands in the elevation profile.</li>
             </ul>
 
             <button class="modal-close" onclick="hideModal('physicsModal')">Got it</button>
@@ -3334,10 +3328,10 @@ HTML_TEMPLATE = """
         {% endif %}
 
         {% if result.tunnels_corrected > 0 %}
-        <div class="note tunnel-note">
-            <strong>{% if compare_mode %}{{ (result.name or 'Route 1')|truncate(20) }}: {% endif %}{{ result.tunnels_corrected }} tunnel{{ 's' if result.tunnels_corrected > 1 else '' }} detected and corrected:</strong>
+        <div class="note anomaly-note">
+            <strong>{% if compare_mode %}{{ (result.name or 'Route 1')|truncate(20) }}: {% endif %}{{ result.tunnels_corrected }} anomal{{ 'ies' if result.tunnels_corrected > 1 else 'y' }} detected and corrected:</strong>
             {% for t in result.tunnel_corrections %}
-            <span class="tunnel-item">{{ "%.1f"|format(t.start_km) }}-{{ "%.1f"|format(t.end_km) }} km ({{ "%.0f"|format(t.artificial_gain) }}m artificial gain removed)</span>{% if not loop.last %}, {% endif %}
+            <span class="anomaly-item">{{ "%.1f"|format(t.start_km) }}-{{ "%.1f"|format(t.end_km) }} km ({{ "%.0f"|format(t.artificial_gain) }}m artificial gain removed)</span>{% if not loop.last %}, {% endif %}
             {% endfor %}
         </div>
         {% endif %}
@@ -3399,10 +3393,10 @@ HTML_TEMPLATE = """
                 </div>
             </div>
             {% if result2.tunnels_corrected > 0 %}
-            <div class="note tunnel-note" style="margin: 8px 0;">
-                <strong>{{ (result2.name or 'Route 2')|truncate(20) }}: {{ result2.tunnels_corrected }} tunnel{{ 's' if result2.tunnels_corrected > 1 else '' }} detected and corrected:</strong>
+            <div class="note anomaly-note" style="margin: 8px 0;">
+                <strong>{{ (result2.name or 'Route 2')|truncate(20) }}: {{ result2.tunnels_corrected }} anomal{{ 'ies' if result2.tunnels_corrected > 1 else 'y' }} detected and corrected:</strong>
                 {% for t in result2.tunnel_corrections %}
-                <span class="tunnel-item">{{ "%.1f"|format(t.start_km) }}-{{ "%.1f"|format(t.end_km) }} km ({{ "%.0f"|format(t.artificial_gain) }}m artificial gain removed)</span>{% if not loop.last %}, {% endif %}
+                <span class="anomaly-item">{{ "%.1f"|format(t.start_km) }}-{{ "%.1f"|format(t.end_km) }} km ({{ "%.0f"|format(t.artificial_gain) }}m artificial gain removed)</span>{% if not loop.last %}, {% endif %}
                 {% endfor %}
             </div>
             {% endif %}
@@ -4097,7 +4091,7 @@ def process_elevation_data(
     3. Applying API elevation scaling to match DEM-derived elevation gain
 
     Args:
-        points: Track points (after tunnel correction)
+        points: Track points (after anomaly correction)
         route_metadata: Route metadata containing api elevation_gain
         user_smoothing: User-specified smoothing radius
         override_auto_adjust: If True, skip auto-adjustment and use user_smoothing as-is
@@ -4176,7 +4170,7 @@ def analyze_single_route(url: str, params: RiderParams, smoothing: float | None 
     if len(points) < 2:
         raise ValueError("Route contains fewer than 2 track points")
 
-    # Detect and correct tunnel artifacts in raw elevation data
+    # Detect and correct elevation anomalies (tunnels, bridges, etc.) in raw elevation data
     points, tunnel_corrections = detect_and_correct_tunnels(points)
 
     # Process elevation with noise detection, smoothing, and API scaling
@@ -4231,7 +4225,7 @@ def analyze_single_route(url: str, params: RiderParams, smoothing: float | None 
         "steep_distance_histogram": hilliness.steep_distance_histogram,
         "hilliness_total_time": hilliness.total_time,
         "hilliness_total_distance": hilliness.total_distance,
-        # Tunnel corrections
+        # Anomaly corrections
         "tunnels_corrected": len(tunnel_corrections),
         "tunnel_corrections": [
             {
@@ -4282,7 +4276,7 @@ def analyze_trip(url: str) -> dict:
             time=tp.timestamp,
         ))
 
-    # Detect and correct tunnel artifacts in elevation data
+    # Detect and correct elevation anomalies (tunnels, bridges, etc.) in elevation data
     track_points, tunnel_corrections = detect_and_correct_tunnels(track_points)
 
     # Apply smoothing for elevation profile and grade calculations
@@ -4454,7 +4448,7 @@ def analyze_trip(url: str) -> dict:
         "hilliness_total_distance": total_distance,
         # Trip-specific flags
         "is_trip": True,
-        # Tunnel corrections
+        # Anomaly corrections
         "tunnels_corrected": len(tunnel_corrections),
         "tunnel_corrections": [
             {
@@ -4755,7 +4749,7 @@ def _calculate_elevation_profile_data(url: str, params: RiderParams, smoothing: 
     if len(points) < 2:
         raise ValueError("Route contains fewer than 2 track points")
 
-    # Detect and correct tunnel artifacts
+    # Detect and correct elevation anomalies (tunnels, bridges, etc.)
     points, tunnel_corrections = detect_and_correct_tunnels(points)
 
     # Process elevation with noise detection, smoothing, and API scaling
@@ -4804,7 +4798,7 @@ def _calculate_elevation_profile_data(url: str, params: RiderParams, smoothing: 
 
     route_name = route_metadata.get("name", "Elevation Profile") if route_metadata else "Elevation Profile"
 
-    # Convert tunnel corrections to time ranges for highlighting
+    # Convert anomaly corrections to time ranges for highlighting
     tunnel_time_ranges = []
     for tc in tunnel_corrections:
         start_time = times_hours[tc.start_idx] if tc.start_idx < len(times_hours) else 0
@@ -4873,7 +4867,7 @@ def _calculate_trip_elevation_profile_data(url: str, collapse_stops: bool = Fals
             time=tp.timestamp,
         ))
 
-    # Detect and correct tunnel artifacts
+    # Detect and correct elevation anomalies (tunnels, bridges, etc.)
     track_points, tunnel_corrections = detect_and_correct_tunnels(track_points)
 
     # Apply smoothing with API elevation scaling
@@ -4973,7 +4967,7 @@ def _calculate_trip_elevation_profile_data(url: str, collapse_stops: bool = Fals
     # Smooth speeds
     speeds_kmh = _smooth_speeds(segment_speeds, cum_dist, window_m=300)
 
-    # Convert tunnel corrections to time ranges for highlighting
+    # Convert anomaly corrections to time ranges for highlighting
     tunnel_time_ranges = []
     for tc in tunnel_corrections:
         start_time = times_hours[tc.start_idx] if tc.start_idx < len(times_hours) else 0
@@ -5079,14 +5073,14 @@ def generate_elevation_profile(url: str, params: RiderParams, title_time_hours: 
     # Add outline on top
     ax.plot(times_hours, elevations, color='#333333', linewidth=0.5)
 
-    # Highlight tunnel-corrected regions with vertical bands and markers
+    # Highlight anomaly-corrected regions with vertical bands and markers
     max_elev = max_ylim if max_ylim is not None else max(elevations) * 1.1
     for start_time, end_time in tunnel_time_ranges:
         ax.axvspan(start_time, end_time, alpha=0.25, color='#FFC107', zorder=0.5,
-                   label='Tunnel corrected' if start_time == tunnel_time_ranges[0][0] else None)
-        # Add "T" marker at top center of band
+                   label='Anomaly corrected' if start_time == tunnel_time_ranges[0][0] else None)
+        # Add "A" marker at top center of band
         mid_time = (start_time + end_time) / 2
-        ax.text(mid_time, max_elev * 0.92, 'T', fontsize=9, fontweight='bold',
+        ax.text(mid_time, max_elev * 0.92, 'A', fontsize=9, fontweight='bold',
                 color='#E65100', ha='center', va='center',
                 bbox=dict(boxstyle='circle,pad=0.2', facecolor='#FFF3E0', edgecolor='#FF9800', linewidth=1))
 
@@ -5193,14 +5187,14 @@ def generate_trip_elevation_profile(url: str, title_time_hours: float | None = N
 
     ax.plot(times_hours, elevations, color='#333333', linewidth=0.5)
 
-    # Highlight tunnel-corrected regions with vertical bands and markers
+    # Highlight anomaly-corrected regions with vertical bands and markers
     max_elev = max_ylim if max_ylim is not None else max(elevations) * 1.1
     for start_time, end_time in tunnel_time_ranges:
         ax.axvspan(start_time, end_time, alpha=0.25, color='#FFC107', zorder=0.5,
-                   label='Tunnel corrected' if start_time == tunnel_time_ranges[0][0] else None)
-        # Add "T" marker at top center of band
+                   label='Anomaly corrected' if start_time == tunnel_time_ranges[0][0] else None)
+        # Add "A" marker at top center of band
         mid_time = (start_time + end_time) / 2
-        ax.text(mid_time, max_elev * 0.92, 'T', fontsize=9, fontweight='bold',
+        ax.text(mid_time, max_elev * 0.92, 'A', fontsize=9, fontweight='bold',
                 color='#E65100', ha='center', va='center',
                 bbox=dict(boxstyle='circle,pad=0.2', facecolor='#FFF3E0', edgecolor='#FF9800', linewidth=1))
 
