@@ -6442,7 +6442,7 @@ RIDE_TEMPLATE = """
                 <span>Low Sensitivity</span>
             </div>
             <input type="range" class="sensitivity-slider" id="sensitivitySlider"
-                   min="0" max="100" value="{{ sensitivity }}"
+                   min="0" max="100" step="10" value="{{ sensitivity }}"
                    aria-label="Climb detection sensitivity">
         </div>
     </div>
