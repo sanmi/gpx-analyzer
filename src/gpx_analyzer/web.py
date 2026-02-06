@@ -344,6 +344,7 @@ HTML_TEMPLATE = """
             border-radius: 8px;
             margin-top: 20px;
             box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            overflow-x: auto;  /* Allow horizontal scroll for wide tables */
         }
         .results.route-results {
             border-left: 4px solid #4CAF50;
@@ -844,6 +845,7 @@ HTML_TEMPLATE = """
         /* Collection table styles */
         .collection-table {
             width: 100%;
+            min-width: 700px;  /* Prevent excessive squishing on mobile */
             border-collapse: collapse;
             margin-top: 15px;
             font-size: 0.9em;
