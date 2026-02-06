@@ -1745,9 +1745,9 @@ HTML_TEMPLATE = """
     <div id="powerModal" class="modal-overlay" onclick="hideModal('powerModal')">
         <div class="modal" onclick="event.stopPropagation()">
             <h3>Climbing Power</h3>
-            <p>Your sustained power output on steep climbs (above ~4° grade). Riders typically push harder uphill. For reference:</p>
+            <p>Your sustained power output on steep climbs (grades above ~7%). Riders typically push harder uphill. For reference:</p>
             <p>• Casual climbing: 80-120W<br>• Moderate effort: 120-180W<br>• Strong rider: 180-250W</p>
-            <p>Power ramps linearly from flat power to this value as grade increases toward the climb threshold.</p>
+            <p>For grades between 0% and 7%, power is interpolated between flat power and climbing power. Full climbing power is used only on steeper grades.</p>
             <button class="modal-close" onclick="hideModal('powerModal')">Got it</button>
         </div>
     </div>
@@ -1833,7 +1833,7 @@ HTML_TEMPLATE = """
             <h3>Flat Power</h3>
             <p>Your sustained power output on flat terrain. For reference:</p>
             <p>• Casual riding: 60-100W<br>• Moderate effort: 100-150W<br>• Strong rider: 150-200W</p>
-            <p>Power ramps linearly from this value up to climbing power as grade increases toward the climb threshold (~4°).</p>
+            <p>Power ramps linearly from this value up to climbing power as grade increases toward ~7%.</p>
             <button class="modal-close" onclick="hideModal('flatPowerModal')">Got it</button>
         </div>
     </div>

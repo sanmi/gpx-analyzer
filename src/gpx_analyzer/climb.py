@@ -194,21 +194,26 @@ def detect_climbs(
             work_kj = 0.0
             avg_power = 0.0
 
-            if segment_works is not None:
+            # Prefer segment_powers if available (actual physics-calculated power)
+            if segment_powers is not None:
+                powers = [segment_powers[k] for k in range(start_idx, min(end_idx, len(segment_powers)))
+                         if segment_powers[k] is not None and segment_powers[k] > 0]
+                if powers:
+                    avg_power = sum(powers) / len(powers)
+                    work_kj = avg_power * duration_seconds / 1000  # Calculate work from power
+
+            # Fall back to segment_works if available
+            if work_kj == 0 and segment_works is not None:
                 for k in range(start_idx, min(end_idx, len(segment_works))):
                     work_kj += segment_works[k] / 1000  # Convert J to kJ
-            elif params is not None:
-                # Estimate work from elevation gain and mass
-                # W = mgh (simplified)
-                work_kj = params.total_mass * 9.81 * elevation_gain / 1000
+                if duration_seconds > 0 and work_kj > 0:
+                    avg_power = work_kj * 1000 / duration_seconds
 
-            if duration_seconds > 0 and work_kj > 0:
-                avg_power = work_kj * 1000 / duration_seconds
-            elif segment_powers is not None:
-                # Average the power values
-                powers = [segment_powers[k] for k in range(start_idx, min(end_idx, len(segment_powers)))
-                         if segment_powers[k] is not None]
-                avg_power = sum(powers) / len(powers) if powers else 0.0
+            # Last resort: estimate from elevation gain
+            if work_kj == 0 and params is not None:
+                work_kj = params.total_mass * 9.81 * elevation_gain / 1000
+                if duration_seconds > 0:
+                    avg_power = work_kj * 1000 / duration_seconds
 
             climbs.append(ClimbInfo(
                 climb_id=len(climbs) + 1,
