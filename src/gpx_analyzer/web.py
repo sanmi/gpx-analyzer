@@ -133,6 +133,44 @@ PROFILE_CACHE_DIR = Path.home() / ".cache" / "gpx-analyzer" / "profiles"
 PROFILE_CACHE_INDEX_PATH = PROFILE_CACHE_DIR / "cache_index.json"
 MAX_CACHED_PROFILES = 150  # ~150 images, each ~60KB = ~9MB max
 
+# In-memory cache for climb detection results (avoids re-processing on sensitivity changes)
+# Key: (url, sensitivity, params_hash) -> Value: (climbs_json, sensitivity_m, timestamp)
+_climb_cache: dict[str, tuple[list, float, float]] = {}
+MAX_CLIMB_CACHE_ENTRIES = 50
+CLIMB_CACHE_TTL = 3600  # 1 hour
+
+
+def _make_climb_cache_key(url: str, sensitivity: int, params_hash: str) -> str:
+    """Create cache key for climb detection results."""
+    return f"{url}|{sensitivity}|{params_hash}"
+
+
+def _get_cached_climbs(cache_key: str) -> tuple[list, float] | None:
+    """Get cached climb detection results if available and not expired."""
+    if cache_key in _climb_cache:
+        climbs_json, sensitivity_m, timestamp = _climb_cache[cache_key]
+        if time.time() - timestamp < CLIMB_CACHE_TTL:
+            return climbs_json, sensitivity_m
+        else:
+            del _climb_cache[cache_key]
+    return None
+
+
+def _save_climbs_to_cache(cache_key: str, climbs_json: list, sensitivity_m: float) -> None:
+    """Save climb detection results to cache with LRU eviction."""
+    # Evict oldest entries if cache is full
+    if len(_climb_cache) >= MAX_CLIMB_CACHE_ENTRIES:
+        oldest_key = min(_climb_cache.keys(), key=lambda k: _climb_cache[k][2])
+        del _climb_cache[oldest_key]
+    _climb_cache[cache_key] = (climbs_json, sensitivity_m, time.time())
+
+
+def _make_ride_profile_cache_key(url: str, sensitivity: int, aspect: float, params_hash: str) -> str:
+    """Create cache key for ride profile images."""
+    config_hash = _get_config_hash()
+    key_str = f"ride|{url}|{sensitivity}|{aspect:.1f}|{params_hash}|{config_hash}"
+    return hashlib.md5(key_str.encode()).hexdigest()
+
 
 def _make_profile_cache_key(url: str, climbing_power: float, flat_power: float, mass: float, headwind: float,
                             descent_braking_factor: float = 1.0, collapse_stops: bool = False,
@@ -5163,7 +5201,7 @@ def generate_elevation_profile(url: str, params: RiderParams, title_time_hours: 
                                max_speed_ylim: float | None = None,
                                show_gravel: bool = False,
                                smoothing: float | None = None,
-                               square: bool = False) -> bytes:
+                               aspect_ratio: float = 3.5) -> bytes:
     """Generate elevation profile image with grade-based coloring.
 
     Args:
@@ -5179,7 +5217,7 @@ def generate_elevation_profile(url: str, params: RiderParams, title_time_hours: 
         max_speed_ylim: Optional max speed y-axis limit in km/h (for synchronized comparison).
         show_gravel: If True, highlight unpaved/gravel sections with a brown strip.
         smoothing: Optional override for elevation smoothing radius.
-        square: If True, generate a square (6x6) figure instead of wide (14x4).
+        aspect_ratio: Width/height ratio (1.0 = square, 3.5 = wide default).
 
     Returns PNG image as bytes.
     """
@@ -5221,9 +5259,10 @@ def generate_elevation_profile(url: str, params: RiderParams, title_time_hours: 
                 return main_colors[i]
         return main_colors[-1]
 
-    # Create figure - square or wide aspect ratio
-    figsize = (6, 6) if square else (14, 4)
-    fig, ax = plt.subplots(figsize=figsize, facecolor='white')
+    # Create figure with dynamic aspect ratio
+    fig_height = 4
+    fig_width = fig_height * aspect_ratio
+    fig, ax = plt.subplots(figsize=(fig_width, fig_height), facecolor='white')
 
     # Build all polygons and colors at once for efficient rendering
     # Using PolyCollection is ~30x faster than calling fill_between in a loop
@@ -5418,11 +5457,22 @@ def elevation_profile():
     max_speed_ylim = float(max_speed_ylim_str) if max_speed_ylim_str else None
     show_gravel = request.args.get("show_gravel", "false").lower() == "true"
     square = request.args.get("square", "false").lower() == "true"
+    # Dynamic aspect ratio support (overrides square if provided)
+    aspect_param = request.args.get("aspect", "")
+    if aspect_param:
+        try:
+            aspect_ratio = float(aspect_param)
+            aspect_ratio = max(0.5, min(4.0, aspect_ratio))
+        except ValueError:
+            aspect_ratio = 1.0 if square else 3.5
+    else:
+        aspect_ratio = 1.0 if square else 3.5
 
     if not url or not (is_ridewithgps_url(url) or is_ridewithgps_trip_url(url)):
         # Return a placeholder image
-        figsize = (6, 6) if square else (14, 4)
-        fig, ax = plt.subplots(figsize=figsize, facecolor='white')
+        fig_height = 4
+        fig_width = fig_height * aspect_ratio
+        fig, ax = plt.subplots(figsize=(fig_width, fig_height), facecolor='white')
         ax.text(0.5, 0.5, 'No route or trip selected', ha='center', va='center', fontsize=14, color='#999')
         ax.axis('off')
         buf = io.BytesIO()
@@ -5431,8 +5481,8 @@ def elevation_profile():
         buf.seek(0)
         return send_file(buf, mimetype='image/png')
 
-    # Check disk cache first (include square in cache key via overlay params)
-    cache_key = _make_profile_cache_key(url, climbing_power, flat_power, mass, headwind, descent_braking_factor, collapse_stops, max_xlim_hours, descending_power, overlay=(overlay or "") + ("|square" if square else ""), imperial=imperial, show_gravel=show_gravel, max_ylim=max_ylim, max_speed_ylim=max_speed_ylim, unpaved_power_factor=unpaved_power_factor, smoothing=smoothing)
+    # Check disk cache first (include aspect in cache key)
+    cache_key = _make_profile_cache_key(url, climbing_power, flat_power, mass, headwind, descent_braking_factor, collapse_stops, max_xlim_hours, descending_power, overlay=(overlay or "") + f"|aspect{aspect_ratio:.1f}", imperial=imperial, show_gravel=show_gravel, max_ylim=max_ylim, max_speed_ylim=max_speed_ylim, unpaved_power_factor=unpaved_power_factor, smoothing=smoothing)
     cached_bytes = _get_cached_profile(cache_key)
     if cached_bytes:
         return send_file(io.BytesIO(cached_bytes), mimetype='image/png')
@@ -5448,14 +5498,15 @@ def elevation_profile():
             params = build_params(climbing_power, flat_power, mass, headwind, descent_braking_factor, descending_power, unpaved_power_factor)
             analysis = analyze_single_route(url, params, smoothing)
             title_time_hours = analysis["time_seconds"] / 3600
-            img_bytes = generate_elevation_profile(url, params, title_time_hours, max_xlim_hours=max_xlim_hours, overlay=overlay, imperial=imperial, max_ylim=max_ylim, max_speed_ylim=max_speed_ylim, show_gravel=show_gravel, smoothing=smoothing, square=square)
+            img_bytes = generate_elevation_profile(url, params, title_time_hours, max_xlim_hours=max_xlim_hours, overlay=overlay, imperial=imperial, max_ylim=max_ylim, max_speed_ylim=max_speed_ylim, show_gravel=show_gravel, smoothing=smoothing, aspect_ratio=aspect_ratio)
         # Save to disk cache
         _save_profile_to_cache(cache_key, img_bytes)
         return send_file(io.BytesIO(img_bytes), mimetype='image/png')
     except Exception as e:
         # Return error image
-        figsize = (6, 6) if square else (14, 4)
-        fig, ax = plt.subplots(figsize=figsize, facecolor='white')
+        fig_height = 4
+        fig_width = fig_height * aspect_ratio
+        fig, ax = plt.subplots(figsize=(fig_width, fig_height), facecolor='white')
         ax.text(0.5, 0.5, f'Error: {str(e)[:50]}', ha='center', va='center', fontsize=12, color='#cc0000')
         ax.axis('off')
         buf = io.BytesIO()
@@ -5860,11 +5911,15 @@ RIDE_TEMPLATE = """
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body {
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-            max-width: 600px;
+            max-width: 1200px;
             margin: 0 auto;
             padding: 12px;
             background: var(--bg-light);
             color: var(--text-dark);
+        }
+        /* Responsive container for main content */
+        @media (min-width: 768px) {
+            body { padding: 24px 32px; }
         }
         .back-link {
             display: inline-block;
@@ -5881,16 +5936,33 @@ RIDE_TEMPLATE = """
             margin-bottom: 16px;
             box-shadow: 0 2px 8px rgba(0,0,0,0.08);
         }
+        @media (min-width: 768px) {
+            .summary-card {
+                padding: 24px;
+                margin-bottom: 24px;
+            }
+        }
         .route-name {
             font-size: 1.2em;
             font-weight: 600;
             margin-bottom: 12px;
             color: var(--text-dark);
         }
+        @media (min-width: 768px) {
+            .route-name {
+                font-size: 1.5em;
+                margin-bottom: 16px;
+            }
+        }
         .summary-grid {
             display: grid;
             grid-template-columns: repeat(2, 1fr);
             gap: 12px;
+        }
+        @media (min-width: 600px) {
+            .summary-grid {
+                grid-template-columns: repeat(4, 1fr);
+            }
         }
         .summary-item {
             text-align: center;
@@ -5902,6 +5974,11 @@ RIDE_TEMPLATE = """
             font-size: 1.4em;
             font-weight: 700;
             color: var(--text-dark);
+        }
+        @media (min-width: 768px) {
+            .summary-value {
+                font-size: 1.6em;
+            }
         }
         .summary-label {
             font-size: 0.75em;
@@ -5915,6 +5992,12 @@ RIDE_TEMPLATE = """
             padding: 16px;
             margin-bottom: 16px;
             box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+        }
+        @media (min-width: 768px) {
+            .elevation-section {
+                padding: 24px;
+                margin-bottom: 24px;
+            }
         }
         .section-title {
             font-size: 0.9em;
@@ -5948,15 +6031,13 @@ RIDE_TEMPLATE = """
         .main-profile-container {
             position: relative;
             width: 100%;
-            aspect-ratio: 1;
             background: #fafafa;
             border-radius: 8px;
             overflow: hidden;
         }
         .main-profile-container img {
             width: 100%;
-            height: 100%;
-            object-fit: contain;
+            height: auto;
             display: block;
         }
         .main-profile-container img.loading {
@@ -6050,15 +6131,14 @@ RIDE_TEMPLATE = """
         .climb-profile-container {
             position: relative;
             width: 100%;
-            aspect-ratio: 1;
             background: #fafafa;
             border-radius: 8px;
             overflow: hidden;
         }
         .climb-profile-container img {
             width: 100%;
-            height: 100%;
-            object-fit: contain;
+            height: auto;
+            display: block;
         }
         .sensitivity-control { margin-top: 16px; }
         .sensitivity-label {
@@ -6101,6 +6181,12 @@ RIDE_TEMPLATE = """
             margin-bottom: 16px;
             box-shadow: 0 2px 8px rgba(0,0,0,0.08);
         }
+        @media (min-width: 768px) {
+            .climb-section {
+                padding: 24px;
+                margin-bottom: 24px;
+            }
+        }
         .climb-count { font-size: 0.85em; color: var(--text-muted); margin-left: 8px; }
         .climb-list { margin-top: 12px; }
         .climb-row {
@@ -6133,6 +6219,12 @@ RIDE_TEMPLATE = """
             gap: 4px 12px;
             font-size: 0.85em;
         }
+        @media (min-width: 600px) {
+            .climb-metrics {
+                grid-template-columns: repeat(4, 1fr);
+                gap: 8px 16px;
+            }
+        }
         .climb-metric { display: flex; justify-content: space-between; }
         .metric-label { color: var(--text-muted); }
         .metric-value { font-weight: 500; }
@@ -6143,10 +6235,31 @@ RIDE_TEMPLATE = """
             font-style: italic;
         }
         .loading { opacity: 0.6; pointer-events: none; }
+        /* Desktop layout: side-by-side sections */
+        @media (min-width: 900px) {
+            .desktop-grid {
+                display: grid;
+                grid-template-columns: 1fr 2fr;
+                gap: 24px;
+                align-items: start;
+            }
+            .desktop-sidebar {
+                position: sticky;
+                top: 24px;
+            }
+        }
         /* Header styles */
         .header-section {
             margin-bottom: 16px;
             text-align: center;
+        }
+        @media (min-width: 768px) {
+            .header-section {
+                margin-bottom: 24px;
+            }
+            .header-section h1 {
+                font-size: 1.5em;
+            }
         }
         .logo-container {
             display: flex;
@@ -6299,14 +6412,12 @@ RIDE_TEMPLATE = """
             </div>
         </div>
         <div class="main-profile-container" id="elevationContainer"
-             data-base-profile-url="/elevation-profile?url={{ url|urlencode }}&climbing_power={{ climbing_power }}&flat_power={{ flat_power }}&mass={{ mass }}&headwind={{ headwind }}&smoothing={{ smoothing }}&square=true"
+             data-base-profile-url="/elevation-profile?url={{ url|urlencode }}&climbing_power={{ climbing_power }}&flat_power={{ flat_power }}&mass={{ mass }}&headwind={{ headwind }}&smoothing={{ smoothing }}"
              data-base-data-url="/elevation-profile-data?url={{ url|urlencode }}&climbing_power={{ climbing_power }}&flat_power={{ flat_power }}&mass={{ mass }}&headwind={{ headwind }}&smoothing={{ smoothing }}">
             <div class="elevation-loading" id="elevationLoading">
                 <div class="elevation-spinner"></div>
             </div>
-            <img src="/elevation-profile?url={{ url|urlencode }}&climbing_power={{ climbing_power }}&flat_power={{ flat_power }}&mass={{ mass }}&headwind={{ headwind }}&smoothing={{ smoothing }}&square=true"
-                 alt="Elevation Profile" id="elevationImg" class="loading"
-                 onload="document.getElementById('elevationLoading').classList.add('hidden'); this.classList.remove('loading');">
+            <img src="" alt="Elevation Profile" id="elevationImg" class="loading">
             <div class="elevation-cursor" id="elevationCursor"></div>
             <div class="elevation-tooltip" id="elevationTooltip">
                 <div class="grade">--</div>
@@ -6320,7 +6431,10 @@ RIDE_TEMPLATE = """
     <div class="elevation-section">
         <div class="section-title">Climb Detection</div>
         <div class="climb-profile-container" id="climbProfileContainer">
-            <img id="climbProfileImage" src="/elevation-profile-ride?url={{ url|urlencode }}&climbing_power={{ climbing_power }}&flat_power={{ flat_power }}&mass={{ mass }}&headwind={{ headwind }}&sensitivity={{ sensitivity }}&smoothing={{ smoothing }}" alt="Climb Profile">
+            <div class="elevation-loading" id="climbLoading">
+                <div class="elevation-spinner"></div>
+            </div>
+            <img id="climbProfileImage" src="" alt="Climb Profile">
         </div>
         <div class="sensitivity-control">
             <div class="sensitivity-label">
@@ -6399,6 +6513,23 @@ RIDE_TEMPLATE = """
         const climbList = document.getElementById('climbList');
         const climbCount = document.getElementById('climbCount');
         let debounceTimer = null;
+        let resizeTimer = null;
+        let lastAspectRatio = null;
+
+        // Calculate aspect ratio based on container width
+        function getAspectRatio() {
+            const container = climbProfileContainer || document.getElementById('elevationContainer');
+            if (!container) return 1;
+            const width = container.offsetWidth;
+            // Mobile portrait: square (1:1)
+            if (width < 500) return 1;
+            // Mobile landscape / tablet: 2:1
+            if (width < 800) return 2;
+            // Desktop: wider ratio based on actual width
+            // Height stays constant, so aspect = width / fixed_height
+            // Use width / 300 to get a good ratio (300px is a reasonable chart height)
+            return Math.min(3.5, width / 250);
+        }
 
         function formatClimbDuration(seconds) {
             const totalMins = Math.floor(seconds / 60);
@@ -6427,6 +6558,15 @@ RIDE_TEMPLATE = """
         function formatSpeed(kmh) {
             if (isImperial()) return (kmh * 0.621371).toFixed(1) + ' mph';
             return kmh.toFixed(1) + ' km/h';
+        }
+
+        // Overlay params helper (defined early for use in profile updates)
+        function _buildOverlayParams() {
+            let params = '';
+            if (document.getElementById('overlay_speed')?.checked) params += '&overlay=speed';
+            if (document.getElementById('overlay_gravel')?.checked) params += '&show_gravel=true';
+            if (isImperial()) params += '&imperial=true';
+            return params;
         }
 
         function renderClimbTable(climbs) {
@@ -6458,20 +6598,73 @@ RIDE_TEMPLATE = """
             climbList.innerHTML = html;
         }
 
-        function updateClimbs() {
+        function updateClimbs(forceRefresh = false) {
             clearTimeout(debounceTimer);
             debounceTimer = setTimeout(() => {
                 const sensitivity = slider.value;
-                climbProfileContainer.classList.add('loading');
-                climbProfileImage.src = `/elevation-profile-ride?url=${encodeURIComponent(routeUrl)}&${baseParams}&sensitivity=${sensitivity}`;
-                climbProfileImage.onload = () => climbProfileContainer.classList.remove('loading');
+                const aspect = getAspectRatio();
+                // Only refresh image if aspect ratio changed significantly or forced
+                if (forceRefresh || lastAspectRatio === null || Math.abs(aspect - lastAspectRatio) > 0.1) {
+                    lastAspectRatio = aspect;
+                    const climbLoading = document.getElementById('climbLoading');
+                    if (climbLoading) climbLoading.classList.remove('hidden');
+                    climbProfileContainer.classList.add('loading');
+                    climbProfileImage.src = `/elevation-profile-ride?url=${encodeURIComponent(routeUrl)}&${baseParams}&sensitivity=${sensitivity}&aspect=${aspect.toFixed(2)}`;
+                    climbProfileImage.onload = () => {
+                        climbProfileContainer.classList.remove('loading');
+                        if (climbLoading) climbLoading.classList.add('hidden');
+                    };
+                }
                 fetch(`/api/detect-climbs?url=${encodeURIComponent(routeUrl)}&${baseParams}&sensitivity=${sensitivity}`)
                     .then(r => r.json())
                     .then(data => renderClimbTable(data.climbs))
                     .catch(err => console.error('Error fetching climbs:', err));
             }, 300);
         }
-        slider.addEventListener('input', updateClimbs);
+        slider.addEventListener('input', () => updateClimbs(true));
+
+        // Update main elevation profile with current aspect ratio
+        function updateMainProfile() {
+            const container = document.getElementById('elevationContainer');
+            const img = document.getElementById('elevationImg');
+            const loading = document.getElementById('elevationLoading');
+            if (!container || !img) return;
+            const baseProfileUrl = container.getAttribute('data-base-profile-url');
+            const baseDataUrl = container.getAttribute('data-base-data-url');
+            if (!baseProfileUrl) return;
+            const aspect = getAspectRatio();
+            const overlayParams = _buildOverlayParams();
+            if (loading) loading.classList.remove('hidden');
+            img.classList.add('loading');
+            img.src = baseProfileUrl + `&aspect=${aspect.toFixed(2)}` + overlayParams;
+            img.onload = () => {
+                if (loading) loading.classList.add('hidden');
+                img.classList.remove('loading');
+                if (typeof setupElevationProfile === 'function' && baseDataUrl) {
+                    setupElevationProfile('elevationContainer', 'elevationImg', 'elevationTooltip', 'elevationCursor', baseDataUrl);
+                }
+            };
+        }
+
+        // Handle window resize and orientation change
+        function handleResize() {
+            clearTimeout(resizeTimer);
+            resizeTimer = setTimeout(() => {
+                const newAspect = getAspectRatio();
+                if (lastAspectRatio !== null && Math.abs(newAspect - lastAspectRatio) > 0.2) {
+                    updateClimbs(true);
+                    updateMainProfile();
+                }
+            }, 250);
+        }
+        window.addEventListener('resize', handleResize);
+        window.addEventListener('orientationchange', () => setTimeout(handleResize, 100));
+
+        // Initial load with correct aspect ratio
+        document.addEventListener('DOMContentLoaded', () => {
+            updateMainProfile();
+            updateClimbs(true);
+        });
 
         // Save sensitivity to localStorage when changed
         slider.addEventListener('change', () => {
@@ -6479,14 +6672,6 @@ RIDE_TEMPLATE = """
         });
 
         // Overlay toggles
-        function _buildOverlayParams() {
-            let params = '';
-            if (document.getElementById('overlay_speed')?.checked) params += '&overlay=speed';
-            if (document.getElementById('overlay_gravel')?.checked) params += '&show_gravel=true';
-            if (isImperial()) params += '&imperial=true';
-            return params;
-        }
-
         function toggleOverlay(type) {
             const container = document.getElementById('elevationContainer');
             const img = document.getElementById('elevationImg');
@@ -6495,13 +6680,18 @@ RIDE_TEMPLATE = """
             const baseProfileUrl = container.getAttribute('data-base-profile-url');
             const baseDataUrl = container.getAttribute('data-base-data-url');
             if (!baseProfileUrl) return;
+            const aspect = getAspectRatio();
             const overlayParams = _buildOverlayParams();
-            loading.classList.remove('hidden');
+            if (loading) loading.classList.remove('hidden');
             img.classList.add('loading');
-            img.src = baseProfileUrl + overlayParams;
-            if (typeof setupElevationProfile === 'function' && baseDataUrl) {
-                setupElevationProfile('elevationContainer', 'elevationImg', 'elevationTooltip', 'elevationCursor', baseDataUrl);
-            }
+            img.src = baseProfileUrl + `&aspect=${aspect.toFixed(2)}` + overlayParams;
+            img.onload = () => {
+                if (loading) loading.classList.add('hidden');
+                img.classList.remove('loading');
+                if (typeof setupElevationProfile === 'function' && baseDataUrl) {
+                    setupElevationProfile('elevationContainer', 'elevationImg', 'elevationTooltip', 'elevationCursor', baseDataUrl);
+                }
+            };
             // Save toggle states to localStorage
             try {
                 localStorage.setItem('ride_show_speed', document.getElementById('overlay_speed')?.checked || false);
@@ -6895,7 +7085,7 @@ RIDE_TEMPLATE = """
 def api_detect_climbs():
     """Detect climbs for a route with configurable sensitivity.
 
-    Returns JSON with climb data for dynamic updates.
+    Returns JSON with climb data for dynamic updates. Results are cached in memory.
     """
     defaults = get_defaults()
     url = request.args.get("url", "")
@@ -6913,6 +7103,19 @@ def api_detect_climbs():
         return jsonify({"error": "Invalid route URL"}), 400
 
     try:
+        # Create params hash for cache key
+        params_hash = hashlib.md5(f"{climbing_power}|{flat_power}|{mass}|{headwind}|{smoothing}".encode()).hexdigest()[:8]
+        cache_key = _make_climb_cache_key(url, sensitivity_slider, params_hash)
+
+        # Check cache first
+        cached = _get_cached_climbs(cache_key)
+        if cached:
+            climbs_json, sensitivity_m = cached
+            return jsonify({
+                "climbs": climbs_json,
+                "sensitivity_m": sensitivity_m,
+            })
+
         params = build_params(climbing_power, flat_power, mass, headwind, descent_braking_factor, descending_power, unpaved_power_factor)
         config = _load_config() or {}
 
@@ -6974,6 +7177,9 @@ def api_detect_climbs():
             for c in result.climbs
         ]
 
+        # Save to cache
+        _save_climbs_to_cache(cache_key, climbs_json, result.sensitivity_m)
+
         return jsonify({
             "climbs": climbs_json,
             "sensitivity_m": result.sensitivity_m,
@@ -6985,9 +7191,30 @@ def api_detect_climbs():
 
 @app.route("/elevation-profile-ride")
 def elevation_profile_ride():
-    """Generate square elevation profile with climb highlighting for ride page."""
+    """Generate elevation profile with climb highlighting for ride page.
+
+    Supports dynamic aspect ratios via the 'aspect' parameter:
+    - 'square' or '1': 1:1 aspect ratio (default, mobile portrait)
+    - 'wide' or '2': 2:1 aspect ratio (tablet/desktop)
+    - 'ultrawide' or '3': 3:1 aspect ratio (large desktop)
+    - Custom ratio like '2.5': any numeric aspect ratio
+    """
     defaults = get_defaults()
     url = request.args.get("url", "")
+    aspect_param = request.args.get("aspect", "1")
+    # Parse aspect ratio
+    try:
+        if aspect_param == "square":
+            aspect_ratio = 1.0
+        elif aspect_param == "wide":
+            aspect_ratio = 2.0
+        elif aspect_param == "ultrawide":
+            aspect_ratio = 3.0
+        else:
+            aspect_ratio = float(aspect_param)
+            aspect_ratio = max(0.5, min(4.0, aspect_ratio))  # Clamp to reasonable range
+    except ValueError:
+        aspect_ratio = 1.0
     sensitivity_slider = int(request.args.get("sensitivity", 50))
     climbing_power = float(request.args.get("climbing_power", defaults["climbing_power"]))
     flat_power = float(request.args.get("flat_power", defaults["flat_power"]))
@@ -6999,15 +7226,24 @@ def elevation_profile_ride():
     smoothing = float(request.args.get("smoothing", defaults["smoothing"]))
 
     if not url or not is_ridewithgps_url(url):
-        # Return placeholder image
-        fig, ax = plt.subplots(figsize=(6, 6), facecolor='white')
+        # Return placeholder image with appropriate aspect ratio
+        fig_height = 4
+        fig_width = fig_height * aspect_ratio
+        fig, ax = plt.subplots(figsize=(fig_width, fig_height), facecolor='white')
         ax.text(0.5, 0.5, 'No route selected', ha='center', va='center', fontsize=14, color='#999')
         ax.axis('off')
         buf = io.BytesIO()
-        fig.savefig(buf, format='png', dpi=100, facecolor='white')
+        fig.savefig(buf, format='png', dpi=100, facecolor='white', bbox_inches='tight')
         plt.close(fig)
         buf.seek(0)
         return send_file(buf, mimetype='image/png')
+
+    # Create cache key and check disk cache
+    params_hash = hashlib.md5(f"{climbing_power}|{flat_power}|{mass}|{headwind}|{smoothing}".encode()).hexdigest()[:8]
+    cache_key = _make_ride_profile_cache_key(url, sensitivity_slider, aspect_ratio, params_hash)
+    cached_bytes = _get_cached_profile(cache_key)
+    if cached_bytes:
+        return send_file(io.BytesIO(cached_bytes), mimetype='image/png')
 
     try:
         params = build_params(climbing_power, flat_power, mass, headwind, descent_braking_factor, descending_power, unpaved_power_factor)
@@ -7043,30 +7279,35 @@ def elevation_profile_ride():
             segment_powers=powers,
         )
 
-        # Generate square profile
-        img_bytes = _generate_ride_profile(times_hours, elevations, grades, climb_result.climbs)
+        # Generate profile with requested aspect ratio
+        img_bytes = _generate_ride_profile(times_hours, elevations, grades, climb_result.climbs, aspect_ratio)
+        # Save to disk cache
+        _save_profile_to_cache(cache_key, img_bytes)
         return send_file(io.BytesIO(img_bytes), mimetype='image/png')
 
     except Exception as e:
-        # Return error image
-        fig, ax = plt.subplots(figsize=(6, 6), facecolor='white')
+        # Return error image with appropriate aspect ratio
+        fig_height = 4
+        fig_width = fig_height * aspect_ratio
+        fig, ax = plt.subplots(figsize=(fig_width, fig_height), facecolor='white')
         ax.text(0.5, 0.5, f'Error: {str(e)[:40]}', ha='center', va='center', fontsize=12, color='#cc0000')
         ax.axis('off')
         buf = io.BytesIO()
-        fig.savefig(buf, format='png', dpi=100, facecolor='white')
+        fig.savefig(buf, format='png', dpi=100, facecolor='white', bbox_inches='tight')
         plt.close(fig)
         buf.seek(0)
         return send_file(buf, mimetype='image/png')
 
 
-def _generate_ride_profile(times_hours: list, elevations: list, grades: list, climbs: list[ClimbInfo]) -> bytes:
-    """Generate square elevation profile with climb highlighting.
+def _generate_ride_profile(times_hours: list, elevations: list, grades: list, climbs: list[ClimbInfo], aspect_ratio: float = 1.0) -> bytes:
+    """Generate elevation profile with climb highlighting.
 
     Args:
         times_hours: Cumulative time in hours for each point
         elevations: Elevation in meters for each point
         grades: Grade percentage for each segment
         climbs: List of detected climbs to highlight
+        aspect_ratio: Width/height ratio (1.0 = square, 2.0 = wide, etc.)
 
     Returns:
         PNG image bytes
@@ -7092,8 +7333,10 @@ def _generate_ride_profile(times_hours: list, elevations: list, grades: list, cl
                 return main_colors[i]
         return main_colors[-1]
 
-    # Square figure
-    fig, ax = plt.subplots(figsize=(6, 6), facecolor='white')
+    # Figure with dynamic aspect ratio (height fixed, width varies)
+    fig_height = 4
+    fig_width = fig_height * aspect_ratio
+    fig, ax = plt.subplots(figsize=(fig_width, fig_height), facecolor='white')
 
     # Build polygons for grade coloring
     polygons = []
