@@ -967,6 +967,30 @@ HTML_TEMPLATE = """
                 font-size: 11px;
             }
         }
+        /* Inline tooltip for input fields */
+        .input-with-tooltip {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+        .input-with-tooltip input {
+            flex: 1;
+            min-width: 0;
+        }
+        .noise-warning-btn {
+            background: none;
+            border: none;
+            color: #F57C00;
+            font-size: 16px;
+            cursor: pointer;
+            padding: 0;
+            line-height: 1;
+            flex-shrink: 0;
+            width: 20px;
+        }
+        .noise-warning-btn:hover {
+            color: #E65100;
+        }
         /* Modal styles */
         .modal-overlay {
             display: none;
@@ -1579,7 +1603,7 @@ HTML_TEMPLATE = """
                 <span class="setting{% if descending_power != defaults.descending_power %} modified{% endif %}"><span class="setting-label">Desc Pwr:</span> <span class="setting-value">{{ descending_power|int }}W</span></span>
                 <span class="setting{% if descent_braking_factor != defaults.descent_braking_factor %} modified{% endif %}"><span class="setting-label">Braking:</span> <span class="setting-value">{{ "%.2f"|format(descent_braking_factor) }}</span></span>
                 <span class="setting{% if unpaved_power_factor != defaults.unpaved_power_factor %} modified{% endif %}"><span class="setting-label">Gravel Pwr:</span> <span class="setting-value">{{ "%.2f"|format(unpaved_power_factor) }}</span></span>
-                <span class="setting{% if smoothing != defaults.smoothing %} modified{% endif %}"><span class="setting-label">Smoothing:</span> <span class="setting-value">{% if result and result.effective_smoothing and result.effective_smoothing != smoothing %}{{ smoothing|int }}m → {{ result.effective_smoothing|int }}m{% else %}{{ smoothing|int }}m{% endif %}</span></span>
+                <span class="setting{% if result and result.noise_ratio and result.noise_ratio > 1.8 %}{% if smoothing > 300 %} modified{% endif %}{% elif smoothing != defaults.smoothing %} modified{% endif %}"><span class="setting-label">Smoothing:</span> <span class="setting-value">{% if result and result.effective_smoothing %}{{ result.effective_smoothing|int }}{% else %}{{ smoothing|int }}{% endif %}m</span></span>
             </span>
         </div>
 
@@ -1611,7 +1635,12 @@ HTML_TEMPLATE = """
                         <label for="smoothing">Smoothing Radius (m)</label>
                         <button type="button" class="info-btn" onclick="showModal('smoothingModal')">?</button>
                     </div>
-                    <input type="number" id="smoothing" name="smoothing" value="{{ smoothing|int }}" step="10" min="10" max="400">
+                    <div class="input-with-tooltip">
+                        <input type="number" id="smoothing" name="smoothing" value="{% if result and result.effective_smoothing %}{{ result.effective_smoothing|int }}{% else %}{{ smoothing|int }}{% endif %}" step="10" min="{% if result and result.noise_ratio and result.noise_ratio > 1.8 %}300{% else %}10{% endif %}" max="400">
+                        {% if result and result.noise_ratio and result.noise_ratio > 1.8 %}
+                        <button type="button" class="noise-warning-btn" onclick="showModal('noiseWarningModal')">⚠</button>
+                        {% endif %}
+                    </div>
                 </div>
             </div>
             <div class="advanced-reset">
@@ -1830,12 +1859,22 @@ HTML_TEMPLATE = """
     <div id="smoothingModal" class="modal-overlay" onclick="hideModal('smoothingModal')">
         <div class="modal" onclick="event.stopPropagation()">
             <h3>Smoothing Radius</h3>
-            <p>Moving average window (in meters) for elevation smoothing. Reduces GPS noise in elevation data before calculating grades.</p>
-            <p><strong>50m</strong> = default, balances noise reduction and detail<br>
-            <strong>100m+</strong> = more aggressive smoothing for noisy GPS data<br>
-            <strong>20-30m</strong> = less smoothing, preserves sharp grade changes</p>
-            <p>Higher values reduce noise but may underestimate short steep sections. Try increasing if elevation gain/loss seems too high.</p>
+            <p>Window size (in meters) for elevation smoothing. Reduces GPS noise in elevation data before calculating grades.</p>
+            <p><strong>20m</strong> = default, preserves detail for clean GPS data<br>
+            <strong>50-100m</strong> = moderate smoothing for typical routes<br>
+            <strong>200m+</strong> = aggressive smoothing for very noisy data</p>
+            <p>Higher values reduce noise but may underestimate short steep sections.</p>
             <button class="modal-close" onclick="hideModal('smoothingModal')">Got it</button>
+        </div>
+    </div>
+
+    <div id="noiseWarningModal" class="modal-overlay" onclick="hideModal('noiseWarningModal')">
+        <div class="modal" onclick="event.stopPropagation()">
+            <h3>⚠ High Elevation Noise Detected</h3>
+            <p>This route has noisy GPS elevation data. The <strong>elevation noise ratio</strong> ({{ "%.1f"|format(result.noise_ratio) if result and result.noise_ratio else "?" }}×) measures raw GPS elevation gain divided by the DEM-corrected gain from RideWithGPS.</p>
+            <p>A ratio above 1.8× indicates the GPS recorded significantly more elevation change than the satellite-derived terrain model, typically due to GPS signal errors or poor reception.</p>
+            <p><strong>Automatic adjustment:</strong> Smoothing radius is set to 300m minimum to filter this noise. You can increase it further, but not below 300m for this route.</p>
+            <button class="modal-close" onclick="hideModal('noiseWarningModal')">Got it</button>
         </div>
     </div>
 
@@ -2101,7 +2140,9 @@ HTML_TEMPLATE = """
             document.getElementById('descent_braking_factor').value = {{ defaults.descent_braking_factor }};
             document.getElementById('descending_power').value = {{ defaults.descending_power|int }};
             document.getElementById('unpaved_power_factor').value = {{ defaults.unpaved_power_factor }};
-            document.getElementById('smoothing').value = {{ defaults.smoothing|int }};
+            var smoothingInput = document.getElementById('smoothing');
+            var minSmoothing = parseInt(smoothingInput.min) || 10;
+            smoothingInput.value = Math.max({{ defaults.smoothing|int }}, minSmoothing);
         }
 
         function _buildOverlayParams() {
