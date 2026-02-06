@@ -479,21 +479,21 @@ HTML_TEMPLATE = """
         }
         .steep-stats {
             display: flex;
-            gap: 20px;
+            gap: 15px 25px;
             margin-bottom: 15px;
             flex-wrap: wrap;
         }
         .steep-stat {
             display: flex;
-            flex-direction: column;
-            gap: 2px;
+            align-items: baseline;
+            gap: 6px;
         }
         .steep-label {
-            font-size: 0.8em;
-            color: #888;
+            font-size: 0.85em;
+            color: #666;
+            white-space: nowrap;
         }
         .steep-value {
-            font-size: 1.1em;
             font-weight: 600;
             color: #e55a00;
         }
@@ -1361,10 +1361,11 @@ HTML_TEMPLATE = """
         }
         /* Steep comparison table - wider columns for route names on desktop */
         .steep-comparison-table th:not(:first-child) {
-            min-width: 140px;
+            min-width: 120px;
         }
-        .steep-comparison-table th:first-child {
-            width: 100px;
+        .steep-comparison-table th:first-child,
+        .steep-comparison-table td:first-child {
+            white-space: nowrap;
         }
         @media (max-width: 600px) {
             .steep-comparison-table th:not(:first-child) {
