@@ -34,6 +34,7 @@ from gpx_analyzer.ridewithgps import (
 )
 from gpx_analyzer.smoothing import smooth_elevations
 from gpx_analyzer.tunnel import detect_and_correct_tunnels
+from gpx_analyzer.climb import detect_climbs, slider_to_sensitivity, ClimbInfo
 
 
 def _get_config_hash() -> str:
@@ -579,6 +580,22 @@ HTML_TEMPLATE = """
         .elevation-profile-header h4 a:hover {
             color: #1a73e8;
             text-decoration: underline;
+        }
+        .ride-link {
+            white-space: nowrap;
+        }
+        @media (max-width: 600px) {
+            .elevation-profile-header {
+                flex-wrap: wrap;
+                gap: 8px;
+            }
+            .elevation-profile-header h4 {
+                width: 100%;
+            }
+            .ride-link {
+                order: 3;
+                margin-left: auto;
+            }
         }
         .elevation-profile-toggles {
             display: flex;
@@ -2290,6 +2307,21 @@ HTML_TEMPLATE = """
             });
         }
 
+        function goToRidePage() {
+            var urlInput = document.getElementById('url');
+            if (!urlInput || !urlInput.value) return;
+            var url = '/ride?url=' + encodeURIComponent(urlInput.value);
+            url += '&climbing_power={{ climbing_power }}&flat_power={{ flat_power }}&mass={{ mass }}&headwind={{ headwind }}&smoothing={{ smoothing }}';
+            if (document.getElementById('imperial')?.checked) url += '&imperial=1';
+            // Save current overlay states to localStorage for ride page to read
+            try {
+                localStorage.setItem('ride_show_speed', document.getElementById('overlay_speed')?.checked || false);
+                localStorage.setItem('ride_show_gravel', document.getElementById('overlay_gravel')?.checked || false);
+                localStorage.setItem('ride_imperial', document.getElementById('imperial')?.checked || false);
+            } catch (e) {}
+            window.location.href = url;
+        }
+
         function toggleOverlay(type) {
             var checkbox = document.getElementById('overlay_' + type);
             if (!checkbox) return;
@@ -3500,6 +3532,9 @@ HTML_TEMPLATE = """
                     </div>
                     {% endif %}
                 </div>
+                {% if not is_trip %}
+                <a href="#" class="ride-link" id="viewClimbsLink" onclick="goToRidePage(); return false;" style="font-size: 0.85em; color: #4CAF50;">View Climbs &rarr;</a>
+                {% endif %}
             </div>
             <div class="elevation-profile-container" id="elevationContainer"
                  data-url="{{ url|urlencode }}"
@@ -5037,7 +5072,8 @@ def generate_elevation_profile(url: str, params: RiderParams, title_time_hours: 
                                max_ylim: float | None = None,
                                max_speed_ylim: float | None = None,
                                show_gravel: bool = False,
-                               smoothing: float | None = None) -> bytes:
+                               smoothing: float | None = None,
+                               square: bool = False) -> bytes:
     """Generate elevation profile image with grade-based coloring.
 
     Args:
@@ -5053,6 +5089,7 @@ def generate_elevation_profile(url: str, params: RiderParams, title_time_hours: 
         max_speed_ylim: Optional max speed y-axis limit in km/h (for synchronized comparison).
         show_gravel: If True, highlight unpaved/gravel sections with a brown strip.
         smoothing: Optional override for elevation smoothing radius.
+        square: If True, generate a square (6x6) figure instead of wide (14x4).
 
     Returns PNG image as bytes.
     """
@@ -5094,8 +5131,9 @@ def generate_elevation_profile(url: str, params: RiderParams, title_time_hours: 
                 return main_colors[i]
         return main_colors[-1]
 
-    # Create figure - wide aspect ratio for full width
-    fig, ax = plt.subplots(figsize=(14, 4), facecolor='white')
+    # Create figure - square or wide aspect ratio
+    figsize = (6, 6) if square else (14, 4)
+    fig, ax = plt.subplots(figsize=figsize, facecolor='white')
 
     # Build all polygons and colors at once for efficient rendering
     # Using PolyCollection is ~30x faster than calling fill_between in a loop
@@ -5289,10 +5327,12 @@ def elevation_profile():
     max_speed_ylim_str = request.args.get("max_speed_ylim", "")
     max_speed_ylim = float(max_speed_ylim_str) if max_speed_ylim_str else None
     show_gravel = request.args.get("show_gravel", "false").lower() == "true"
+    square = request.args.get("square", "false").lower() == "true"
 
     if not url or not (is_ridewithgps_url(url) or is_ridewithgps_trip_url(url)):
         # Return a placeholder image
-        fig, ax = plt.subplots(figsize=(14, 4), facecolor='white')
+        figsize = (6, 6) if square else (14, 4)
+        fig, ax = plt.subplots(figsize=figsize, facecolor='white')
         ax.text(0.5, 0.5, 'No route or trip selected', ha='center', va='center', fontsize=14, color='#999')
         ax.axis('off')
         buf = io.BytesIO()
@@ -5301,8 +5341,8 @@ def elevation_profile():
         buf.seek(0)
         return send_file(buf, mimetype='image/png')
 
-    # Check disk cache first
-    cache_key = _make_profile_cache_key(url, climbing_power, flat_power, mass, headwind, descent_braking_factor, collapse_stops, max_xlim_hours, descending_power, overlay=overlay or "", imperial=imperial, show_gravel=show_gravel, max_ylim=max_ylim, max_speed_ylim=max_speed_ylim, unpaved_power_factor=unpaved_power_factor, smoothing=smoothing)
+    # Check disk cache first (include square in cache key via overlay params)
+    cache_key = _make_profile_cache_key(url, climbing_power, flat_power, mass, headwind, descent_braking_factor, collapse_stops, max_xlim_hours, descending_power, overlay=(overlay or "") + ("|square" if square else ""), imperial=imperial, show_gravel=show_gravel, max_ylim=max_ylim, max_speed_ylim=max_speed_ylim, unpaved_power_factor=unpaved_power_factor, smoothing=smoothing)
     cached_bytes = _get_cached_profile(cache_key)
     if cached_bytes:
         return send_file(io.BytesIO(cached_bytes), mimetype='image/png')
@@ -5318,13 +5358,14 @@ def elevation_profile():
             params = build_params(climbing_power, flat_power, mass, headwind, descent_braking_factor, descending_power, unpaved_power_factor)
             analysis = analyze_single_route(url, params, smoothing)
             title_time_hours = analysis["time_seconds"] / 3600
-            img_bytes = generate_elevation_profile(url, params, title_time_hours, max_xlim_hours=max_xlim_hours, overlay=overlay, imperial=imperial, max_ylim=max_ylim, max_speed_ylim=max_speed_ylim, show_gravel=show_gravel, smoothing=smoothing)
+            img_bytes = generate_elevation_profile(url, params, title_time_hours, max_xlim_hours=max_xlim_hours, overlay=overlay, imperial=imperial, max_ylim=max_ylim, max_speed_ylim=max_speed_ylim, show_gravel=show_gravel, smoothing=smoothing, square=square)
         # Save to disk cache
         _save_profile_to_cache(cache_key, img_bytes)
         return send_file(io.BytesIO(img_bytes), mimetype='image/png')
     except Exception as e:
         # Return error image
-        fig, ax = plt.subplots(figsize=(14, 4), facecolor='white')
+        figsize = (6, 6) if square else (14, 4)
+        fig, ax = plt.subplots(figsize=figsize, facecolor='white')
         ax.text(0.5, 0.5, f'Error: {str(e)[:50]}', ha='center', va='center', fontsize=12, color='#cc0000')
         ax.axis('off')
         buf = io.BytesIO()
@@ -5679,6 +5720,1273 @@ def index():
         format_time_diff=format_time_diff,
         format_diff=format_diff,
         format_pct_diff=format_pct_diff,
+    )
+
+
+RIDE_TEMPLATE = """
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>{% if route_name %}{{ route_name }} | {% endif %}Ride Details</title>
+    <style>
+        :root {
+            --primary: #FF6B35;
+            --climb-green: #4CAF50;
+            --text-dark: #333;
+            --text-muted: #666;
+            --bg-light: #f5f5f7;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 12px;
+            background: var(--bg-light);
+            color: var(--text-dark);
+        }
+        .back-link {
+            display: inline-block;
+            margin-bottom: 12px;
+            color: var(--primary);
+            text-decoration: none;
+            font-size: 14px;
+        }
+        .back-link:hover { text-decoration: underline; }
+        .summary-card {
+            background: white;
+            border-radius: 12px;
+            padding: 16px;
+            margin-bottom: 16px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+        }
+        .route-name {
+            font-size: 1.2em;
+            font-weight: 600;
+            margin-bottom: 12px;
+            color: var(--text-dark);
+        }
+        .summary-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 12px;
+        }
+        .summary-item {
+            text-align: center;
+            padding: 8px;
+            background: var(--bg-light);
+            border-radius: 8px;
+        }
+        .summary-value {
+            font-size: 1.4em;
+            font-weight: 700;
+            color: var(--text-dark);
+        }
+        .summary-label {
+            font-size: 0.75em;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        .elevation-section {
+            background: white;
+            border-radius: 12px;
+            padding: 16px;
+            margin-bottom: 16px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+        }
+        .section-title {
+            font-size: 0.9em;
+            font-weight: 600;
+            color: var(--text-muted);
+            margin-bottom: 8px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        .profile-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 12px;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+        .profile-toggles {
+            display: flex;
+            gap: 12px;
+            font-size: 0.85em;
+        }
+        .profile-toggle {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            cursor: pointer;
+        }
+        .profile-toggle input { cursor: pointer; }
+        .profile-toggle label { cursor: pointer; color: var(--text-muted); }
+        .main-profile-container {
+            position: relative;
+            width: 100%;
+            aspect-ratio: 1;
+            background: #fafafa;
+            border-radius: 8px;
+            overflow: hidden;
+        }
+        .main-profile-container img {
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+            display: block;
+        }
+        .main-profile-container img.loading {
+            display: none;
+        }
+        .elevation-loading {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: absolute;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: #f8f8f8;
+        }
+        .elevation-loading.hidden { display: none; }
+        .elevation-spinner {
+            width: 32px;
+            height: 32px;
+            border: 3px solid #e0e0e0;
+            border-top-color: #666;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .elevation-tooltip {
+            position: absolute;
+            background: rgba(0, 0, 0, 0.85);
+            color: white;
+            padding: 6px 10px;
+            border-radius: 4px;
+            font-size: 12px;
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.15s;
+            white-space: nowrap;
+            z-index: 100;
+            transform: translateX(-50%);
+        }
+        .elevation-tooltip.visible { opacity: 1; }
+        .elevation-tooltip .grade { font-weight: bold; font-size: 14px; }
+        .elevation-tooltip .elev { color: #ccc; margin-top: 2px; }
+        .elevation-cursor {
+            position: absolute;
+            top: 0; bottom: 0;
+            width: 1px;
+            background: rgba(0, 0, 0, 0.5);
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.15s;
+        }
+        .elevation-cursor.visible { opacity: 1; }
+        .elevation-selection {
+            position: absolute;
+            top: 0; bottom: 0;
+            background: rgba(59, 130, 246, 0.2);
+            border-left: 2px solid rgba(59, 130, 246, 0.6);
+            border-right: 2px solid rgba(59, 130, 246, 0.6);
+            pointer-events: none;
+            opacity: 0;
+            z-index: 50;
+        }
+        .elevation-selection.visible { opacity: 1; }
+        .elevation-selection-popup {
+            position: absolute;
+            background: rgba(0, 0, 0, 0.9);
+            color: white;
+            padding: 10px 14px;
+            border-radius: 6px;
+            font-size: 12px;
+            z-index: 200;
+            white-space: nowrap;
+            transform: translateX(-50%);
+            pointer-events: auto;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+        }
+        .elevation-selection-popup .selection-close {
+            position: absolute;
+            top: 2px; right: 6px;
+            cursor: pointer;
+            color: #888;
+            font-size: 14px;
+            line-height: 1;
+        }
+        .elevation-selection-popup .selection-close:hover { color: white; }
+        .elevation-selection-popup .selection-stat {
+            display: flex;
+            justify-content: space-between;
+            gap: 12px;
+        }
+        .elevation-selection-popup .stat-label { color: #aaa; }
+        .elevation-selection-popup .stat-value { font-weight: bold; }
+        .climb-profile-container {
+            position: relative;
+            width: 100%;
+            aspect-ratio: 1;
+            background: #fafafa;
+            border-radius: 8px;
+            overflow: hidden;
+        }
+        .climb-profile-container img {
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+        }
+        .sensitivity-control { margin-top: 16px; }
+        .sensitivity-label {
+            display: flex;
+            justify-content: space-between;
+            font-size: 0.8em;
+            color: var(--text-muted);
+            margin-bottom: 8px;
+        }
+        .sensitivity-slider {
+            width: 100%;
+            height: 32px;
+            -webkit-appearance: none;
+            appearance: none;
+            background: #e0e0e0;
+            border-radius: 16px;
+            outline: none;
+            cursor: pointer;
+        }
+        .sensitivity-slider::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 28px; height: 28px;
+            background: var(--climb-green);
+            border-radius: 50%;
+            cursor: pointer;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.2);
+        }
+        .sensitivity-slider::-moz-range-thumb {
+            width: 28px; height: 28px;
+            background: var(--climb-green);
+            border-radius: 50%;
+            cursor: pointer;
+            border: none;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.2);
+        }
+        .climb-section {
+            background: white;
+            border-radius: 12px;
+            padding: 16px;
+            margin-bottom: 16px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+        }
+        .climb-count { font-size: 0.85em; color: var(--text-muted); margin-left: 8px; }
+        .climb-list { margin-top: 12px; }
+        .climb-row {
+            display: flex;
+            align-items: flex-start;
+            padding: 12px;
+            margin-bottom: 8px;
+            background: var(--bg-light);
+            border-radius: 8px;
+            border-left: 4px solid var(--climb-green);
+        }
+        .climb-number {
+            width: 32px; height: 32px;
+            background: var(--climb-green);
+            color: white;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 700;
+            font-size: 0.9em;
+            flex-shrink: 0;
+            margin-right: 12px;
+        }
+        .climb-details { flex: 1; }
+        .climb-name { font-weight: 600; margin-bottom: 6px; }
+        .climb-metrics {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 4px 12px;
+            font-size: 0.85em;
+        }
+        .climb-metric { display: flex; justify-content: space-between; }
+        .metric-label { color: var(--text-muted); }
+        .metric-value { font-weight: 500; }
+        .no-climbs {
+            text-align: center;
+            padding: 24px;
+            color: var(--text-muted);
+            font-style: italic;
+        }
+        .loading { opacity: 0.6; pointer-events: none; }
+    </style>
+</head>
+<body>
+    <a href="#" class="back-link" id="backLink" onclick="goBack(); return false;">&larr; Back to Analysis</a>
+
+    <div class="summary-card">
+        <div class="route-name">{{ route_name or "Route" }}</div>
+        <div class="summary-grid">
+            <div class="summary-item">
+                <div class="summary-value">{{ time_str }}</div>
+                <div class="summary-label">Est. Time</div>
+            </div>
+            <div class="summary-item">
+                <div class="summary-value">{{ "%.0f"|format(work_kj) }} kJ</div>
+                <div class="summary-label">Work</div>
+            </div>
+            <div class="summary-item">
+                <div class="summary-value" id="summaryDistance" data-km="{{ distance_km }}">{{ "%.1f"|format(distance_km) }} km</div>
+                <div class="summary-label">Distance</div>
+            </div>
+            <div class="summary-item">
+                <div class="summary-value" id="summaryElevation" data-m="{{ elevation_m }}">{{ "%.0f"|format(elevation_m) }} m</div>
+                <div class="summary-label">Elevation</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="elevation-section">
+        <div class="profile-header">
+            <div class="section-title">Elevation Profile</div>
+            <div class="profile-toggles">
+                <div class="profile-toggle">
+                    <input type="checkbox" id="overlay_speed" onchange="toggleOverlay('speed')">
+                    <label for="overlay_speed">Speed</label>
+                </div>
+                <div class="profile-toggle">
+                    <input type="checkbox" id="overlay_gravel" onchange="toggleOverlay('gravel')">
+                    <label for="overlay_gravel">Gravel</label>
+                </div>
+                <div class="profile-toggle">
+                    <input type="checkbox" id="imperial" {{ 'checked' if imperial else '' }} onchange="toggleImperial()">
+                    <label for="imperial">Imperial</label>
+                </div>
+            </div>
+        </div>
+        <div class="main-profile-container" id="elevationContainer"
+             data-base-profile-url="/elevation-profile?url={{ url|urlencode }}&climbing_power={{ climbing_power }}&flat_power={{ flat_power }}&mass={{ mass }}&headwind={{ headwind }}&smoothing={{ smoothing }}&square=true"
+             data-base-data-url="/elevation-profile-data?url={{ url|urlencode }}&climbing_power={{ climbing_power }}&flat_power={{ flat_power }}&mass={{ mass }}&headwind={{ headwind }}&smoothing={{ smoothing }}">
+            <div class="elevation-loading" id="elevationLoading">
+                <div class="elevation-spinner"></div>
+            </div>
+            <img src="/elevation-profile?url={{ url|urlencode }}&climbing_power={{ climbing_power }}&flat_power={{ flat_power }}&mass={{ mass }}&headwind={{ headwind }}&smoothing={{ smoothing }}&square=true"
+                 alt="Elevation Profile" id="elevationImg" class="loading"
+                 onload="document.getElementById('elevationLoading').classList.add('hidden'); this.classList.remove('loading');">
+            <div class="elevation-cursor" id="elevationCursor"></div>
+            <div class="elevation-tooltip" id="elevationTooltip">
+                <div class="grade">--</div>
+                <div class="elev">--</div>
+            </div>
+            <div class="elevation-selection" id="elevationSelection"></div>
+            <div class="elevation-selection-popup" id="elevationSelectionPopup" style="display: none;"></div>
+        </div>
+    </div>
+
+    <div class="elevation-section">
+        <div class="section-title">Climb Detection</div>
+        <div class="climb-profile-container" id="climbProfileContainer">
+            <img id="climbProfileImage" src="/elevation-profile-ride?url={{ url|urlencode }}&climbing_power={{ climbing_power }}&flat_power={{ flat_power }}&mass={{ mass }}&headwind={{ headwind }}&sensitivity={{ sensitivity }}&smoothing={{ smoothing }}" alt="Climb Profile">
+        </div>
+        <div class="sensitivity-control">
+            <div class="sensitivity-label">
+                <span>High Sensitivity</span>
+                <span>Low Sensitivity</span>
+            </div>
+            <input type="range" class="sensitivity-slider" id="sensitivitySlider"
+                   min="0" max="100" value="{{ sensitivity }}"
+                   aria-label="Climb detection sensitivity">
+        </div>
+    </div>
+
+    <div class="climb-section">
+        <div class="section-title">
+            Detected Climbs
+            <span class="climb-count" id="climbCount">({{ climbs|length }})</span>
+        </div>
+        <div class="climb-list" id="climbList">
+            {% if climbs %}
+                {% for climb in climbs %}
+                <div class="climb-row">
+                    <div class="climb-number">{{ climb.climb_id }}</div>
+                    <div class="climb-details">
+                        <div class="climb-name">{{ climb.label }}</div>
+                        <div class="climb-metrics">
+                            <div class="climb-metric">
+                                <span class="metric-label">Distance</span>
+                                <span class="metric-value">{% if imperial %}{{ "%.1f"|format(climb.distance_m / 1000 * 0.621371) }} mi{% else %}{{ "%.1f"|format(climb.distance_m / 1000) }} km{% endif %}</span>
+                            </div>
+                            <div class="climb-metric">
+                                <span class="metric-label">Gain</span>
+                                <span class="metric-value">{% if imperial %}{{ "%.0f"|format(climb.elevation_gain * 3.28084) }} ft{% else %}{{ "%.0f"|format(climb.elevation_gain) }} m{% endif %}</span>
+                            </div>
+                            <div class="climb-metric">
+                                <span class="metric-label">Avg Grade</span>
+                                <span class="metric-value">{{ "%.1f"|format(climb.avg_grade) }}%</span>
+                            </div>
+                            <div class="climb-metric">
+                                <span class="metric-label">Max Grade</span>
+                                <span class="metric-value">{{ "%.1f"|format(climb.max_grade) }}%</span>
+                            </div>
+                            <div class="climb-metric">
+                                <span class="metric-label">Duration</span>
+                                <span class="metric-value">{% if climb.duration_seconds >= 3600 %}{{ (climb.duration_seconds // 3600)|int }}h {{ ((climb.duration_seconds % 3600) // 60)|int }}m{% else %}{{ "%.0f"|format(climb.duration_seconds / 60) }} min{% endif %}</span>
+                            </div>
+                            <div class="climb-metric">
+                                <span class="metric-label">Work</span>
+                                <span class="metric-value">{{ "%.0f"|format(climb.work_kj) }} kJ</span>
+                            </div>
+                            <div class="climb-metric">
+                                <span class="metric-label">Avg Power</span>
+                                <span class="metric-value">{{ "%.0f"|format(climb.avg_power) }} W</span>
+                            </div>
+                            <div class="climb-metric">
+                                <span class="metric-label">Avg Speed</span>
+                                <span class="metric-value">{% if imperial %}{{ "%.1f"|format(climb.avg_speed_kmh * 0.621371) }} mph{% else %}{{ "%.1f"|format(climb.avg_speed_kmh) }} km/h{% endif %}</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                {% endfor %}
+            {% else %}
+                <div class="no-climbs">No significant climbs detected</div>
+            {% endif %}
+        </div>
+    </div>
+
+    <script>
+        const routeUrl = "{{ url }}";
+        const baseParams = "climbing_power={{ climbing_power }}&flat_power={{ flat_power }}&mass={{ mass }}&headwind={{ headwind }}&smoothing={{ smoothing }}";
+
+        // Climb detection
+        const slider = document.getElementById('sensitivitySlider');
+        const climbProfileImage = document.getElementById('climbProfileImage');
+        const climbProfileContainer = document.getElementById('climbProfileContainer');
+        const climbList = document.getElementById('climbList');
+        const climbCount = document.getElementById('climbCount');
+        let debounceTimer = null;
+
+        function formatClimbDuration(seconds) {
+            const totalMins = Math.floor(seconds / 60);
+            if (totalMins >= 60) {
+                const hours = Math.floor(totalMins / 60);
+                const mins = totalMins % 60;
+                return hours + 'h ' + mins + 'm';
+            }
+            return totalMins + ' min';
+        }
+
+        function isImperial() {
+            return document.getElementById('imperial')?.checked || false;
+        }
+
+        function formatDistance(km) {
+            if (isImperial()) return (km * 0.621371).toFixed(1) + ' mi';
+            return km.toFixed(1) + ' km';
+        }
+
+        function formatElevation(m) {
+            if (isImperial()) return Math.round(m * 3.28084) + ' ft';
+            return Math.round(m) + ' m';
+        }
+
+        function formatSpeed(kmh) {
+            if (isImperial()) return (kmh * 0.621371).toFixed(1) + ' mph';
+            return kmh.toFixed(1) + ' km/h';
+        }
+
+        function renderClimbTable(climbs) {
+            if (climbs.length === 0) {
+                climbList.innerHTML = '<div class="no-climbs">No significant climbs detected</div>';
+                climbCount.textContent = '(0)';
+                return;
+            }
+            climbCount.textContent = '(' + climbs.length + ')';
+            let html = '';
+            climbs.forEach(climb => {
+                html += `<div class="climb-row">
+                    <div class="climb-number">${climb.climb_id}</div>
+                    <div class="climb-details">
+                        <div class="climb-name">${climb.label}</div>
+                        <div class="climb-metrics">
+                            <div class="climb-metric"><span class="metric-label">Distance</span><span class="metric-value">${formatDistance(climb.distance_m / 1000)}</span></div>
+                            <div class="climb-metric"><span class="metric-label">Gain</span><span class="metric-value">${formatElevation(climb.elevation_gain)}</span></div>
+                            <div class="climb-metric"><span class="metric-label">Avg Grade</span><span class="metric-value">${climb.avg_grade.toFixed(1)}%</span></div>
+                            <div class="climb-metric"><span class="metric-label">Max Grade</span><span class="metric-value">${climb.max_grade.toFixed(1)}%</span></div>
+                            <div class="climb-metric"><span class="metric-label">Duration</span><span class="metric-value">${formatClimbDuration(climb.duration_seconds)}</span></div>
+                            <div class="climb-metric"><span class="metric-label">Work</span><span class="metric-value">${climb.work_kj.toFixed(0)} kJ</span></div>
+                            <div class="climb-metric"><span class="metric-label">Avg Power</span><span class="metric-value">${climb.avg_power.toFixed(0)} W</span></div>
+                            <div class="climb-metric"><span class="metric-label">Avg Speed</span><span class="metric-value">${formatSpeed(climb.avg_speed_kmh)}</span></div>
+                        </div>
+                    </div>
+                </div>`;
+            });
+            climbList.innerHTML = html;
+        }
+
+        function updateClimbs() {
+            clearTimeout(debounceTimer);
+            debounceTimer = setTimeout(() => {
+                const sensitivity = slider.value;
+                climbProfileContainer.classList.add('loading');
+                climbProfileImage.src = `/elevation-profile-ride?url=${encodeURIComponent(routeUrl)}&${baseParams}&sensitivity=${sensitivity}`;
+                climbProfileImage.onload = () => climbProfileContainer.classList.remove('loading');
+                fetch(`/api/detect-climbs?url=${encodeURIComponent(routeUrl)}&${baseParams}&sensitivity=${sensitivity}`)
+                    .then(r => r.json())
+                    .then(data => renderClimbTable(data.climbs))
+                    .catch(err => console.error('Error fetching climbs:', err));
+            }, 300);
+        }
+        slider.addEventListener('input', updateClimbs);
+
+        // Save sensitivity to localStorage when changed
+        slider.addEventListener('change', () => {
+            try { localStorage.setItem('ride_sensitivity', slider.value); } catch (e) {}
+        });
+
+        // Overlay toggles
+        function _buildOverlayParams() {
+            let params = '';
+            if (document.getElementById('overlay_speed')?.checked) params += '&overlay=speed';
+            if (document.getElementById('overlay_gravel')?.checked) params += '&show_gravel=true';
+            if (isImperial()) params += '&imperial=true';
+            return params;
+        }
+
+        function toggleOverlay(type) {
+            const container = document.getElementById('elevationContainer');
+            const img = document.getElementById('elevationImg');
+            const loading = document.getElementById('elevationLoading');
+            if (!container || !img) return;
+            const baseProfileUrl = container.getAttribute('data-base-profile-url');
+            const baseDataUrl = container.getAttribute('data-base-data-url');
+            if (!baseProfileUrl) return;
+            const overlayParams = _buildOverlayParams();
+            loading.classList.remove('hidden');
+            img.classList.add('loading');
+            img.src = baseProfileUrl + overlayParams;
+            if (typeof setupElevationProfile === 'function' && baseDataUrl) {
+                setupElevationProfile('elevationContainer', 'elevationImg', 'elevationTooltip', 'elevationCursor', baseDataUrl);
+            }
+            // Save toggle states to localStorage
+            try {
+                localStorage.setItem('ride_show_speed', document.getElementById('overlay_speed')?.checked || false);
+                localStorage.setItem('ride_show_gravel', document.getElementById('overlay_gravel')?.checked || false);
+            } catch (e) {}
+        }
+
+        function updateSummaryUnits() {
+            const distEl = document.getElementById('summaryDistance');
+            const elevEl = document.getElementById('summaryElevation');
+            if (distEl) {
+                const km = parseFloat(distEl.dataset.km);
+                distEl.textContent = formatDistance(km);
+            }
+            if (elevEl) {
+                const m = parseFloat(elevEl.dataset.m);
+                elevEl.textContent = formatElevation(m);
+            }
+        }
+
+        function toggleImperial() {
+            const imperial = isImperial();
+            try { localStorage.setItem('ride_imperial', imperial); } catch (e) {}
+            updateSummaryUnits();
+            // Refresh elevation profile with new y-axis units
+            refreshMainProfile();
+            // Re-render climb table with new units
+            updateClimbs();
+        }
+
+        function refreshMainProfile() {
+            const container = document.getElementById('elevationContainer');
+            const img = document.getElementById('elevationImg');
+            const loading = document.getElementById('elevationLoading');
+            if (!container || !img) return;
+            const baseProfileUrl = container.getAttribute('data-base-profile-url');
+            const baseDataUrl = container.getAttribute('data-base-data-url');
+            if (!baseProfileUrl) return;
+            const overlayParams = _buildOverlayParams();
+            loading.classList.remove('hidden');
+            img.classList.add('loading');
+            img.src = baseProfileUrl + overlayParams;
+            if (typeof setupElevationProfile === 'function' && baseDataUrl) {
+                setupElevationProfile('elevationContainer', 'elevationImg', 'elevationTooltip', 'elevationCursor', baseDataUrl);
+            }
+        }
+
+        function goBack() {
+            let url = '/?url=' + encodeURIComponent(routeUrl) + '&' + baseParams;
+            // Add settings from localStorage
+            try {
+                if (localStorage.getItem('overlay_speed') === 'true') url += '&overlay=speed';
+                if (localStorage.getItem('overlay_gravel') === 'true') url += '&show_gravel=true';
+                if (localStorage.getItem('ride_imperial') === 'true') url += '&imperial=1';
+            } catch (e) {}
+            window.location.href = url;
+        }
+
+        // Elevation profile interaction
+        function setupElevationProfile(containerId, imgId, tooltipId, cursorId, dataUrl) {
+            const container = document.getElementById(containerId);
+            const img = document.getElementById(imgId);
+            const tooltip = document.getElementById(tooltipId);
+            const cursor = document.getElementById(cursorId);
+            if (!container || !img || !tooltip || !cursor) return;
+
+            const selection = document.getElementById('elevationSelection');
+            const selectionPopup = document.getElementById('elevationSelectionPopup');
+
+            let profileData = null;
+            let selectionStart = null;
+            let isSelecting = false;
+            let selectionActive = false;
+
+            fetch(dataUrl)
+                .then(r => r.json())
+                .then(data => { if (!data.error) profileData = data; })
+                .catch(() => {});
+
+            const plotLeftPct = 0.055;
+            const speedCheckbox = document.getElementById('overlay_speed');
+            const plotRightPct = (speedCheckbox && speedCheckbox.checked) ? 0.955 : 0.987;
+
+            function getDataAtPosition(xPct) {
+                if (!profileData || !profileData.times || profileData.times.length < 2) return null;
+                const plotXPct = (xPct - plotLeftPct) / (plotRightPct - plotLeftPct);
+                if (plotXPct < 0 || plotXPct > 1) return null;
+                const time = plotXPct * profileData.total_time;
+                if (time > profileData.total_time) return null;
+                for (let i = 0; i < profileData.times.length - 1; i++) {
+                    if (time >= profileData.times[i] && time < profileData.times[i + 1]) {
+                        return { grade: profileData.grades[i], elevation: profileData.elevations[i] || 0, speed: profileData.speeds ? profileData.speeds[i] : null, time: time };
+                    }
+                }
+                const lastIdx = profileData.grades.length - 1;
+                return { grade: profileData.grades[lastIdx], elevation: profileData.elevations[lastIdx + 1] || 0, speed: profileData.speeds ? profileData.speeds[lastIdx] : null, time: time };
+            }
+
+            function getIndexAtPosition(xPct) {
+                if (!profileData || !profileData.times || profileData.times.length < 2) return -1;
+                const plotXPct = Math.max(0, Math.min(1, (xPct - plotLeftPct) / (plotRightPct - plotLeftPct)));
+                const time = Math.min(plotXPct * profileData.total_time, profileData.total_time);
+                for (let i = 0; i < profileData.times.length - 1; i++) {
+                    if (time >= profileData.times[i] && time < profileData.times[i + 1]) return i;
+                }
+                return profileData.times.length - 2;
+            }
+
+            function formatGrade(g) {
+                if (g === null || g === undefined) return 'Stopped';
+                return (g >= 0 ? '+' : '') + g.toFixed(1) + '%';
+            }
+
+            function formatTime(hours) {
+                const h = Math.floor(hours);
+                const m = Math.floor((hours - h) * 60);
+                return h + 'h ' + m.toString().padStart(2, '0') + 'm';
+            }
+
+            function formatDuration(hours) {
+                const totalMin = Math.round(hours * 60);
+                if (totalMin < 60) return totalMin + 'min';
+                return Math.floor(totalMin / 60) + 'h ' + (totalMin % 60).toString().padStart(2, '0') + 'm';
+            }
+
+            function updateTooltip(xPct, clientX) {
+                const data = getDataAtPosition(xPct);
+                if (data) {
+                    tooltip.querySelector('.grade').textContent = formatGrade(data.grade);
+                    const imp = isImperial();
+                    const elevUnit = imp ? 'ft' : 'm';
+                    const elevVal = imp ? data.elevation * 3.28084 : data.elevation;
+                    let speedText = '';
+                    if (data.speed !== null && data.speed !== undefined) {
+                        const speedUnit = imp ? 'mph' : 'km/h';
+                        const speedVal = imp ? data.speed * 0.621371 : data.speed;
+                        speedText = ' | ' + speedVal.toFixed(1) + ' ' + speedUnit;
+                    }
+                    tooltip.querySelector('.elev').textContent = Math.round(elevVal) + ' ' + elevUnit + speedText + ' | ' + formatTime(data.time);
+                    const rect = img.getBoundingClientRect();
+                    const xPos = clientX - rect.left;
+                    tooltip.style.left = xPos + 'px';
+                    tooltip.style.bottom = '60px';
+                    tooltip.classList.add('visible');
+                    cursor.style.left = xPos + 'px';
+                    cursor.classList.add('visible');
+                } else {
+                    hideTooltip();
+                }
+            }
+
+            function hideTooltip() {
+                tooltip.classList.remove('visible');
+                cursor.classList.remove('visible');
+            }
+
+            function updateSelectionHighlight(startXPct, endXPct) {
+                if (!selection) return;
+                const clampedStart = Math.max(plotLeftPct, Math.min(plotRightPct, startXPct));
+                const clampedEnd = Math.max(plotLeftPct, Math.min(plotRightPct, endXPct));
+                selection.style.left = (Math.min(clampedStart, clampedEnd) * 100) + '%';
+                selection.style.width = (Math.abs(clampedEnd - clampedStart) * 100) + '%';
+                selection.classList.add('visible');
+            }
+
+            function computeSelectionStats(startIdx, endIdx) {
+                if (!profileData) return null;
+                const d = profileData;
+                const i = Math.min(startIdx, endIdx), j = Math.max(startIdx, endIdx);
+                if (i < 0 || j >= d.times.length) return null;
+                const duration = d.times[j + 1 < d.times.length ? j + 1 : j] - d.times[i];
+                let distM = 0;
+                if (d.distances) for (let k = i; k <= j; k++) distM += (d.distances[k] || 0);
+                let elevGain = 0, elevLoss = 0;
+                if (d.elev_gains && d.elev_losses) {
+                    for (let k = i; k <= j; k++) { elevGain += (d.elev_gains[k] || 0); elevLoss += (d.elev_losses[k] || 0); }
+                } else {
+                    for (let k = i; k <= j; k++) {
+                        const diff = (d.elevations[k + 1] !== undefined ? d.elevations[k + 1] : d.elevations[k]) - d.elevations[k];
+                        if (diff > 0) elevGain += diff; else elevLoss += diff;
+                    }
+                }
+                let gradeSum = 0, gradeCount = 0;
+                for (let k = i; k <= j; k++) if (d.grades[k] !== null && d.grades[k] !== undefined) { gradeSum += d.grades[k]; gradeCount++; }
+                const avgGrade = gradeCount > 0 ? gradeSum / gradeCount : null;
+                const avgSpeed = (duration > 0 && distM > 0) ? (distM / 1000) / duration : null;
+                let powerSum = 0, powerCount = 0, workJ = 0;
+                if (d.powers) {
+                    for (let k = i; k <= j; k++) {
+                        if (d.powers[k] !== null && d.powers[k] !== undefined) {
+                            powerSum += d.powers[k]; powerCount++;
+                            workJ += d.powers[k] * ((d.times[k + 1 < d.times.length ? k + 1 : k] - d.times[k]) * 3600);
+                        }
+                    }
+                }
+                return { duration, distKm: distM / 1000, elevGain, elevLoss, avgGrade, avgSpeed, avgPower: powerCount > 0 ? powerSum / powerCount : null, workKJ: workJ / 1000 };
+            }
+
+            function showSelectionPopup(stats, xPctCenter) {
+                if (!selectionPopup || !stats) return;
+                const imp = isImperial();
+                const distVal = imp ? (stats.distKm * 0.621371) : stats.distKm;
+                const distUnit = imp ? 'mi' : 'km';
+                const elevGainVal = imp ? (stats.elevGain * 3.28084) : stats.elevGain;
+                const elevLossVal = imp ? (stats.elevLoss * 3.28084) : stats.elevLoss;
+                const elevUnit = imp ? 'ft' : 'm';
+                const speedVal = stats.avgSpeed !== null ? (imp ? stats.avgSpeed * 0.621371 : stats.avgSpeed) : null;
+                const speedUnit = imp ? 'mph' : 'km/h';
+
+                let html = '<span class="selection-close">&times;</span>';
+                html += '<div class="selection-stat"><span class="stat-label">Duration</span><span class="stat-value">' + formatDuration(stats.duration) + '</span></div>';
+                html += '<div class="selection-stat"><span class="stat-label">Distance</span><span class="stat-value">' + distVal.toFixed(1) + ' ' + distUnit + '</span></div>';
+                html += '<div class="selection-stat"><span class="stat-label">Elev Gain</span><span class="stat-value">+' + Math.round(elevGainVal) + ' ' + elevUnit + '</span></div>';
+                html += '<div class="selection-stat"><span class="stat-label">Elev Loss</span><span class="stat-value">' + Math.round(elevLossVal) + ' ' + elevUnit + '</span></div>';
+                if (stats.avgGrade !== null) html += '<div class="selection-stat"><span class="stat-label">Avg Grade</span><span class="stat-value">' + formatGrade(stats.avgGrade) + '</span></div>';
+                if (speedVal !== null) html += '<div class="selection-stat"><span class="stat-label">Avg Speed</span><span class="stat-value">' + speedVal.toFixed(1) + ' ' + speedUnit + '</span></div>';
+                if (stats.avgPower !== null) {
+                    html += '<div class="selection-stat"><span class="stat-label">Avg Power</span><span class="stat-value">' + Math.round(stats.avgPower) + ' W</span></div>';
+                    html += '<div class="selection-stat"><span class="stat-label">Work</span><span class="stat-value">' + stats.workKJ.toFixed(1) + ' kJ</span></div>';
+                }
+                selectionPopup.innerHTML = html;
+                selectionPopup.style.display = 'block';
+                selectionPopup.style.left = (xPctCenter * 100) + '%';
+                selectionPopup.style.bottom = '70px';
+                selectionActive = true;
+                selectionPopup.querySelector('.selection-close')?.addEventListener('click', (ev) => { ev.stopPropagation(); clearSelection(); });
+            }
+
+            function clearSelection() {
+                if (selection) selection.classList.remove('visible');
+                if (selectionPopup) { selectionPopup.style.display = 'none'; selectionPopup.innerHTML = ''; }
+                selectionStart = null; isSelecting = false; selectionActive = false;
+            }
+
+            function onMouseMove(e) {
+                if (!profileData) return;
+                const rect = img.getBoundingClientRect();
+                const xPct = (e.clientX - rect.left) / rect.width;
+                if (isSelecting) { updateSelectionHighlight(selectionStart, xPct); updateTooltip(xPct, e.clientX); }
+                else if (!selectionActive) updateTooltip(xPct, e.clientX);
+            }
+
+            function onMouseDown(e) {
+                if (!profileData) return;
+                if (selectionActive) { clearSelection(); return; }
+                const rect = img.getBoundingClientRect();
+                selectionStart = (e.clientX - rect.left) / rect.width;
+                isSelecting = true;
+                e.preventDefault();
+            }
+
+            function onMouseUp(e) {
+                if (!isSelecting) return;
+                isSelecting = false;
+                const rect = img.getBoundingClientRect();
+                const xPctEnd = (e.clientX - rect.left) / rect.width;
+                const dragPx = Math.abs(e.clientX - rect.left - selectionStart * rect.width);
+                if (dragPx > 5) {
+                    const startIdx = getIndexAtPosition(selectionStart);
+                    const endIdx = getIndexAtPosition(xPctEnd);
+                    if (startIdx >= 0 && endIdx >= 0 && startIdx !== endIdx) {
+                        const stats = computeSelectionStats(startIdx, endIdx);
+                        hideTooltip();
+                        showSelectionPopup(stats, (selectionStart + xPctEnd) / 2);
+                    } else clearSelection();
+                } else clearSelection();
+            }
+
+            function onMouseLeave(e) { if (isSelecting) onMouseUp(e); hideTooltip(); }
+
+            function onTouchStart(e) {
+                if (!profileData) return;
+                if (selectionActive) { clearSelection(); return; }
+                const rect = img.getBoundingClientRect();
+                selectionStart = (e.touches[0].clientX - rect.left) / rect.width;
+                isSelecting = true;
+            }
+
+            function onTouchMove(e) {
+                e.preventDefault();
+                if (!profileData) return;
+                const rect = img.getBoundingClientRect();
+                const xPct = (e.touches[0].clientX - rect.left) / rect.width;
+                if (isSelecting) { updateSelectionHighlight(selectionStart, xPct); updateTooltip(xPct, e.touches[0].clientX); }
+                else if (!selectionActive) updateTooltip(xPct, e.touches[0].clientX);
+            }
+
+            function onTouchEnd(e) {
+                if (!isSelecting) { hideTooltip(); return; }
+                isSelecting = false;
+                if (!selection) { hideTooltip(); return; }
+                const rect = img.getBoundingClientRect();
+                const selLeft = parseFloat(selection.style.left) / 100;
+                const selWidth = parseFloat(selection.style.width) / 100;
+                if (selWidth * rect.width > 30) {
+                    const startIdx = getIndexAtPosition(selLeft);
+                    const endIdx = getIndexAtPosition(selLeft + selWidth);
+                    if (startIdx >= 0 && endIdx >= 0 && startIdx !== endIdx) {
+                        const stats = computeSelectionStats(startIdx, endIdx);
+                        hideTooltip();
+                        showSelectionPopup(stats, selLeft + selWidth / 2);
+                    } else clearSelection();
+                } else clearSelection();
+                hideTooltip();
+            }
+
+            if (container._profileCleanup) container._profileCleanup();
+            const ac = new AbortController();
+            container.addEventListener('mousemove', onMouseMove, { signal: ac.signal });
+            container.addEventListener('mousedown', onMouseDown, { signal: ac.signal });
+            container.addEventListener('mouseup', onMouseUp, { signal: ac.signal });
+            container.addEventListener('mouseleave', onMouseLeave, { signal: ac.signal });
+            container.addEventListener('touchstart', onTouchStart, { signal: ac.signal });
+            container.addEventListener('touchmove', onTouchMove, { passive: false, signal: ac.signal });
+            container.addEventListener('touchend', onTouchEnd, { signal: ac.signal });
+            document.addEventListener('keydown', (e) => { if (e.key === 'Escape') clearSelection(); }, { signal: ac.signal });
+            container._profileCleanup = () => ac.abort();
+        }
+
+        // Initialize elevation profile
+        const container = document.getElementById('elevationContainer');
+        const dataUrl = container?.getAttribute('data-base-data-url');
+        if (dataUrl) setupElevationProfile('elevationContainer', 'elevationImg', 'elevationTooltip', 'elevationCursor', dataUrl);
+
+        // Load saved settings from localStorage
+        function initSavedSettings() {
+            try {
+                // Load speed toggle
+                const savedSpeed = localStorage.getItem('ride_show_speed');
+                if (savedSpeed === 'true') {
+                    const speedCb = document.getElementById('overlay_speed');
+                    if (speedCb) speedCb.checked = true;
+                }
+                // Load gravel toggle
+                const savedGravel = localStorage.getItem('ride_show_gravel');
+                if (savedGravel === 'true') {
+                    const gravelCb = document.getElementById('overlay_gravel');
+                    if (gravelCb) gravelCb.checked = true;
+                }
+                // Load imperial setting (check ride_imperial first, fall back to main page's setting)
+                const savedImperial = localStorage.getItem('ride_imperial');
+                const imperialCb = document.getElementById('imperial');
+                if (savedImperial !== null && imperialCb) {
+                    imperialCb.checked = savedImperial === 'true';
+                }
+                // Load sensitivity slider
+                const savedSensitivity = localStorage.getItem('ride_sensitivity');
+                if (savedSensitivity !== null) {
+                    const sensitivityVal = parseInt(savedSensitivity, 10);
+                    if (!isNaN(sensitivityVal) && sensitivityVal >= 0 && sensitivityVal <= 100) {
+                        slider.value = sensitivityVal;
+                    }
+                }
+                // If any toggles were restored, update the profile image
+                const speedCb = document.getElementById('overlay_speed');
+                const gravelCb = document.getElementById('overlay_gravel');
+                if ((speedCb?.checked) || (gravelCb?.checked)) {
+                    toggleOverlay(null);
+                }
+                // If sensitivity was restored and differs from default, update climbs
+                const savedSens = localStorage.getItem('ride_sensitivity');
+                if (savedSens !== null && parseInt(savedSens, 10) !== {{ sensitivity }}) {
+                    updateClimbs();
+                }
+                // Update units based on imperial setting
+                updateSummaryUnits();
+            } catch (e) {}
+        }
+        initSavedSettings();
+    </script>
+</body>
+</html>
+"""
+
+
+@app.route("/api/detect-climbs")
+def api_detect_climbs():
+    """Detect climbs for a route with configurable sensitivity.
+
+    Returns JSON with climb data for dynamic updates.
+    """
+    defaults = get_defaults()
+    url = request.args.get("url", "")
+    sensitivity_slider = int(request.args.get("sensitivity", 50))
+    climbing_power = float(request.args.get("climbing_power", defaults["climbing_power"]))
+    flat_power = float(request.args.get("flat_power", defaults["flat_power"]))
+    descending_power = float(request.args.get("descending_power", defaults["descending_power"]))
+    mass = float(request.args.get("mass", defaults["mass"]))
+    headwind = float(request.args.get("headwind", defaults["headwind"]))
+    descent_braking_factor = float(request.args.get("descent_braking_factor", defaults["descent_braking_factor"]))
+    unpaved_power_factor = float(request.args.get("unpaved_power_factor", defaults["unpaved_power_factor"]))
+    smoothing = float(request.args.get("smoothing", defaults["smoothing"]))
+
+    if not url or not is_ridewithgps_url(url):
+        return jsonify({"error": "Invalid route URL"}), 400
+
+    try:
+        params = build_params(climbing_power, flat_power, mass, headwind, descent_braking_factor, descending_power, unpaved_power_factor)
+        config = _load_config() or {}
+
+        # Get profile data (uses cached route data)
+        profile_data = _calculate_elevation_profile_data(url, params, smoothing)
+        times_hours = profile_data["times_hours"]
+        powers = profile_data.get("powers", [])
+
+        # Get route data for climb detection
+        points, route_metadata = get_route_with_surface(url, params.crr)
+        points, _ = detect_and_correct_tunnels(points)
+
+        # Process elevation
+        smoothing_radius = smoothing if smoothing is not None else config.get("smoothing", DEFAULTS["smoothing"])
+        elev_result = process_elevation_data(points, route_metadata, smoothing_radius)
+        scaled_points = elev_result.scaled_points
+
+        # Convert slider to sensitivity
+        sensitivity_m = slider_to_sensitivity(sensitivity_slider)
+
+        # Get climb thresholds from config
+        min_gain = config.get("climb_min_gain", DEFAULTS.get("climb_min_gain", 50.0))
+        min_distance = config.get("climb_min_distance", DEFAULTS.get("climb_min_distance", 500.0))
+        grade_threshold = config.get("climb_grade_threshold", DEFAULTS.get("climb_grade_threshold", 2.0))
+
+        # Detect climbs
+        result = detect_climbs(
+            scaled_points,
+            times_hours=times_hours,
+            sensitivity_m=sensitivity_m,
+            min_climb_gain=min_gain,
+            min_climb_distance=min_distance,
+            grade_threshold=grade_threshold,
+            params=params,
+            segment_powers=powers,
+        )
+
+        # Convert to JSON-serializable format
+        climbs_json = [
+            {
+                "climb_id": c.climb_id,
+                "label": c.label,
+                "start_km": c.start_km,
+                "end_km": c.end_km,
+                "start_time_hours": c.start_time_hours,
+                "end_time_hours": c.end_time_hours,
+                "distance_m": c.distance_m,
+                "elevation_gain": c.elevation_gain,
+                "elevation_loss": c.elevation_loss,
+                "avg_grade": c.avg_grade,
+                "max_grade": c.max_grade,
+                "start_elevation": c.start_elevation,
+                "peak_elevation": c.peak_elevation,
+                "duration_seconds": c.duration_seconds,
+                "work_kj": c.work_kj,
+                "avg_power": c.avg_power,
+                "avg_speed_kmh": c.avg_speed_kmh,
+            }
+            for c in result.climbs
+        ]
+
+        return jsonify({
+            "climbs": climbs_json,
+            "sensitivity_m": result.sensitivity_m,
+        })
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/elevation-profile-ride")
+def elevation_profile_ride():
+    """Generate square elevation profile with climb highlighting for ride page."""
+    defaults = get_defaults()
+    url = request.args.get("url", "")
+    sensitivity_slider = int(request.args.get("sensitivity", 50))
+    climbing_power = float(request.args.get("climbing_power", defaults["climbing_power"]))
+    flat_power = float(request.args.get("flat_power", defaults["flat_power"]))
+    descending_power = float(request.args.get("descending_power", defaults["descending_power"]))
+    mass = float(request.args.get("mass", defaults["mass"]))
+    headwind = float(request.args.get("headwind", defaults["headwind"]))
+    descent_braking_factor = float(request.args.get("descent_braking_factor", defaults["descent_braking_factor"]))
+    unpaved_power_factor = float(request.args.get("unpaved_power_factor", defaults["unpaved_power_factor"]))
+    smoothing = float(request.args.get("smoothing", defaults["smoothing"]))
+
+    if not url or not is_ridewithgps_url(url):
+        # Return placeholder image
+        fig, ax = plt.subplots(figsize=(6, 6), facecolor='white')
+        ax.text(0.5, 0.5, 'No route selected', ha='center', va='center', fontsize=14, color='#999')
+        ax.axis('off')
+        buf = io.BytesIO()
+        fig.savefig(buf, format='png', dpi=100, facecolor='white')
+        plt.close(fig)
+        buf.seek(0)
+        return send_file(buf, mimetype='image/png')
+
+    try:
+        params = build_params(climbing_power, flat_power, mass, headwind, descent_braking_factor, descending_power, unpaved_power_factor)
+        config = _load_config() or {}
+
+        # Get profile data
+        data = _calculate_elevation_profile_data(url, params, smoothing)
+        times_hours = data["times_hours"]
+        elevations = data["elevations"]
+        grades = data["grades"]
+        powers = data.get("powers", [])
+
+        # Get climb data
+        points, route_metadata = get_route_with_surface(url, params.crr)
+        points, _ = detect_and_correct_tunnels(points)
+        smoothing_radius = smoothing if smoothing is not None else config.get("smoothing", DEFAULTS["smoothing"])
+        elev_result = process_elevation_data(points, route_metadata, smoothing_radius)
+        scaled_points = elev_result.scaled_points
+
+        sensitivity_m = slider_to_sensitivity(sensitivity_slider)
+        min_gain = config.get("climb_min_gain", DEFAULTS.get("climb_min_gain", 50.0))
+        min_distance = config.get("climb_min_distance", DEFAULTS.get("climb_min_distance", 500.0))
+        grade_threshold = config.get("climb_grade_threshold", DEFAULTS.get("climb_grade_threshold", 2.0))
+
+        climb_result = detect_climbs(
+            scaled_points,
+            times_hours=times_hours,
+            sensitivity_m=sensitivity_m,
+            min_climb_gain=min_gain,
+            min_climb_distance=min_distance,
+            grade_threshold=grade_threshold,
+            params=params,
+            segment_powers=powers,
+        )
+
+        # Generate square profile
+        img_bytes = _generate_ride_profile(times_hours, elevations, grades, climb_result.climbs)
+        return send_file(io.BytesIO(img_bytes), mimetype='image/png')
+
+    except Exception as e:
+        # Return error image
+        fig, ax = plt.subplots(figsize=(6, 6), facecolor='white')
+        ax.text(0.5, 0.5, f'Error: {str(e)[:40]}', ha='center', va='center', fontsize=12, color='#cc0000')
+        ax.axis('off')
+        buf = io.BytesIO()
+        fig.savefig(buf, format='png', dpi=100, facecolor='white')
+        plt.close(fig)
+        buf.seek(0)
+        return send_file(buf, mimetype='image/png')
+
+
+def _generate_ride_profile(times_hours: list, elevations: list, grades: list, climbs: list[ClimbInfo]) -> bytes:
+    """Generate square elevation profile with climb highlighting.
+
+    Args:
+        times_hours: Cumulative time in hours for each point
+        elevations: Elevation in meters for each point
+        grades: Grade percentage for each segment
+        climbs: List of detected climbs to highlight
+
+    Returns:
+        PNG image bytes
+    """
+    # Grade to color mapping
+    main_colors = [
+        '#4a90d9', '#5a9fd9', '#6aaee0', '#7abde7', '#8acbef', '#9adaf6',
+        '#cccccc',
+        '#ffb399', '#ff9966', '#ff7f33', '#ff6600', '#e55a00'
+    ]
+    steep_colors = ['#e55a00', '#cc4400', '#b33300', '#992200', '#801100', '#660000']
+
+    def grade_to_color(g):
+        if g >= 10:
+            if g < 12: return steep_colors[0]
+            elif g < 14: return steep_colors[1]
+            elif g < 16: return steep_colors[2]
+            elif g < 18: return steep_colors[3]
+            elif g < 20: return steep_colors[4]
+            else: return steep_colors[5]
+        for i, threshold in enumerate(GRADE_BINS[1:]):
+            if g < threshold:
+                return main_colors[i]
+        return main_colors[-1]
+
+    # Square figure
+    fig, ax = plt.subplots(figsize=(6, 6), facecolor='white')
+
+    # Build polygons for grade coloring
+    polygons = []
+    colors = []
+    for i in range(len(grades)):
+        t0, t1 = times_hours[i], times_hours[i+1]
+        e0, e1 = elevations[i], elevations[i+1]
+        polygons.append([(t0, 0), (t1, 0), (t1, e1), (t0, e0)])
+        colors.append(grade_to_color(grades[i]))
+
+    coll = PolyCollection(polygons, facecolors=colors, edgecolors='none', linewidths=0)
+    ax.add_collection(coll)
+
+    # Add outline
+    ax.plot(times_hours, elevations, color='#333333', linewidth=0.5)
+
+    max_elev = max(elevations) * 1.15
+
+    # Highlight climbs with green bands and numbered markers
+    for climb in climbs:
+        # Green band
+        ax.axvspan(climb.start_time_hours, climb.end_time_hours,
+                   alpha=0.2, color='#4CAF50', zorder=0.5)
+
+        # Numbered marker at top center of band
+        mid_time = (climb.start_time_hours + climb.end_time_hours) / 2
+        ax.text(mid_time, max_elev * 0.92, str(climb.climb_id),
+                fontsize=10, fontweight='bold', color='white', ha='center', va='center',
+                bbox=dict(boxstyle='circle,pad=0.3', facecolor='#4CAF50', edgecolor='#388E3C', linewidth=1.5))
+
+    # Style
+    ax.set_xlim(0, times_hours[-1])
+    ax.set_ylim(0, max_elev)
+    ax.set_xlabel('Time (hours)', fontsize=10)
+    ax.set_ylabel('Elevation (m)', fontsize=10)
+    ax.spines['top'].set_visible(False)
+    ax.spines['right'].set_visible(False)
+    ax.grid(axis='y', alpha=0.3, linestyle='-', linewidth=0.5)
+
+    plt.tight_layout()
+
+    buf = io.BytesIO()
+    fig.savefig(buf, format='png', dpi=100, facecolor='white', edgecolor='none')
+    plt.close(fig)
+    buf.seek(0)
+    return buf.getvalue()
+
+
+@app.route("/ride")
+def ride_page():
+    """Mobile-focused ride details page with climb detection."""
+    defaults = get_defaults()
+    url = request.args.get("url", "")
+    sensitivity = int(request.args.get("sensitivity", 50))
+    climbing_power = float(request.args.get("climbing_power", defaults["climbing_power"]))
+    flat_power = float(request.args.get("flat_power", defaults["flat_power"]))
+    descending_power = float(request.args.get("descending_power", defaults["descending_power"]))
+    mass = float(request.args.get("mass", defaults["mass"]))
+    headwind = float(request.args.get("headwind", defaults["headwind"]))
+    descent_braking_factor = float(request.args.get("descent_braking_factor", defaults["descent_braking_factor"]))
+    unpaved_power_factor = float(request.args.get("unpaved_power_factor", defaults["unpaved_power_factor"]))
+    smoothing = float(request.args.get("smoothing", defaults["smoothing"]))
+    imperial = request.args.get("imperial", "").lower() in ("true", "1", "yes")
+
+    error = None
+    route_name = None
+    time_str = "0h 00m"
+    work_kj = 0
+    distance_km = 0
+    elevation_m = 0
+    climbs = []
+
+    if url and is_ridewithgps_url(url):
+        try:
+            params = build_params(climbing_power, flat_power, mass, headwind, descent_braking_factor, descending_power, unpaved_power_factor)
+            config = _load_config() or {}
+
+            # Get analysis data
+            result = analyze_single_route(url, params, smoothing)
+            route_name = result.get("name")
+            time_str = result.get("time_str", "0h 00m")
+            work_kj = result.get("work_kj", 0)
+            distance_km = result.get("distance_km", 0)
+            elevation_m = result.get("elevation_m", 0)
+
+            # Get profile data for climb detection
+            profile_data = _calculate_elevation_profile_data(url, params, smoothing)
+            times_hours = profile_data["times_hours"]
+            powers = profile_data.get("powers", [])
+
+            # Get route data for climb detection
+            points, route_metadata = get_route_with_surface(url, params.crr)
+            points, _ = detect_and_correct_tunnels(points)
+            smoothing_radius = smoothing if smoothing is not None else config.get("smoothing", DEFAULTS["smoothing"])
+            elev_result = process_elevation_data(points, route_metadata, smoothing_radius)
+            scaled_points = elev_result.scaled_points
+
+            sensitivity_m = slider_to_sensitivity(sensitivity)
+            min_gain = config.get("climb_min_gain", DEFAULTS.get("climb_min_gain", 50.0))
+            min_distance = config.get("climb_min_distance", DEFAULTS.get("climb_min_distance", 500.0))
+            grade_threshold = config.get("climb_grade_threshold", DEFAULTS.get("climb_grade_threshold", 2.0))
+
+            climb_result = detect_climbs(
+                scaled_points,
+                times_hours=times_hours,
+                sensitivity_m=sensitivity_m,
+                min_climb_gain=min_gain,
+                min_climb_distance=min_distance,
+                grade_threshold=grade_threshold,
+                params=params,
+                segment_powers=powers,
+            )
+            climbs = climb_result.climbs
+
+        except Exception as e:
+            error = str(e)
+    elif url:
+        error = "Invalid RideWithGPS route URL"
+
+    return render_template_string(
+        RIDE_TEMPLATE,
+        url=url,
+        sensitivity=sensitivity,
+        climbing_power=climbing_power,
+        flat_power=flat_power,
+        mass=mass,
+        headwind=headwind,
+        smoothing=smoothing,
+        route_name=route_name,
+        time_str=time_str,
+        work_kj=work_kj,
+        distance_km=distance_km,
+        elevation_m=elevation_m,
+        climbs=climbs,
+        error=error,
+        imperial=imperial,
     )
 
 

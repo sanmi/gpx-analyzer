@@ -980,3 +980,371 @@ class TestComparisonMode:
 
         # Check for y-axis limit attributes
         assert 'data-max-ylim' in html
+
+
+class TestRidePage:
+    """Tests for the /ride page endpoint."""
+
+    @pytest.fixture
+    def mock_route_points(self):
+        """Create mock track points for testing climbs."""
+        # Create a route with a climb: flat, then climb, then flat
+        points = []
+        base_lat, base_lon = 37.0, -122.0
+        # Flat section (10 points)
+        for i in range(10):
+            points.append(TrackPoint(
+                lat=base_lat + i * 0.001,
+                lon=base_lon,
+                elevation=100.0,
+                time=None
+            ))
+        # Climb section (20 points, gaining 100m)
+        for i in range(20):
+            points.append(TrackPoint(
+                lat=base_lat + (10 + i) * 0.001,
+                lon=base_lon,
+                elevation=100.0 + i * 5.0,
+                time=None
+            ))
+        # Flat section at top (10 points)
+        for i in range(10):
+            points.append(TrackPoint(
+                lat=base_lat + (30 + i) * 0.001,
+                lon=base_lon,
+                elevation=200.0,
+                time=None
+            ))
+        return points
+
+    def test_ride_page_no_url_returns_200(self, client):
+        """Ride page without URL should still return 200."""
+        response = client.get("/ride")
+        assert response.status_code == 200
+
+    def test_ride_page_invalid_url_shows_error(self, client, no_config):
+        """Ride page with invalid URL should handle gracefully."""
+        response = client.get("/ride?url=https://example.com/invalid")
+        assert response.status_code == 200
+        html = response.data.decode()
+        # Should still render the page structure
+        assert "Ride Details" in html
+
+    @patch.object(web, "get_route_with_surface")
+    def test_ride_page_valid_url_shows_content(self, mock_get_route, client, no_config, mock_route_points):
+        """Ride page with valid URL should show climb data."""
+        mock_get_route.return_value = (
+            mock_route_points,
+            {"name": "Test Climb Route", "elevation_gain": 100},
+        )
+
+        response = client.get("/ride?url=https://ridewithgps.com/routes/12345&climbing_power=150&flat_power=120&mass=85&headwind=0")
+        assert response.status_code == 200
+        html = response.data.decode()
+
+        assert "Test Climb Route" in html
+        assert "Ride Details" in html
+        assert "Elevation Profile" in html
+        assert "Climb Detection" in html
+        assert "Detected Climbs" in html
+
+    @patch.object(web, "get_route_with_surface")
+    def test_ride_page_contains_toggles(self, mock_get_route, client, no_config, mock_route_points):
+        """Ride page should have speed, gravel, and imperial toggles."""
+        mock_get_route.return_value = (
+            mock_route_points,
+            {"name": "Test Route", "elevation_gain": 100},
+        )
+
+        response = client.get("/ride?url=https://ridewithgps.com/routes/12345")
+        html = response.data.decode()
+
+        assert 'id="overlay_speed"' in html
+        assert 'id="overlay_gravel"' in html
+        assert 'id="imperial"' in html
+
+    @patch.object(web, "get_route_with_surface")
+    def test_ride_page_contains_sensitivity_slider(self, mock_get_route, client, no_config, mock_route_points):
+        """Ride page should have sensitivity slider for climb detection."""
+        mock_get_route.return_value = (
+            mock_route_points,
+            {"name": "Test Route", "elevation_gain": 100},
+        )
+
+        response = client.get("/ride?url=https://ridewithgps.com/routes/12345")
+        html = response.data.decode()
+
+        assert 'id="sensitivitySlider"' in html
+        assert "High Sensitivity" in html
+        assert "Low Sensitivity" in html
+
+    @patch.object(web, "get_route_with_surface")
+    def test_ride_page_imperial_parameter(self, mock_get_route, client, no_config, mock_route_points):
+        """Ride page should respect imperial parameter."""
+        mock_get_route.return_value = (
+            mock_route_points,
+            {"name": "Test Route", "elevation_gain": 100},
+        )
+
+        # Test with imperial=true
+        response = client.get("/ride?url=https://ridewithgps.com/routes/12345&imperial=true")
+        html = response.data.decode()
+        assert 'id="imperial" checked' in html
+
+        # Test without imperial (should not be checked)
+        response = client.get("/ride?url=https://ridewithgps.com/routes/12345")
+        html = response.data.decode()
+        assert 'id="imperial" checked' not in html
+
+    @patch.object(web, "get_route_with_surface")
+    def test_ride_page_back_link(self, mock_get_route, client, no_config, mock_route_points):
+        """Ride page should have back link to main analysis."""
+        mock_get_route.return_value = (
+            mock_route_points,
+            {"name": "Test Route", "elevation_gain": 100},
+        )
+
+        response = client.get("/ride?url=https://ridewithgps.com/routes/12345")
+        html = response.data.decode()
+
+        assert "Back to Analysis" in html
+        assert 'id="backLink"' in html
+
+    @patch.object(web, "get_route_with_surface")
+    def test_ride_page_hover_tooltip_supports_imperial(self, mock_get_route, client, no_config, mock_route_points):
+        """Hover tooltip should have JavaScript for imperial unit conversion."""
+        mock_get_route.return_value = (
+            mock_route_points,
+            {"name": "Test Route", "elevation_gain": 100},
+        )
+
+        response = client.get("/ride?url=https://ridewithgps.com/routes/12345")
+        html = response.data.decode()
+
+        # Check that tooltip update function converts elevation to feet
+        assert "data.elevation * 3.28084" in html
+        # Check that tooltip update function converts speed to mph
+        assert "data.speed * 0.621371" in html
+        # Check for imperial unit labels in tooltip code
+        assert "'ft'" in html or '"ft"' in html
+        assert "'mph'" in html or '"mph"' in html
+
+    @patch.object(web, "get_route_with_surface")
+    def test_ride_page_selection_popup_supports_imperial(self, mock_get_route, client, no_config, mock_route_points):
+        """Selection popup (drag-drop) should have JavaScript for imperial unit conversion."""
+        mock_get_route.return_value = (
+            mock_route_points,
+            {"name": "Test Route", "elevation_gain": 100},
+        )
+
+        response = client.get("/ride?url=https://ridewithgps.com/routes/12345")
+        html = response.data.decode()
+
+        # Check showSelectionPopup has imperial conversion for distance (km to mi)
+        assert "stats.distKm * 0.621371" in html
+        # Check showSelectionPopup has imperial conversion for elevation (m to ft)
+        assert "stats.elevGain * 3.28084" in html
+        assert "stats.elevLoss * 3.28084" in html
+        # Check showSelectionPopup has imperial conversion for speed
+        assert "stats.avgSpeed * 0.621371" in html
+
+    @patch.object(web, "get_route_with_surface")
+    def test_ride_page_profile_url_includes_imperial_param(self, mock_get_route, client, no_config, mock_route_points):
+        """Elevation profile URL should include imperial parameter when building overlay params."""
+        mock_get_route.return_value = (
+            mock_route_points,
+            {"name": "Test Route", "elevation_gain": 100},
+        )
+
+        response = client.get("/ride?url=https://ridewithgps.com/routes/12345")
+        html = response.data.decode()
+
+        # Check that _buildOverlayParams includes imperial
+        assert "isImperial()" in html
+        assert "&imperial=true" in html
+
+    @patch.object(web, "get_route_with_surface")
+    def test_ride_page_climb_table_supports_imperial(self, mock_get_route, client, no_config, mock_route_points):
+        """Climb table rendering should have JavaScript for imperial unit conversion."""
+        mock_get_route.return_value = (
+            mock_route_points,
+            {"name": "Test Route", "elevation_gain": 100},
+        )
+
+        response = client.get("/ride?url=https://ridewithgps.com/routes/12345")
+        html = response.data.decode()
+
+        # Check formatDistance function exists and uses imperial
+        assert "function formatDistance" in html
+        assert "km * 0.621371" in html
+
+        # Check formatElevation function exists and uses imperial
+        assert "function formatElevation" in html
+        assert "m * 3.28084" in html
+
+        # Check formatSpeed function exists and uses imperial
+        assert "function formatSpeed" in html
+        assert "kmh * 0.621371" in html
+
+    @patch.object(web, "get_route_with_surface")
+    def test_ride_page_summary_supports_imperial(self, mock_get_route, client, no_config, mock_route_points):
+        """Summary card should have data attributes for unit conversion."""
+        mock_get_route.return_value = (
+            mock_route_points,
+            {"name": "Test Route", "elevation_gain": 100},
+        )
+
+        response = client.get("/ride?url=https://ridewithgps.com/routes/12345")
+        html = response.data.decode()
+
+        # Check summary values have data attributes for JS conversion
+        assert 'id="summaryDistance"' in html
+        assert 'data-km=' in html
+        assert 'id="summaryElevation"' in html
+        assert 'data-m=' in html
+
+        # Check updateSummaryUnits function exists
+        assert "function updateSummaryUnits" in html
+
+
+class TestApiDetectClimbs:
+    """Tests for the /api/detect-climbs endpoint."""
+
+    @pytest.fixture
+    def mock_route_with_climb(self):
+        """Create mock track points with a detectable climb."""
+        points = []
+        base_lat, base_lon = 37.0, -122.0
+        # Create a climb: 2km at 5% grade = 100m gain
+        for i in range(21):
+            points.append(TrackPoint(
+                lat=base_lat + i * 0.0009,  # ~100m spacing
+                lon=base_lon,
+                elevation=100.0 + i * 5.0,  # 5m per point = 5% grade
+                time=None
+            ))
+        return points
+
+    def test_api_detect_climbs_no_url_returns_error(self, client):
+        """API should return error without URL."""
+        response = client.get("/api/detect-climbs")
+        assert response.status_code == 400
+        data = json.loads(response.data)
+        assert "error" in data
+
+    def test_api_detect_climbs_invalid_url_returns_error(self, client, no_config):
+        """API should return error with invalid URL."""
+        response = client.get("/api/detect-climbs?url=https://example.com/invalid")
+        assert response.status_code == 400
+        data = json.loads(response.data)
+        assert "error" in data
+
+    @patch.object(web, "get_route_with_surface")
+    def test_api_detect_climbs_returns_json(self, mock_get_route, client, no_config, mock_route_with_climb):
+        """API should return JSON with climbs array."""
+        mock_get_route.return_value = (
+            mock_route_with_climb,
+            {"name": "Test Route", "elevation_gain": 100},
+        )
+
+        response = client.get("/api/detect-climbs?url=https://ridewithgps.com/routes/12345&climbing_power=150&flat_power=120&mass=85")
+        assert response.status_code == 200
+        assert response.content_type == "application/json"
+        data = json.loads(response.data)
+        assert "climbs" in data
+        assert "sensitivity_m" in data
+        assert isinstance(data["climbs"], list)
+
+    @patch.object(web, "get_route_with_surface")
+    def test_api_detect_climbs_sensitivity_parameter(self, mock_get_route, client, no_config, mock_route_with_climb):
+        """API should respect sensitivity parameter."""
+        mock_get_route.return_value = (
+            mock_route_with_climb,
+            {"name": "Test Route", "elevation_gain": 100},
+        )
+
+        # Low sensitivity (high tolerance)
+        response = client.get("/api/detect-climbs?url=https://ridewithgps.com/routes/12345&sensitivity=100")
+        data = json.loads(response.data)
+        assert data["sensitivity_m"] == 100.0  # slider 100 = 100m tolerance
+
+        # High sensitivity (low tolerance)
+        response = client.get("/api/detect-climbs?url=https://ridewithgps.com/routes/12345&sensitivity=0")
+        data = json.loads(response.data)
+        assert data["sensitivity_m"] == 10.0  # slider 0 = 10m tolerance
+
+    @patch.object(web, "get_route_with_surface")
+    def test_api_detect_climbs_climb_fields(self, mock_get_route, client, no_config, mock_route_with_climb):
+        """API should return climbs with all expected fields."""
+        mock_get_route.return_value = (
+            mock_route_with_climb,
+            {"name": "Test Route", "elevation_gain": 100},
+        )
+
+        response = client.get("/api/detect-climbs?url=https://ridewithgps.com/routes/12345&sensitivity=50")
+        data = json.loads(response.data)
+
+        if len(data["climbs"]) > 0:
+            climb = data["climbs"][0]
+            # Check all expected fields are present
+            expected_fields = [
+                "climb_id", "label", "start_km", "end_km",
+                "distance_m", "elevation_gain", "elevation_loss",
+                "avg_grade", "max_grade", "start_elevation", "peak_elevation",
+                "duration_seconds", "work_kj", "avg_power", "avg_speed_kmh"
+            ]
+            for field in expected_fields:
+                assert field in climb, f"Missing field: {field}"
+
+
+class TestElevationProfileRide:
+    """Tests for the /elevation-profile-ride endpoint."""
+
+    @pytest.fixture
+    def mock_route_points(self):
+        """Create mock track points."""
+        points = []
+        base_lat, base_lon = 37.0, -122.0
+        for i in range(20):
+            points.append(TrackPoint(
+                lat=base_lat + i * 0.001,
+                lon=base_lon,
+                elevation=100.0 + i * 5.0,
+                time=None
+            ))
+        return points
+
+    def test_elevation_profile_ride_no_url_returns_placeholder(self, client):
+        """Endpoint without URL should return a placeholder image."""
+        response = client.get("/elevation-profile-ride")
+        assert response.status_code == 200
+        assert response.content_type == "image/png"
+        # Check it's a valid PNG
+        assert response.data[:8] == b'\x89PNG\r\n\x1a\n'
+
+    @patch.object(web, "get_route_with_surface")
+    def test_elevation_profile_ride_returns_png(self, mock_get_route, client, no_config, mock_route_points):
+        """Endpoint with valid URL should return PNG image."""
+        mock_get_route.return_value = (
+            mock_route_points,
+            {"name": "Test Route", "elevation_gain": 100},
+        )
+
+        response = client.get("/elevation-profile-ride?url=https://ridewithgps.com/routes/12345&climbing_power=150&flat_power=120&mass=85")
+        assert response.status_code == 200
+        assert response.content_type == "image/png"
+        assert response.data[:8] == b'\x89PNG\r\n\x1a\n'
+
+    @patch.object(web, "get_route_with_surface")
+    def test_elevation_profile_ride_sensitivity_parameter(self, mock_get_route, client, no_config, mock_route_points):
+        """Endpoint should accept sensitivity parameter."""
+        mock_get_route.return_value = (
+            mock_route_points,
+            {"name": "Test Route", "elevation_gain": 100},
+        )
+
+        # Should not error with different sensitivity values
+        for sensitivity in [0, 50, 100]:
+            response = client.get(f"/elevation-profile-ride?url=https://ridewithgps.com/routes/12345&sensitivity={sensitivity}")
+            assert response.status_code == 200
+            assert response.content_type == "image/png"

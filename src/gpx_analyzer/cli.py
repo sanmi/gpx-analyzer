@@ -56,6 +56,11 @@ DEFAULTS = {
     "max_grade_window_route": 150.0,
     "max_grade_window_trip": 50.0,
     "max_grade_smoothing": 150.0,
+    # Climb detection thresholds
+    "climb_min_gain": 50.0,           # Minimum elevation gain (m) to qualify as a climb
+    "climb_min_distance": 500.0,      # Minimum climb length (m)
+    "climb_grade_threshold": 2.0,     # Grade % to start detecting a climb
+    "climb_default_sensitivity": 30.0, # Default descent tolerance (m)
 }
 
 
