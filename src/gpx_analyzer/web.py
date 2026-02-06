@@ -4920,9 +4920,11 @@ def _calculate_elevation_profile_data(url: str, params: RiderParams, smoothing: 
     scaled_points = elev_result.scaled_points
     unscaled_points = elev_result.unscaled_points
 
-    # Calculate rolling grades from scaled points (consistent with analysis)
+    # Calculate rolling grades from UNSCALED points for accurate per-segment grades
+    # Scaling is only used for physics (work/power) and total gain matching API
+    # Using scaled points would incorrectly reduce grades on noisy routes
     max_grade_window = config.get("max_grade_window_route", DEFAULT_MAX_GRADE_WINDOW)
-    rolling_grades = _calculate_rolling_grades(scaled_points, max_grade_window)
+    rolling_grades = _calculate_rolling_grades(unscaled_points, max_grade_window)
 
     # Calculate cumulative time, elevation, and speed at each point
     # Use unscaled elevations for Y-axis display (accurate absolute heights)
@@ -4945,10 +4947,11 @@ def _calculate_elevation_profile_data(url: str, params: RiderParams, smoothing: 
         speeds_ms.append(dist / elapsed if elapsed > 0 else 0.0)
         segment_distances.append(dist)
         segment_powers.append(work / elapsed if elapsed > 0 else 0.0)
-        # Gain/loss from scaled points (accurate total gain matching API)
-        scaled_delta = (scaled_points[i].elevation or 0) - (scaled_points[i-1].elevation or 0)
-        segment_elev_gains.append(scaled_delta if scaled_delta > 0 else 0.0)
-        segment_elev_losses.append(scaled_delta if scaled_delta < 0 else 0.0)
+        # Gain/loss from UNSCALED points for accurate grade recalculation during downsampling
+        # Scaling only affects physics, not per-segment grades shown to users
+        unscaled_delta = (unscaled_points[i].elevation or 0) - (unscaled_points[i-1].elevation or 0)
+        segment_elev_gains.append(unscaled_delta if unscaled_delta > 0 else 0.0)
+        segment_elev_losses.append(unscaled_delta if unscaled_delta < 0 else 0.0)
 
     # Convert to hours
     times_hours = [t / 3600 for t in cum_time]
@@ -5047,8 +5050,9 @@ def _calculate_trip_elevation_profile_data(url: str, collapse_stops: bool = Fals
     else:
         scaled_points = unscaled_points
 
-    # Calculate rolling grades from scaled points (consistent with summary)
-    rolling_grades = _calculate_rolling_grades(scaled_points, max_grade_window)
+    # Calculate rolling grades from UNSCALED points for accurate per-segment grades
+    # Scaling only affects physics/total gain, not per-segment grades shown to users
+    rolling_grades = _calculate_rolling_grades(unscaled_points, max_grade_window)
 
     # Use actual timestamps for x-axis
     if trip_points[0].timestamp is None:
@@ -5109,14 +5113,14 @@ def _calculate_trip_elevation_profile_data(url: str, collapse_stops: bool = Fals
             times_hours.append(hours)
             elevations.append(up.elevation or 0.0)
 
-    # Pre-compute per-segment elevation gains and losses from scaled points
-    # (accurate total gain matching API, while display elevations are unscaled)
+    # Pre-compute per-segment elevation gains and losses from UNSCALED points
+    # for accurate grade recalculation during downsampling
     segment_elev_gains = []
     segment_elev_losses = []
     for i in range(len(elevations) - 1):
-        scaled_delta = (scaled_points[i + 1].elevation or 0) - (scaled_points[i].elevation or 0)
-        segment_elev_gains.append(scaled_delta if scaled_delta > 0 else 0.0)
-        segment_elev_losses.append(scaled_delta if scaled_delta < 0 else 0.0)
+        unscaled_delta = (unscaled_points[i + 1].elevation or 0) - (unscaled_points[i].elevation or 0)
+        segment_elev_gains.append(unscaled_delta if unscaled_delta > 0 else 0.0)
+        segment_elev_losses.append(unscaled_delta if unscaled_delta < 0 else 0.0)
 
     grades = rolling_grades if rolling_grades else [0.0] * (len(trip_points) - 1)
 
@@ -5503,7 +5507,36 @@ def elevation_profile_data():
             step = len(times) // max_points
             times = times[::step]
             elevations = elevations[::step]
-            grades = grades[::step]
+            # Recalculate grades from merged distance and elevation change
+            # Grade = (elev_change / distance) * 100
+            if distances and elev_gains and elev_losses:
+                new_grades = []
+                for i in range(0, len(grades), step):
+                    chunk_dist = sum(distances[i:i+step])
+                    chunk_gain = sum(elev_gains[i:i+step])
+                    chunk_loss = sum(elev_losses[i:i+step])
+                    chunk_elev_change = chunk_gain + chunk_loss  # loss is negative
+                    if chunk_dist > 0:
+                        new_grades.append((chunk_elev_change / chunk_dist) * 100)
+                    else:
+                        new_grades.append(0.0)
+                grades = new_grades
+            else:
+                # Fallback: weighted average by distance if available
+                if distances:
+                    new_grades = []
+                    for i in range(0, len(grades), step):
+                        chunk_grades = grades[i:i+step]
+                        chunk_dists = distances[i:i+step]
+                        total_dist = sum(chunk_dists)
+                        if total_dist > 0:
+                            weighted_grade = sum(g * d for g, d in zip(chunk_grades, chunk_dists)) / total_dist
+                            new_grades.append(weighted_grade)
+                        else:
+                            new_grades.append(chunk_grades[0] if chunk_grades else 0.0)
+                    grades = new_grades
+                else:
+                    grades = grades[::step]
             if speeds:
                 speeds = speeds[::step]
             if distances:

@@ -122,6 +122,27 @@ class TestDetectClimbs:
         # With 30m sensitivity, 5m dip should be tolerated
         assert len(result.climbs) == 1
 
+    def test_climb_start_resets_to_true_low_point(self):
+        """Climb should start from true low point, not a false start with brief uphill."""
+        # False start: brief uphill, then descend more, then actual climb
+        # This simulates a road that has a brief uphill grade then descends to valley
+        elevations = (
+            [150.0]                                  # Starting point
+            + [150.0 - i * 2 for i in range(1, 6)]  # Descend to 140m
+            + [140.0 + i * 3 for i in range(1, 4)]  # Brief rise (false start trigger)
+            + [149.0 - i * 5 for i in range(1, 13)] # Descend to valley at 89m
+            + [89.0 + i * 8 for i in range(1, 21)]  # Actual climb: +160m
+        )
+        points = make_track_points(elevations, spacing_m=100.0)
+        result = detect_climbs(points, sensitivity_m=30.0, min_climb_gain=50.0, grade_threshold=2.0)
+
+        assert len(result.climbs) == 1
+        climb = result.climbs[0]
+        # Climb should start near the true low point (~89m), not the false start (~140m)
+        assert climb.start_elevation < 100.0, f"Start elevation {climb.start_elevation} should be near valley floor"
+        # Average grade should reflect the steep actual climb, not be diluted by descent
+        assert climb.avg_grade > 6.0, f"Avg grade {climb.avg_grade} should be high (steep climb)"
+
 
 class TestSliderToSensitivity:
     """Tests for slider value to sensitivity conversion."""

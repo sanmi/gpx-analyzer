@@ -144,6 +144,14 @@ def detect_climbs(
             pt = points[j]
             elev = pt.elevation or 0.0
 
+            # If we find a lower elevation than start, reset the start point
+            # This ensures the climb starts from the true low point, not a false start
+            if elev < start_elevation:
+                start_idx = j
+                start_elevation = elev
+                max_elevation = elev
+                max_elevation_idx = j
+
             # Update max elevation tracking
             if elev > max_elevation:
                 max_elevation = elev
