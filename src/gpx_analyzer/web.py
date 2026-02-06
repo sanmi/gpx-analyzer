@@ -888,7 +888,74 @@ HTML_TEMPLATE = """
             .collection-table { font-size: 0.8em; }
             .collection-table th, .collection-table td { padding: 8px 4px; }
             .route-name { max-width: 140px; }
-            .param-row { flex-direction: column; gap: 0; }
+            /* Compact mobile form layout */
+            form { padding: 12px; }
+            .param-row {
+                display: grid;
+                grid-template-columns: 1fr 1fr;
+                gap: 8px;
+            }
+            .param-row > div {
+                display: flex;
+                flex-direction: row;
+                align-items: center;
+                gap: 6px;
+            }
+            .param-row .label-row {
+                flex-shrink: 0;
+                min-width: 0;
+            }
+            .param-row .label-row label {
+                font-size: 0.75em;
+                margin-top: 0;
+                white-space: nowrap;
+            }
+            .param-row .label-row .info-btn {
+                display: none;
+            }
+            .param-row input[type="number"] {
+                width: 70px;
+                min-width: 60px;
+                padding: 6px 4px;
+                font-size: 14px;
+                margin-top: 0;
+                flex-shrink: 0;
+            }
+            /* Shorter labels on mobile */
+            .param-row label[for="climbing_power"] { font-size: 0; }
+            .param-row label[for="climbing_power"]::before { content: "Climb (W)"; font-size: 11px; }
+            .param-row label[for="flat_power"] { font-size: 0; }
+            .param-row label[for="flat_power"]::before { content: "Flat (W)"; font-size: 11px; }
+            .param-row label[for="mass"] { font-size: 0; }
+            .param-row label[for="mass"]::before { content: "Mass (kg)"; font-size: 11px; }
+            .param-row label[for="headwind"] { font-size: 0; }
+            .param-row label[for="headwind"]::before { content: "Wind (km/h)"; font-size: 11px; }
+            /* Reduce button margin */
+            button { margin-top: 12px; padding: 10px; }
+            /* Compact results */
+            .results { padding: 12px; margin-top: 12px; }
+            /* Compact URL input */
+            input[type="text"] { padding: 10px; font-size: 14px; }
+            /* Compact compare and advanced rows */
+            .compare-toggle { margin-top: 6px; margin-bottom: 4px; }
+            .advanced-row { margin-top: 8px; }
+            .advanced-toggle { font-size: 0.85em; }
+            /* Compact labels */
+            label:not(.toggle-label) { margin-top: 8px; font-size: 0.85em; }
+            .label-row label { font-size: 0.85em; }
+            /* Compact units row */
+            .units-row { margin-top: 6px; }
+            .units-row span { font-size: 0.85em; }
+            /* Compact advanced options */
+            .advanced-options { padding: 10px; margin-top: 8px; }
+            .advanced-options .param-row label[for="descending_power"] { font-size: 0; }
+            .advanced-options .param-row label[for="descending_power"]::before { content: "Desc (W)"; font-size: 11px; }
+            .advanced-options .param-row label[for="descent_braking_factor"] { font-size: 0; }
+            .advanced-options .param-row label[for="descent_braking_factor"]::before { content: "Braking"; font-size: 11px; }
+            .advanced-options .param-row label[for="unpaved_power_factor"] { font-size: 0; }
+            .advanced-options .param-row label[for="unpaved_power_factor"]::before { content: "Gravel"; font-size: 11px; }
+            .advanced-options .param-row label[for="smoothing"] { font-size: 0; }
+            .advanced-options .param-row label[for="smoothing"]::before { content: "Smooth (m)"; font-size: 11px; }
         }
         .hidden { display: none; }
         /* Header styles */
@@ -916,8 +983,12 @@ HTML_TEMPLATE = """
             background-clip: text;
         }
         @media (max-width: 480px) {
-            .logo { width: 40px; height: 40px; }
-            .header-section h1 { font-size: 1.2em; }
+            .logo { width: 36px; height: 36px; }
+            .header-section { margin-bottom: 10px; }
+            .header-section h1 { font-size: 1.1em; }
+            .logo-container { gap: 8px; margin-bottom: 4px; }
+            .tagline { font-size: 0.75em; }
+            .how-link { margin-top: 4px; font-size: 0.8em; }
         }
         .tagline {
             color: var(--text-muted);
@@ -1243,6 +1314,10 @@ HTML_TEMPLATE = """
             gap: 20px;
         }
         .footer-version {
+            color: #aaa;
+            font-size: 0.9em;
+        }
+        .footer-copyright {
             color: #aaa;
             font-size: 0.9em;
         }
@@ -4054,6 +4129,7 @@ HTML_TEMPLATE = """
                 <a href="https://github.com/sanmi/gpx-analyzer/issues" target="_blank">Report a Bug</a>
             </div>
             <div class="footer-version">{{ version_date }} ({{ git_hash }})</div>
+            <div class="footer-copyright">© 2025 Frank San Miguel</div>
         </div>
     </div>
 </body>
@@ -6034,10 +6110,120 @@ RIDE_TEMPLATE = """
             font-style: italic;
         }
         .loading { opacity: 0.6; pointer-events: none; }
+        /* Header styles */
+        .header-section {
+            margin-bottom: 16px;
+            text-align: center;
+        }
+        .logo-container {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            margin-bottom: 6px;
+        }
+        .logo {
+            width: 40px;
+            height: 40px;
+        }
+        .header-section h1 {
+            margin: 0;
+            font-size: 1.3em;
+            background: linear-gradient(135deg, #FF6B35, #F7931E);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        @media (max-width: 480px) {
+            .logo { width: 32px; height: 32px; }
+            .header-section h1 { font-size: 1.1em; }
+        }
+        .tagline {
+            color: var(--text-muted);
+            font-size: 0.8em;
+            margin: 0;
+            line-height: 1.3;
+        }
+        .back-link {
+            display: inline-block;
+            margin-top: 8px;
+            color: var(--primary);
+            text-decoration: none;
+            font-size: 13px;
+        }
+        .back-link:hover { text-decoration: underline; }
+        /* Footer styles */
+        .footer {
+            margin-top: 24px;
+            padding-top: 16px;
+            border-top: 1px solid #ddd;
+            text-align: center;
+            font-size: 0.8em;
+            color: #888;
+        }
+        .footer a {
+            color: var(--primary);
+            text-decoration: none;
+        }
+        .footer a:hover {
+            text-decoration: underline;
+        }
+        .footer-content {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+        .footer-links {
+            display: flex;
+            gap: 16px;
+        }
+        .footer-version {
+            color: #aaa;
+            font-size: 0.9em;
+        }
+        .footer-copyright {
+            color: #aaa;
+            font-size: 0.9em;
+        }
+        @media (max-width: 480px) {
+            .footer-content {
+                flex-direction: column;
+                gap: 6px;
+            }
+        }
     </style>
 </head>
 <body>
-    <a href="#" class="back-link" id="backLink" onclick="goBack(); return false;">&larr; Back to Analysis</a>
+    <div class="header-section">
+        <div class="logo-container">
+            <svg class="logo" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+                <defs>
+                    <linearGradient id="mountainGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                        <stop offset="0%" style="stop-color:#FF6B35"/>
+                        <stop offset="100%" style="stop-color:#F7931E"/>
+                    </linearGradient>
+                </defs>
+                <path d="M0 85 L25 45 L40 60 L60 30 L80 50 L100 85 Z" fill="url(#mountainGrad)"/>
+                <path d="M60 30 L67 42 L53 42 Z" fill="white" opacity="0.85"/>
+                <path d="M25 45 L30 52 L20 52 Z" fill="white" opacity="0.7"/>
+                <g transform="translate(18, 50) rotate(-20) scale(1.5)">
+                    <circle cx="0" cy="14" r="7" fill="none" stroke="#2D3047" stroke-width="1.5"/>
+                    <circle cx="22" cy="14" r="7" fill="none" stroke="#2D3047" stroke-width="1.5"/>
+                    <path d="M0 14 L8 6 L18 6 L22 14 M8 6 L11 14 L18 6 M11 14 L0 14"
+                          fill="none" stroke="#2D3047" stroke-width="1.5" stroke-linejoin="round"/>
+                    <line x1="8" y1="6" x2="7" y2="3" stroke="#2D3047" stroke-width="1.5"/>
+                    <line x1="7" y1="3" x2="14" y2="-1" stroke="#2D3047" stroke-width="2" stroke-linecap="round"/>
+                    <circle cx="16" cy="-2" r="2.5" fill="#2D3047"/>
+                    <line x1="12" y1="-1" x2="18" y2="5" stroke="#2D3047" stroke-width="1.5" stroke-linecap="round"/>
+                </g>
+            </svg>
+            <h1>Reality Check my Route</h1>
+        </div>
+        <p class="tagline">Climb Details</p>
+        <a href="#" class="back-link" id="backLink" onclick="goBack(); return false;">&larr; Back to Analysis</a>
+    </div>
 
     <div class="summary-card">
         <div class="route-name">{{ route_name or "Route" }}</div>
@@ -6656,6 +6842,17 @@ RIDE_TEMPLATE = """
         }
         initSavedSettings();
     </script>
+
+    <div class="footer">
+        <div class="footer-content">
+            <div class="footer-links">
+                <a href="https://github.com/sanmi/gpx-analyzer" target="_blank">Source Code</a>
+                <a href="https://github.com/sanmi/gpx-analyzer/issues" target="_blank">Report a Bug</a>
+            </div>
+            <div class="footer-version">{{ version_date }} ({{ git_hash }})</div>
+            <div class="footer-copyright">© 2025 Frank San Miguel</div>
+        </div>
+    </div>
 </body>
 </html>
 """
@@ -7000,6 +7197,8 @@ def ride_page():
         climbs=climbs,
         error=error,
         imperial=imperial,
+        version_date=__version_date__,
+        git_hash=get_git_hash(),
     )
 
 

@@ -1206,6 +1206,24 @@ class TestRidePage:
         # Check updateSummaryUnits function exists
         assert "function updateSummaryUnits" in html
 
+    def test_ride_page_has_header_and_footer(self, client):
+        """Ride page should have the same header and footer as main page."""
+        response = client.get("/ride")
+        html = response.data.decode()
+
+        # Check header elements
+        assert "Reality Check my Route" in html
+        assert 'class="header-section"' in html
+        assert 'class="logo-container"' in html
+
+        # Check footer elements
+        assert 'class="footer"' in html
+        assert 'class="footer-content"' in html
+        assert "Source Code" in html
+        assert "Report a Bug" in html
+        assert "github.com/sanmi/gpx-analyzer" in html
+        assert "© 2025 Frank San Miguel" in html
+
 
 class TestApiDetectClimbs:
     """Tests for the /api/detect-climbs endpoint."""
