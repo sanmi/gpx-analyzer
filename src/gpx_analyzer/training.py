@@ -30,6 +30,7 @@ class TrainingRoute:
     avg_watts: float | None = None  # Override default power for this ride
     headwind: float | None = None  # Override headwind in km/h (negative = tailwind)
     mass: float | None = None  # Override total mass (rider + bike) in kg
+    smoothing: float | None = None  # Override smoothing radius in meters
 
 
 @dataclass
@@ -402,6 +403,7 @@ def load_training_data(path: Path) -> list[TrainingRoute]:
                 avg_watts=entry.get("avg_watts"),
                 headwind=entry.get("headwind"),
                 mass=entry.get("mass"),
+                smoothing=entry.get("smoothing"),
             )
         )
     return routes
@@ -658,8 +660,10 @@ def run_training_analysis(
 
     for route in training_data:
         print(f"Analyzing: {route.name}...")
+        # Use per-route smoothing if specified, otherwise use default
+        route_smoothing = route.smoothing if route.smoothing is not None else smoothing_radius
         result = analyze_training_route(
-            route, params, smoothing_radius, elevation_scale,
+            route, params, route_smoothing, elevation_scale,
             max_grade_window_route=max_grade_window_route,
             max_grade_window_trip=max_grade_window_trip,
             max_grade_smoothing=max_grade_smoothing,

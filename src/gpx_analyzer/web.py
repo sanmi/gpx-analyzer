@@ -1596,7 +1596,7 @@ HTML_TEMPLATE = """
                         <label for="smoothing">Smoothing Radius (m)</label>
                         <button type="button" class="info-btn" onclick="showModal('smoothingModal')">?</button>
                     </div>
-                    <input type="number" id="smoothing" name="smoothing" value="{{ smoothing|int }}" step="10" min="10" max="200">
+                    <input type="number" id="smoothing" name="smoothing" value="{{ smoothing|int }}" step="10" min="10" max="400">
                 </div>
             </div>
             <div class="advanced-reset">

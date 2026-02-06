@@ -86,9 +86,10 @@ class TestSmoothElevations:
         result = smooth_elevations(points, radius_m=50.0)
 
         assert len(result) == 2
-        # With only 2 points ~11m apart and 50m radius, both see both points
-        # so both should average to 150.0
-        assert result[0].elevation == result[1].elevation
+        # With linear regression on 2 points, the line passes through both
+        # so elevations are preserved (fitted value at each point = original)
+        assert result[0].elevation == 100.0
+        assert result[1].elevation == 200.0
 
     def test_preserves_lat_lon_time(self):
         """Smoothing should only change elevation, not other fields."""

@@ -80,7 +80,8 @@
       "route_url": "https://ridewithgps.com/routes/50345179",
       "trip_url": "https://ridewithgps.com/trips/281839254",
       "tags": ["road", "gravel", "hilly", "france"],
-      "notes": "Road with climbing"
+      "notes": "Road & gravel with climbing",
+      "smoothing": 150
     },
     {
       "name": "Mt Hamilton, Kincaid",
