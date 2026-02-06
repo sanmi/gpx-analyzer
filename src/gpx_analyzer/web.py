@@ -1211,6 +1211,8 @@ HTML_TEMPLATE = """
                 border-left: none;
                 font-size: 0.8em;
                 flex-basis: 100%;
+                flex-wrap: wrap;
+                row-gap: 2px;
             }
             .units-row {
                 flex-wrap: wrap;
@@ -1565,13 +1567,18 @@ HTML_TEMPLATE = """
             </label>
             <input type="hidden" id="compareMode" name="compare" value="{{ 'on' if compare_mode else '' }}">
         </div>
-        <div id="compareUrlWrapper" class="url-input-wrapper{{ '' if compare_mode else ' hidden' }}">
-            <label for="url2" class="compare-label">Second Route URL</label>
-            <input type="text" id="url2" name="url2"
-                   placeholder="https://ridewithgps.com/routes/..."
-                   value="{{ url2 or '' }}"
-                   autocomplete="off">
-            <div id="recentUrlsDropdown2" class="recent-urls-dropdown hidden"></div>
+        <div id="compareUrlWrapper" class="{{ '' if compare_mode else 'hidden' }}">
+            <div class="label-row">
+                <label for="url2" class="compare-label">Compare URL (route or trip)</label>
+                <button type="button" class="info-btn" onclick="showModal('urlModal')">?</button>
+            </div>
+            <div class="url-input-wrapper">
+                <input type="text" id="url2" name="url2"
+                       placeholder="https://ridewithgps.com/routes/... or .../trips/..."
+                       value="{{ url2 or '' }}"
+                       autocomplete="off">
+                <div id="recentUrlsDropdown2" class="recent-urls-dropdown hidden"></div>
+            </div>
         </div>
 
         <div class="param-row">
@@ -3800,11 +3807,14 @@ HTML_TEMPLATE = """
                 if (d.powers) {
                     for (let k = i; k <= j; k++) {
                         if (d.powers[k] !== null && d.powers[k] !== undefined) {
-                            powerSum += d.powers[k];
-                            powerCount++;
-                            // Work = power * time_delta (seconds)
+                            // Work = power * time_delta (seconds) - include all segments
                             const dt = ((d.times[k + 1 < d.times.length ? k + 1 : k] - d.times[k]) * 3600);
                             workJ += d.powers[k] * dt;
+                            // Only count positive power for avg (exclude coasting/descent segments)
+                            if (d.powers[k] > 0) {
+                                powerSum += d.powers[k];
+                                powerCount++;
+                            }
                         }
                     }
                 }
@@ -6463,8 +6473,11 @@ RIDE_TEMPLATE = """
                 if (d.powers) {
                     for (let k = i; k <= j; k++) {
                         if (d.powers[k] !== null && d.powers[k] !== undefined) {
-                            powerSum += d.powers[k]; powerCount++;
                             workJ += d.powers[k] * ((d.times[k + 1 < d.times.length ? k + 1 : k] - d.times[k]) * 3600);
+                            // Only count positive power for avg (exclude coasting/descent segments)
+                            if (d.powers[k] > 0) {
+                                powerSum += d.powers[k]; powerCount++;
+                            }
                         }
                     }
                 }
