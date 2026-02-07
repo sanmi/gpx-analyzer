@@ -4196,17 +4196,34 @@ HTML_TEMPLATE = """
             <div class="footer-copyright">© 2025 Frank San Miguel</div>
         </div>
     </div>
-    {% if umami_website_id and result %}
+    {% if umami_website_id and (result or mode == 'collection') %}
     <script>
-        // Track route/trip analysis with Umami (wait for script to load)
+        // Track analysis with Umami (wait for script to load)
         window.addEventListener('load', function() {
             if (typeof umami !== 'undefined') {
+                {% if mode == 'collection' %}
+                umami.track('analyze', {
+                    type: 'collection',
+                    name: '{{ url }}'
+                });
+                {% elif compare_mode and result2 %}
+                umami.track('analyze', {
+                    type: 'compare',
+                    type1: '{{ "trip" if is_trip else "route" }}',
+                    type2: '{{ "trip" if is_trip2 else "route" }}',
+                    name1: '{{ result.name|replace("'", "\\'") if result.name else "" }}',
+                    name2: '{{ result2.name|replace("'", "\\'") if result2.name else "" }}',
+                    distance_km_1: {{ "%.1f"|format(result.distance_km) }},
+                    distance_km_2: {{ "%.1f"|format(result2.distance_km) }}
+                });
+                {% else %}
                 umami.track('analyze', {
                     type: '{{ "trip" if is_trip else "route" }}',
                     distance_km: {{ "%.1f"|format(result.distance_km) }},
                     elevation_m: {{ "%.0f"|format(result.elevation_m) }},
                     name: '{{ result.name|replace("'", "\\'") if result.name else "" }}'
                 });
+                {% endif %}
             }
         });
     </script>
