@@ -52,6 +52,20 @@ def _get_config_hash() -> str:
     return hashlib.md5(config_str.encode()).hexdigest()[:8]
 
 
+def _get_analytics_config() -> dict:
+    """Get analytics configuration for Umami tracking.
+
+    Configure in gpx-analyzer.json:
+        "umami_website_id": "your-website-id",
+        "umami_script_url": "https://cloud.umami.is/script.js"  # optional, has default
+    """
+    config = _load_config() or {}
+    return {
+        "umami_website_id": config.get("umami_website_id"),
+        "umami_script_url": config.get("umami_script_url", "https://cloud.umami.is/script.js"),
+    }
+
+
 # Simple LRU cache for route analysis results
 class AnalysisCache:
     """Thread-safe LRU cache for route analysis results."""
@@ -1621,6 +1635,9 @@ HTML_TEMPLATE = """
             }
         }
     </style>
+    {% if umami_website_id %}
+    <script defer src="{{ umami_script_url }}" data-website-id="{{ umami_website_id }}"></script>
+    {% endif %}
 </head>
 <body>
     <div class="header-section">
@@ -4172,6 +4189,19 @@ HTML_TEMPLATE = """
             <div class="footer-copyright">© 2025 Frank San Miguel</div>
         </div>
     </div>
+    {% if umami_website_id and result %}
+    <script>
+        // Track route/trip analysis with Umami
+        if (typeof umami !== 'undefined') {
+            umami.track('analyze', {
+                type: '{{ "trip" if is_trip else "route" }}',
+                distance_km: {{ "%.1f"|format(result.distance_km) }},
+                elevation_m: {{ "%.0f"|format(result.elevation_m) }},
+                name: '{{ result.name|replace("'", "\\'") if result.name else "" }}'
+            });
+        }
+    </script>
+    {% endif %}
 </body>
 </html>
 """
@@ -5881,6 +5911,8 @@ def index():
         format_time_diff=format_time_diff,
         format_diff=format_diff,
         format_pct_diff=format_pct_diff,
+        # Analytics
+        **_get_analytics_config(),
     )
 
 
@@ -6332,6 +6364,9 @@ RIDE_TEMPLATE = """
             }
         }
     </style>
+    {% if umami_website_id %}
+    <script defer src="{{ umami_script_url }}" data-website-id="{{ umami_website_id }}"></script>
+    {% endif %}
 </head>
 <body>
     <div class="header-section">
@@ -7068,6 +7103,19 @@ RIDE_TEMPLATE = """
             <div class="footer-copyright">© 2025 Frank San Miguel</div>
         </div>
     </div>
+    {% if umami_website_id and route_name %}
+    <script>
+        // Track ride page view with Umami
+        if (typeof umami !== 'undefined') {
+            umami.track('ride-view', {
+                distance_km: {{ "%.1f"|format(distance_km) if distance_km else 0 }},
+                elevation_m: {{ "%.0f"|format(elevation_m) if elevation_m else 0 }},
+                climbs: {{ climbs|length if climbs else 0 }},
+                name: '{{ route_name|replace("'", "\\'") if route_name else "" }}'
+            });
+        }
+    </script>
+    {% endif %}
 </body>
 </html>
 """
@@ -7467,6 +7515,8 @@ def ride_page():
         imperial=imperial,
         version_date=__version_date__,
         git_hash=get_git_hash(),
+        # Analytics
+        **_get_analytics_config(),
     )
 
 
