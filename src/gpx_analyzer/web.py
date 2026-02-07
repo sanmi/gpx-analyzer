@@ -2745,18 +2745,25 @@ HTML_TEMPLATE = """
                         'Analyzing route 0 of ' + data.total + '...';
                     // Save URL with collection name
                     saveRecentUrl(url, data.name);
-                    // Build share URL
+                    // Build share URL with all parameters
                     var shareParams = new URLSearchParams({
                         url: url,
-                        power: power,
-                        mass: mass,
-                        headwind: headwind
+                        climbing_power: document.getElementById('climbing_power').value,
+                        flat_power: document.getElementById('flat_power').value,
+                        descending_power: document.getElementById('descending_power').value,
+                        mass: document.getElementById('mass').value,
+                        headwind: document.getElementById('headwind').value,
+                        descent_braking_factor: document.getElementById('descent_braking_factor').value,
+                        unpaved_power_factor: document.getElementById('unpaved_power_factor').value,
+                        smoothing: document.getElementById('smoothing').value
                     });
                     if (document.getElementById('imperial').checked) {
                         shareParams.set('imperial', '1');
                     }
-                    document.getElementById('collectionShareUrl').value =
-                        window.location.origin + window.location.pathname + '?' + shareParams.toString();
+                    var shareUrl = window.location.origin + window.location.pathname + '?' + shareParams.toString();
+                    document.getElementById('collectionShareUrl').value = shareUrl;
+                    // Update browser URL
+                    history.pushState({}, '', shareUrl);
                 } else if (data.type === 'progress') {
                     document.getElementById('progressText').textContent =
                         'Analyzing route ' + data.current + ' of ' + data.total + '...';
@@ -5887,8 +5894,8 @@ def index():
         except Exception:
             pass  # Fall back to independent Y-axes if computation fails
 
-    # Build share URL if we have results
-    if result and url:
+    # Build share URL if we have results or a collection
+    if url and (result or mode == "collection"):
         from urllib.parse import urlencode
         share_params = {
             "url": url,
