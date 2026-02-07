@@ -1366,3 +1366,75 @@ class TestElevationProfileRide:
             response = client.get(f"/elevation-profile-ride?url=https://ridewithgps.com/routes/12345&sensitivity={sensitivity}")
             assert response.status_code == 200
             assert response.content_type == "image/png"
+
+
+class TestUmamiAnalytics:
+    """Tests for Umami analytics integration."""
+
+    def test_get_analytics_config_from_env_vars(self, monkeypatch):
+        """Environment variables should be read for analytics config."""
+        monkeypatch.setenv("UMAMI_WEBSITE_ID", "test-website-id")
+        monkeypatch.setenv("UMAMI_SCRIPT_URL", "https://custom.umami.is/script.js")
+
+        config = web._get_analytics_config()
+        assert config["umami_website_id"] == "test-website-id"
+        assert config["umami_script_url"] == "https://custom.umami.is/script.js"
+
+    def test_get_analytics_config_default_script_url(self, monkeypatch):
+        """Default script URL should be used when not specified."""
+        monkeypatch.setenv("UMAMI_WEBSITE_ID", "test-website-id")
+        monkeypatch.delenv("UMAMI_SCRIPT_URL", raising=False)
+
+        # Also ensure config file doesn't have it
+        with patch.object(web, "_load_config", return_value={}):
+            config = web._get_analytics_config()
+            assert config["umami_website_id"] == "test-website-id"
+            assert config["umami_script_url"] == "https://cloud.umami.is/script.js"
+
+    def test_get_analytics_config_env_takes_precedence(self, monkeypatch):
+        """Environment variables should take precedence over config file."""
+        monkeypatch.setenv("UMAMI_WEBSITE_ID", "env-website-id")
+
+        with patch.object(web, "_load_config", return_value={"umami_website_id": "config-website-id"}):
+            config = web._get_analytics_config()
+            assert config["umami_website_id"] == "env-website-id"
+
+    def test_get_analytics_config_from_config_file(self, monkeypatch):
+        """Config file values should be used when env vars not set."""
+        monkeypatch.delenv("UMAMI_WEBSITE_ID", raising=False)
+        monkeypatch.delenv("UMAMI_SCRIPT_URL", raising=False)
+
+        with patch.object(web, "_load_config", return_value={
+            "umami_website_id": "config-website-id",
+            "umami_script_url": "https://config.umami.is/script.js"
+        }):
+            config = web._get_analytics_config()
+            assert config["umami_website_id"] == "config-website-id"
+            assert config["umami_script_url"] == "https://config.umami.is/script.js"
+
+    def test_get_analytics_config_returns_none_when_not_configured(self, monkeypatch):
+        """Should return None for website_id when not configured."""
+        monkeypatch.delenv("UMAMI_WEBSITE_ID", raising=False)
+
+        with patch.object(web, "_load_config", return_value={}):
+            config = web._get_analytics_config()
+            assert config["umami_website_id"] is None
+
+    def test_umami_script_included_when_configured(self, client, monkeypatch):
+        """Umami script tag should be included when website_id is configured."""
+        monkeypatch.setenv("UMAMI_WEBSITE_ID", "test-website-id")
+
+        response = client.get("/")
+        html = response.data.decode()
+        assert 'data-website-id="test-website-id"' in html
+        assert 'src="https://cloud.umami.is/script.js"' in html
+
+    def test_umami_script_not_included_when_not_configured(self, client, monkeypatch):
+        """Umami script tag should not be included when website_id is not configured."""
+        monkeypatch.delenv("UMAMI_WEBSITE_ID", raising=False)
+
+        with patch.object(web, "_load_config", return_value={}):
+            response = client.get("/")
+            html = response.data.decode()
+            assert "data-website-id" not in html
+            assert "cloud.umami.is/script.js" not in html

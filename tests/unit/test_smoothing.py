@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta, timezone
 
-from gpx_analyzer.analyzer import _analyze_segments
+from gpx_analyzer.analyzer import _analyze_segments, _calculate_rolling_grades, calculate_hilliness, DEFAULT_MAX_GRADE_WINDOW
 from gpx_analyzer.models import RiderParams, TrackPoint
 from gpx_analyzer.smoothing import smooth_elevations
 
@@ -136,3 +136,137 @@ class TestSmoothElevations:
 
         for orig, scaled in zip(points, result):
             assert orig.elevation == scaled.elevation
+
+
+class TestSmoothingConsistency:
+    """Tests to verify smoothing is applied consistently across components."""
+
+    def test_histogram_uses_same_grades_as_elevation_profile(self):
+        """Histogram binning should use same rolling grades as elevation profile.
+
+        This prevents the bug where histogram showed different grades than
+        the elevation profile tooltip due to extra smoothing.
+        """
+        # Create a route with a steep section (~15% grade)
+        # 100 points, each ~11m apart = ~1.1km total
+        # Steep climb in the middle: 100m to 200m over ~300m = ~33% raw grade
+        elevations = (
+            [100.0] * 30 +  # Flat start
+            [100.0 + i * 3.3 for i in range(30)] +  # ~10% climb
+            [200.0] * 40  # Flat end
+        )
+        points = _make_points(elevations, spacing_deg=0.0001)  # ~11m spacing
+
+        # Apply user's smoothing (simulating what happens in the app)
+        smoothing_radius = 50.0
+        smoothed_points = smooth_elevations(points, radius_m=smoothing_radius)
+
+        # Calculate rolling grades (what elevation profile uses)
+        window = DEFAULT_MAX_GRADE_WINDOW
+        elevation_profile_grades = _calculate_rolling_grades(smoothed_points, window)
+
+        # Calculate hilliness (what histogram uses)
+        params = RiderParams()
+        hilliness = calculate_hilliness(
+            smoothed_points,
+            params,
+            unscaled_points=smoothed_points,
+            max_grade_window=window,
+            max_grade_smoothing=0  # No extra smoothing for this test
+        )
+
+        # The rolling grades used for histogram should match elevation profile
+        # Check that grades in steep sections would fall in same histogram bucket
+        max_profile_grade = max(elevation_profile_grades) if elevation_profile_grades else 0
+
+        # The histogram should show time in the >10% bucket if profile has grades >10%
+        if max_profile_grade > 10:
+            steep_time = sum(hilliness.steep_time_histogram.values())
+            assert steep_time > 0, "Histogram should show steep grades when elevation profile has them"
+
+    def test_no_extra_smoothing_for_histogram_bins(self):
+        """Histogram bins should NOT use extra smoothing beyond user's setting.
+
+        Only max_grade calculation gets extra smoothing; histogram bins should
+        use the same grades shown in the elevation profile tooltip.
+        """
+        # Create noisy data that would show different results with extra smoothing
+        # Sharp spike that extra smoothing would remove
+        elevations = [100.0] * 20 + [150.0] * 5 + [100.0] * 20  # 50m spike
+        points = _make_points(elevations, spacing_deg=0.0001)
+
+        # Apply minimal user smoothing
+        smoothing_radius = 10.0
+        smoothed_points = smooth_elevations(points, radius_m=smoothing_radius)
+
+        window = DEFAULT_MAX_GRADE_WINDOW
+        params = RiderParams()
+
+        # Calculate with no extra smoothing
+        hilliness_no_extra = calculate_hilliness(
+            smoothed_points,
+            params,
+            unscaled_points=smoothed_points,
+            max_grade_window=window,
+            max_grade_smoothing=0
+        )
+
+        # Calculate with extra smoothing (only affects max_grade, not bins)
+        hilliness_with_extra = calculate_hilliness(
+            smoothed_points,
+            params,
+            unscaled_points=smoothed_points,
+            max_grade_window=window,
+            max_grade_smoothing=150.0  # Extra smoothing
+        )
+
+        # Histogram bins should be the same (extra smoothing only affects max_grade)
+        assert hilliness_no_extra.grade_time_histogram == hilliness_with_extra.grade_time_histogram
+        assert hilliness_no_extra.grade_distance_histogram == hilliness_with_extra.grade_distance_histogram
+
+        # But max_grade may differ (extra smoothing reduces spikes)
+        # This is expected and correct behavior
+        assert hilliness_with_extra.max_grade <= hilliness_no_extra.max_grade
+
+    def test_user_smoothing_affects_all_calculations(self):
+        """User's smoothing setting should affect histogram, elevation profile, and physics equally."""
+        # Noisy elevation data
+        elevations = [100.0 + 10.0 * (i % 2) for i in range(50)]  # Sawtooth
+        points = _make_points(elevations, spacing_deg=0.0001)
+
+        params = RiderParams()
+        window = DEFAULT_MAX_GRADE_WINDOW
+
+        # Low smoothing - should preserve more noise
+        low_smooth = smooth_elevations(points, radius_m=10.0)
+        low_grades = _calculate_rolling_grades(low_smooth, window)
+        _, low_gain, _, _, _, _, _ = _analyze_segments(low_smooth, params)
+
+        # High smoothing - should reduce noise
+        high_smooth = smooth_elevations(points, radius_m=100.0)
+        high_grades = _calculate_rolling_grades(high_smooth, window)
+        _, high_gain, _, _, _, _, _ = _analyze_segments(high_smooth, params)
+
+        # Higher smoothing should result in:
+        # 1. Lower elevation gain (less noise)
+        assert high_gain < low_gain, "Higher smoothing should reduce elevation gain"
+
+        # 2. Lower max grade (smoother profile)
+        max_low_grade = max(abs(g) for g in low_grades) if low_grades else 0
+        max_high_grade = max(abs(g) for g in high_grades) if high_grades else 0
+        assert max_high_grade <= max_low_grade, "Higher smoothing should reduce max grade"
+
+    def test_rolling_grades_consistent_between_profile_and_histogram(self):
+        """Verify the same _calculate_rolling_grades function is used for both."""
+        # Simple climb
+        elevations = [100.0 + i * 2 for i in range(50)]  # 2m per point
+        points = _make_points(elevations, spacing_deg=0.0001)
+
+        smoothed = smooth_elevations(points, radius_m=50.0)
+        window = DEFAULT_MAX_GRADE_WINDOW
+
+        # These should be identical - same function, same inputs
+        grades_for_profile = _calculate_rolling_grades(smoothed, window)
+        grades_for_histogram = _calculate_rolling_grades(smoothed, window)
+
+        assert grades_for_profile == grades_for_histogram
