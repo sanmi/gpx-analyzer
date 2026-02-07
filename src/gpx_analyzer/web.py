@@ -6216,8 +6216,9 @@ RIDE_TEMPLATE = """
                 gap: 8px 16px;
             }
         }
-        .climb-metric { display: flex; justify-content: space-between; }
+        .climb-metric { display: flex; gap: 8px; }
         .metric-label { color: var(--text-muted); }
+        .metric-label::after { content: ':'; }
         .metric-value { font-weight: 500; }
         .no-climbs {
             text-align: center;
