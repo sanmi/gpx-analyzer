@@ -55,14 +55,21 @@ def _get_config_hash() -> str:
 def _get_analytics_config() -> dict:
     """Get analytics configuration for Umami tracking.
 
-    Configure in gpx-analyzer.json:
+    Configure via environment variables (preferred for production):
+        UMAMI_WEBSITE_ID - your website ID from Umami
+        UMAMI_SCRIPT_URL - optional, defaults to cloud.umami.is
+
+    Or in gpx-analyzer.json:
         "umami_website_id": "your-website-id",
-        "umami_script_url": "https://cloud.umami.is/script.js"  # optional, has default
+        "umami_script_url": "https://cloud.umami.is/script.js"
+
+    Environment variables take precedence over config file.
     """
+    import os
     config = _load_config() or {}
     return {
-        "umami_website_id": config.get("umami_website_id"),
-        "umami_script_url": config.get("umami_script_url", "https://cloud.umami.is/script.js"),
+        "umami_website_id": os.environ.get("UMAMI_WEBSITE_ID") or config.get("umami_website_id"),
+        "umami_script_url": os.environ.get("UMAMI_SCRIPT_URL") or config.get("umami_script_url", "https://cloud.umami.is/script.js"),
     }
 
 
