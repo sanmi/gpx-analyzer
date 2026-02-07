@@ -585,12 +585,6 @@ def _download_json(
 
     response = requests.get(url, headers=headers, timeout=30)
 
-    # Debug: log the response details
-    import sys
-    print(f"[RWGPS] Route {route_id}: status={response.status_code}, "
-          f"sent If-None-Match={if_none_match}, "
-          f"got ETag={response.headers.get('ETag')}", file=sys.stderr)
-
     # 304 Not Modified - cached data is still valid
     if response.status_code == 304:
         return None, if_none_match, True

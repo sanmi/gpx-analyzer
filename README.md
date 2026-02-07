@@ -135,23 +135,30 @@ Then open http://localhost:5050 in your browser. The web interface supports:
 
 The application uses multiple levels of caching for performance:
 
-1. **GPX Download Cache** - RideWithGPS route and trip data is cached to disk (`~/.cache/gpx-analyzer/routes/` and `trips/`) with LRU eviction. This reduces API calls when re-analyzing routes.
+1. **Route JSON Cache** - RideWithGPS route data is cached to disk (`~/.cache/gpx-analyzer/routes_json/`) with ETag-based validation and TTL expiration (5 minutes). When you re-analyze a route, the app sends the cached ETag to RideWithGPS — if the route hasn't changed, RWGPS returns 304 Not Modified and the cached data is used. If the route was modified on RWGPS, the new data is fetched automatically.
 
-2. **Analysis Result Cache** - Computed analysis results are cached in-memory (500 entries, ~0.75 MB). This speeds up back-and-forth route comparisons and collection re-analysis when using the same parameters. Resets on server restart.
+2. **Analysis Result Cache** - Computed analysis results are cached in-memory (500 entries, ~0.75 MB). The cache key includes the route's ETag, so when a route changes on RWGPS, the analysis is automatically recomputed. Resets on server restart.
 
 3. **Elevation Profile Cache** - Generated elevation profile images are cached to disk (`~/.cache/gpx-analyzer/profiles/`, max 150 images, ~9 MB). This avoids regenerating expensive chart images on repeat views.
+
+4. **GPX Download Cache** - Legacy GPX file cache (`~/.cache/gpx-analyzer/routes/` and `trips/`) with LRU eviction.
+
+**Cache Invalidation**: Routes are automatically refreshed when modified on RideWithGPS. The app uses HTTP conditional requests (If-None-Match with ETags) to detect changes without downloading the full route data. This means:
+- If you modify a route on RWGPS and re-analyze, you'll see the updated data
+- Unchanged routes are served from cache instantly (304 Not Modified)
+- Cache TTL (5 minutes) ensures stale data is eventually refreshed even if ETags fail
 
 Cache management endpoints (web interface):
 
 ```bash
-# View cache statistics (analysis cache + profile cache)
+# View cache statistics
 curl https://your-server/cache-stats
 
-# Clear all caches (analysis + profile images)
+# Clear all caches (analysis + profiles + route JSON)
 curl https://your-server/cache-clear
 ```
 
-Both caches are keyed by URL and all physics parameters — changing any parameter triggers a fresh computation.
+All caches are keyed by URL and physics parameters — changing any parameter triggers fresh computation.
 
 ### RideWithGPS Integration
 
