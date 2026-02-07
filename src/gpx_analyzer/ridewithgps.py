@@ -20,9 +20,11 @@ ROUTES_JSON_DIR = CACHE_DIR / "routes_json"
 TRIPS_DIR = CACHE_DIR / "trips"
 CACHE_INDEX_PATH = CACHE_DIR / "cache_index.json"
 ROUTE_JSON_CACHE_INDEX_PATH = CACHE_DIR / "route_json_cache_index.json"
+ROUTE_JSON_ETAG_INDEX_PATH = CACHE_DIR / "route_json_etag_index.json"
 MAX_CACHED_ROUTES = 10
 MAX_CACHED_ROUTE_JSON = 50
 MAX_CACHED_TRIPS = 20
+ROUTE_JSON_CACHE_TTL_SECONDS = 300  # 5 minutes - refetch if cache is older
 
 RIDEWITHGPS_PATTERN = re.compile(r"^https?://(?:www\.)?ridewithgps\.com/routes/(\d+)")
 RIDEWITHGPS_TRIP_PATTERN = re.compile(r"^https?://(?:www\.)?ridewithgps\.com/trips/(\d+)")
@@ -317,8 +319,14 @@ def _get_cached_route_json_path(route_id: int) -> Path | None:
     return None
 
 
-def _save_route_json_to_cache(route_id: int, route_data: dict) -> Path:
-    """Save route JSON data to cache and update the index."""
+def _save_route_json_to_cache(route_id: int, route_data: dict, etag: str | None = None) -> Path:
+    """Save route JSON data to cache and update the index.
+
+    Args:
+        route_id: The route ID
+        route_data: The route JSON data to cache
+        etag: Optional ETag from the response for cache validation
+    """
     ROUTES_JSON_DIR.mkdir(parents=True, exist_ok=True)
 
     path = ROUTES_JSON_DIR / f"{route_id}.json"
@@ -327,6 +335,10 @@ def _save_route_json_to_cache(route_id: int, route_data: dict) -> Path:
 
     _update_route_json_lru(route_id)
     _enforce_route_json_lru_limit()
+
+    # Save ETag if provided
+    if etag:
+        _save_etag(route_id, etag)
 
     return path
 
@@ -371,21 +383,92 @@ def _enforce_route_json_lru_limit() -> None:
         if path.exists():
             path.unlink()
         del index[route_id_str]
+        # Also clean up the ETag for this route
+        _delete_etag(int(route_id_str))
 
     _save_route_json_cache_index(index)
 
 
+def clear_route_json_cache() -> int:
+    """Clear all cached route JSON files. Returns number of files removed."""
+    index = _load_route_json_cache_index()
+    count = 0
+
+    for route_id_str in list(index.keys()):
+        path = ROUTES_JSON_DIR / f"{route_id_str}.json"
+        if path.exists():
+            path.unlink()
+            count += 1
+        _delete_etag(int(route_id_str))
+
+    _save_route_json_cache_index({})
+    _save_etag_index({})
+    return count
+
+
 def _load_cached_route_json(route_id: int) -> dict | None:
-    """Load route JSON data from cache if available."""
+    """Load route JSON data from cache if available and not expired.
+
+    Returns None if cache doesn't exist or is older than ROUTE_JSON_CACHE_TTL_SECONDS.
+    """
     path = _get_cached_route_json_path(route_id)
     if path is None:
         return None
+
+    # Check if cache is expired (TTL-based invalidation)
+    index = _load_route_json_cache_index()
+    cached_time = index.get(str(route_id))
+    if cached_time is not None:
+        age = time.time() - cached_time
+        if age > ROUTE_JSON_CACHE_TTL_SECONDS:
+            return None  # Cache expired, will refetch
+
     try:
         with path.open() as f:
             _update_route_json_lru(route_id)
             return json.load(f)
     except (json.JSONDecodeError, OSError):
         return None
+
+
+def _load_etag_index() -> dict[str, str]:
+    """Load the ETag index from disk."""
+    if not ROUTE_JSON_ETAG_INDEX_PATH.exists():
+        return {}
+    try:
+        with ROUTE_JSON_ETAG_INDEX_PATH.open() as f:
+            return json.load(f)
+    except (json.JSONDecodeError, OSError):
+        return {}
+
+
+def _save_etag_index(index: dict[str, str]) -> None:
+    """Save the ETag index to disk."""
+    CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    with ROUTE_JSON_ETAG_INDEX_PATH.open("w") as f:
+        json.dump(index, f)
+
+
+def _get_cached_etag(route_id: int) -> str | None:
+    """Get the cached ETag for a route, if available."""
+    index = _load_etag_index()
+    return index.get(str(route_id))
+
+
+def _save_etag(route_id: int, etag: str) -> None:
+    """Save an ETag for a route."""
+    index = _load_etag_index()
+    index[str(route_id)] = etag
+    _save_etag_index(index)
+
+
+def _delete_etag(route_id: int) -> None:
+    """Delete the cached ETag for a route."""
+    index = _load_etag_index()
+    route_id_str = str(route_id)
+    if route_id_str in index:
+        del index[route_id_str]
+        _save_etag_index(index)
 
 
 # Surface type crr deltas from baseline (R=3 quality paved is the baseline)
@@ -474,20 +557,48 @@ def is_unpaved(s_value: int | None) -> bool:
     return s_value is not None and s_value in UNPAVED_S_VALUES
 
 
-def _download_json(route_id: int, privacy_code: str | None = None) -> dict:
-    """Download route JSON data from RideWithGPS.
+def _download_json(
+    route_id: int, privacy_code: str | None = None, if_none_match: str | None = None
+) -> tuple[dict | None, str | None, bool]:
+    """Download route JSON data from RideWithGPS with optional conditional request.
+
+    Args:
+        route_id: The route ID to download
+        privacy_code: Optional privacy code for private routes
+        if_none_match: Optional ETag for conditional request (If-None-Match header)
+
+    Returns:
+        Tuple of (route_data, etag, not_modified).
+        - If not_modified is True, route_data will be None (use cached data)
+        - etag is the ETag from the response (or None if not present)
 
     Raises:
-        requests.RequestException: If the download fails.
+        requests.RequestException: If the download fails (except 304).
     """
     url = f"https://ridewithgps.com/routes/{route_id}.json"
     if privacy_code:
         url += f"?privacy_code={privacy_code}"
 
     headers = _get_auth_headers()
+    if if_none_match:
+        headers["If-None-Match"] = if_none_match
+
     response = requests.get(url, headers=headers, timeout=30)
+
+    # Debug: log the response details
+    import sys
+    print(f"[RWGPS] Route {route_id}: status={response.status_code}, "
+          f"sent If-None-Match={if_none_match}, "
+          f"got ETag={response.headers.get('ETag')}", file=sys.stderr)
+
+    # 304 Not Modified - cached data is still valid
+    if response.status_code == 304:
+        return None, if_none_match, True
+
     response.raise_for_status()
-    return response.json()
+
+    etag = response.headers.get("ETag")
+    return response.json(), etag, False
 
 
 def parse_json_track_points(route_data: dict, baseline_crr: float) -> list[TrackPoint]:
@@ -550,8 +661,9 @@ def parse_json_track_points(route_data: dict, baseline_crr: float) -> list[Track
 def get_route_with_surface(url: str, baseline_crr: float) -> tuple[list[TrackPoint], dict]:
     """Get route track points with surface data from RideWithGPS JSON API.
 
-    Downloads and caches the route JSON if not already cached.
-    Updates LRU access time on cache hit.
+    Uses ETag-based cache validation: if a cached version exists, makes a
+    conditional request to check if the route has been updated. If the route
+    hasn't changed (304 Not Modified), uses the cached data.
 
     Args:
         url: The RideWithGPS route URL
@@ -568,10 +680,29 @@ def get_route_with_surface(url: str, baseline_crr: float) -> tuple[list[TrackPoi
     privacy_code = extract_privacy_code(url)
 
     # Check cache first
-    route_data = _load_cached_route_json(route_id)
-    if route_data is None:
-        route_data = _download_json(route_id, privacy_code)
-        _save_route_json_to_cache(route_id, route_data)
+    cached_data = _load_cached_route_json(route_id)
+    cached_etag = _get_cached_etag(route_id) if cached_data else None
+
+    # Make conditional request if we have cached data with an ETag
+    if cached_data and cached_etag:
+        route_data, new_etag, not_modified = _download_json(route_id, privacy_code, cached_etag)
+        if not_modified:
+            # Cache is still valid
+            route_data = cached_data
+        else:
+            # Route was updated, save new data
+            _save_route_json_to_cache(route_id, route_data, new_etag)
+        current_etag = new_etag if not not_modified else cached_etag
+    elif cached_data:
+        # Have cached data but no ETag, fetch fresh to get ETag
+        route_data, new_etag, _ = _download_json(route_id, privacy_code)
+        _save_route_json_to_cache(route_id, route_data, new_etag)
+        current_etag = new_etag
+    else:
+        # No cached data, download fresh
+        route_data, etag, _ = _download_json(route_id, privacy_code)
+        _save_route_json_to_cache(route_id, route_data, etag)
+        current_etag = etag
 
     points = parse_json_track_points(route_data, baseline_crr)
 
@@ -591,6 +722,7 @@ def get_route_with_surface(url: str, baseline_crr: float) -> tuple[list[TrackPoi
         "elevation_gain": route_info.get("elevation_gain"),
         "unpaved_pct": route_info.get("unpaved_pct"),
         "surface": route_info.get("surface"),
+        "etag": current_etag,  # For cache invalidation
     }
 
     # Check for surface data inconsistency

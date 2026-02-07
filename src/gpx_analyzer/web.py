@@ -23,6 +23,7 @@ from gpx_analyzer.cli import calculate_elevation_gain, calculate_surface_breakdo
 from gpx_analyzer.models import RiderParams, TrackPoint
 from gpx_analyzer.ridewithgps import (
     _load_config,
+    clear_route_json_cache,
     extract_privacy_code,
     get_collection_route_ids,
     get_route_with_surface,
@@ -3162,7 +3163,7 @@ HTML_TEMPLATE = """
             document.addEventListener('touchend', function(e) {
                 // Hide tooltip immediately when finger is lifted
                 hideTooltip();
-            });
+            }, { passive: true });
         })();
 
     </script>
@@ -4162,9 +4163,9 @@ HTML_TEMPLATE = """
             container.addEventListener('mousedown', onMouseDown, { signal: abortController.signal });
             container.addEventListener('mouseup', onMouseUp, { signal: abortController.signal });
             container.addEventListener('mouseleave', onMouseLeave, { signal: abortController.signal });
-            container.addEventListener('touchstart', onTouchStart, { signal: abortController.signal });
+            container.addEventListener('touchstart', onTouchStart, { passive: true, signal: abortController.signal });
             container.addEventListener('touchmove', onTouchMove, { passive: false, signal: abortController.signal });
-            container.addEventListener('touchend', onTouchEnd, { signal: abortController.signal });
+            container.addEventListener('touchend', onTouchEnd, { passive: true, signal: abortController.signal });
             document.addEventListener('keydown', onKeyDown, { signal: abortController.signal });
 
             container._profileCleanup = function() {
@@ -4435,16 +4436,18 @@ def analyze_single_route(url: str, params: RiderParams, smoothing: float | None 
     config = _load_config() or {}
     smoothing_radius = smoothing if smoothing is not None else config.get("smoothing", DEFAULTS["smoothing"])
 
-    # Check cache first
+    # Fetch route first to get current ETag (uses ETag-based caching internally)
+    points, route_metadata = get_route_with_surface(url, params.crr)
+    route_etag = route_metadata.get("etag", "")
+
+    # Check analysis cache with ETag in key (invalidates when route changes)
     cached = _analysis_cache.get(
-        url, params.climbing_power, params.flat_power, params.total_mass, params.headwind,
+        url + route_etag, params.climbing_power, params.flat_power, params.total_mass, params.headwind,
         params.descent_braking_factor, params.descending_power, params.unpaved_power_factor, smoothing_radius,
         smoothing_override
     )
     if cached is not None:
         return cached
-
-    points, route_metadata = get_route_with_surface(url, params.crr)
 
     if len(points) < 2:
         raise ValueError("Route contains fewer than 2 track points")
@@ -4516,9 +4519,9 @@ def analyze_single_route(url: str, params: RiderParams, smoothing: float | None 
         ],
     }
 
-    # Store in cache
+    # Store in cache (include ETag so cache invalidates when route changes)
     _analysis_cache.set(
-        url, params.climbing_power, params.flat_power, params.total_mass, params.headwind,
+        url + route_etag, params.climbing_power, params.flat_power, params.total_mass, params.headwind,
         params.descent_braking_factor, params.descending_power, params.unpaved_power_factor, smoothing_radius,
         smoothing_override, result
     )
@@ -4782,12 +4785,13 @@ def cache_stats():
 
 @app.route("/cache-clear", methods=["GET", "POST"])
 def cache_clear():
-    """Clear both analysis and profile image caches."""
+    """Clear all caches: analysis, profile images, and route JSON."""
     _analysis_cache.clear()
     profiles_cleared = _clear_profile_cache()
+    routes_cleared = clear_route_json_cache()
     return {
         "status": "ok",
-        "message": f"Caches cleared (analysis cache + {profiles_cleared} profile images)"
+        "message": f"Caches cleared (analysis + {profiles_cleared} profiles + {routes_cleared} routes)"
     }
 
 
@@ -7080,9 +7084,9 @@ RIDE_TEMPLATE = """
             container.addEventListener('mousedown', onMouseDown, { signal: ac.signal });
             container.addEventListener('mouseup', onMouseUp, { signal: ac.signal });
             container.addEventListener('mouseleave', onMouseLeave, { signal: ac.signal });
-            container.addEventListener('touchstart', onTouchStart, { signal: ac.signal });
+            container.addEventListener('touchstart', onTouchStart, { passive: true, signal: ac.signal });
             container.addEventListener('touchmove', onTouchMove, { passive: false, signal: ac.signal });
-            container.addEventListener('touchend', onTouchEnd, { signal: ac.signal });
+            container.addEventListener('touchend', onTouchEnd, { passive: true, signal: ac.signal });
             document.addEventListener('keydown', (e) => { if (e.key === 'Escape') clearSelection(); }, { signal: ac.signal });
             container._profileCleanup = () => ac.abort();
         }

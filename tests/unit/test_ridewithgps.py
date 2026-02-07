@@ -899,31 +899,77 @@ class TestDownloadJson:
     def test_download_json_success(self, mock_get, no_config):
         mock_response = MagicMock()
         mock_response.json.return_value = {"route": {"name": "Test Route"}}
+        mock_response.status_code = 200
+        mock_response.headers = {"ETag": '"abc123"'}
         mock_get.return_value = mock_response
 
-        result = ridewithgps._download_json(12345)
+        data, etag, not_modified = ridewithgps._download_json(12345)
 
         mock_get.assert_called_once_with(
             "https://ridewithgps.com/routes/12345.json",
             headers={},
             timeout=30,
         )
-        assert result == {"route": {"name": "Test Route"}}
+        assert data == {"route": {"name": "Test Route"}}
+        assert etag == '"abc123"'
+        assert not_modified is False
 
     @patch("gpx_analyzer.ridewithgps.requests.get")
     def test_download_json_with_privacy_code(self, mock_get, no_config):
         mock_response = MagicMock()
         mock_response.json.return_value = {"route": {"name": "Private Route"}}
+        mock_response.status_code = 200
+        mock_response.headers = {"ETag": '"def456"'}
         mock_get.return_value = mock_response
 
-        result = ridewithgps._download_json(12345, "SECRET123")
+        data, etag, not_modified = ridewithgps._download_json(12345, "SECRET123")
 
         mock_get.assert_called_once_with(
             "https://ridewithgps.com/routes/12345.json?privacy_code=SECRET123",
             headers={},
             timeout=30,
         )
-        assert result == {"route": {"name": "Private Route"}}
+        assert data == {"route": {"name": "Private Route"}}
+        assert etag == '"def456"'
+        assert not_modified is False
+
+    @patch("gpx_analyzer.ridewithgps.requests.get")
+    def test_download_json_with_if_none_match(self, mock_get, no_config):
+        """Test conditional request with If-None-Match header returns 304."""
+        mock_response = MagicMock()
+        mock_response.status_code = 304  # Not Modified
+        mock_get.return_value = mock_response
+
+        data, etag, not_modified = ridewithgps._download_json(12345, None, '"abc123"')
+
+        mock_get.assert_called_once_with(
+            "https://ridewithgps.com/routes/12345.json",
+            headers={"If-None-Match": '"abc123"'},
+            timeout=30,
+        )
+        assert data is None
+        assert etag == '"abc123"'
+        assert not_modified is True
+
+    @patch("gpx_analyzer.ridewithgps.requests.get")
+    def test_download_json_etag_expired(self, mock_get, no_config):
+        """Test conditional request when ETag has expired (route updated)."""
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"route": {"name": "Updated Route"}}
+        mock_response.headers = {"ETag": '"new-etag"'}
+        mock_get.return_value = mock_response
+
+        data, etag, not_modified = ridewithgps._download_json(12345, None, '"old-etag"')
+
+        mock_get.assert_called_once_with(
+            "https://ridewithgps.com/routes/12345.json",
+            headers={"If-None-Match": '"old-etag"'},
+            timeout=30,
+        )
+        assert data == {"route": {"name": "Updated Route"}}
+        assert etag == '"new-etag"'
+        assert not_modified is False
 
 
 class TestGetRouteWithSurface:
@@ -940,7 +986,7 @@ class TestGetRouteWithSurface:
     @patch.object(ridewithgps, "_load_cached_route_json", return_value=None)
     @patch.object(ridewithgps, "_download_json")
     def test_returns_points_and_metadata(self, mock_download, mock_cache_load, mock_cache_save, no_config):
-        mock_download.return_value = {
+        route_data = {
             "name": "Test Route",
             "distance": 10000,
             "elevation_gain": 100,
@@ -951,6 +997,7 @@ class TestGetRouteWithSurface:
             ],
             "surface": "mostly_paved",
         }
+        mock_download.return_value = (route_data, '"etag123"', False)
 
         points, metadata = ridewithgps.get_route_with_surface(
             "https://ridewithgps.com/routes/12345", baseline_crr=0.004
@@ -966,11 +1013,12 @@ class TestGetRouteWithSurface:
     @patch.object(ridewithgps, "_load_cached_route_json", return_value=None)
     @patch.object(ridewithgps, "_download_json")
     def test_extracts_privacy_code(self, mock_download, mock_cache_load, mock_cache_save, no_config):
-        mock_download.return_value = {
+        route_data = {
             "track_points": [
                 {"x": -122.4194, "y": 37.7749, "e": 10.0, "d": 0, "R": 4},
             ],
         }
+        mock_download.return_value = (route_data, '"etag456"', False)
 
         ridewithgps.get_route_with_surface(
             "https://ridewithgps.com/routes/12345?privacy_code=SECRET", baseline_crr=0.004
@@ -983,12 +1031,13 @@ class TestGetRouteWithSurface:
     @patch.object(ridewithgps, "_download_json")
     def test_uses_baseline_crr(self, mock_download, mock_cache_load, mock_cache_save, no_config):
         """Verify baseline_crr is used correctly in crr calculation."""
-        mock_download.return_value = {
+        route_data = {
             "track_points": [
                 {"x": -122.4194, "y": 37.7749, "e": 10.0, "R": 3},   # baseline
                 {"x": -122.4183, "y": 37.7758, "e": 15.0, "R": 15},  # gravel
             ],
         }
+        mock_download.return_value = (route_data, '"etag789"', False)
 
         points, _ = ridewithgps.get_route_with_surface(
             "https://ridewithgps.com/routes/12345", baseline_crr=0.008
@@ -996,6 +1045,59 @@ class TestGetRouteWithSurface:
 
         assert points[0].crr == 0.008  # R=3: baseline + 0
         assert points[1].crr == 0.014  # R=15: baseline + 0.006
+
+    @patch.object(ridewithgps, "_save_route_json_to_cache")
+    @patch.object(ridewithgps, "_get_cached_etag", return_value='"cached-etag"')
+    @patch.object(ridewithgps, "_download_json")
+    def test_uses_cached_data_on_304(self, mock_download, mock_get_etag, mock_cache_save, no_config, monkeypatch):
+        """Test that cached data is used when server returns 304 Not Modified."""
+        cached_data = {
+            "name": "Cached Route",
+            "track_points": [
+                {"x": -122.4194, "y": 37.7749, "e": 10.0, "R": 4},
+            ],
+        }
+        monkeypatch.setattr(ridewithgps, "_load_cached_route_json", lambda route_id: cached_data)
+        mock_download.return_value = (None, '"cached-etag"', True)  # 304 Not Modified
+
+        points, metadata = ridewithgps.get_route_with_surface(
+            "https://ridewithgps.com/routes/12345", baseline_crr=0.004
+        )
+
+        mock_download.assert_called_once_with(12345, None, '"cached-etag"')
+        assert len(points) == 1
+        assert metadata["name"] == "Cached Route"
+        # Should not save to cache on 304
+        mock_cache_save.assert_not_called()
+
+    @patch.object(ridewithgps, "_save_route_json_to_cache")
+    @patch.object(ridewithgps, "_get_cached_etag", return_value='"old-etag"')
+    @patch.object(ridewithgps, "_download_json")
+    def test_updates_cache_when_route_changed(self, mock_download, mock_get_etag, mock_cache_save, no_config, monkeypatch):
+        """Test that cache is updated when route has been modified."""
+        cached_data = {
+            "name": "Old Route",
+            "track_points": [
+                {"x": -122.4194, "y": 37.7749, "e": 10.0, "R": 4},
+            ],
+        }
+        new_data = {
+            "name": "Updated Route",
+            "track_points": [
+                {"x": -122.4194, "y": 37.7749, "e": 15.0, "R": 4},
+            ],
+        }
+        monkeypatch.setattr(ridewithgps, "_load_cached_route_json", lambda route_id: cached_data)
+        mock_download.return_value = (new_data, '"new-etag"', False)  # Route updated
+
+        points, metadata = ridewithgps.get_route_with_surface(
+            "https://ridewithgps.com/routes/12345", baseline_crr=0.004
+        )
+
+        mock_download.assert_called_once_with(12345, None, '"old-etag"')
+        assert metadata["name"] == "Updated Route"
+        # Should save new data to cache
+        mock_cache_save.assert_called_once_with(12345, new_data, '"new-etag"')
 
 
 class TestIsRidewithgpsTripUrl:
