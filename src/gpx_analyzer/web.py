@@ -2743,6 +2743,8 @@ HTML_TEMPLATE = """
                     collectionNameEl.innerHTML = '<a href="' + url + '" target="_blank">' + nameText + '</a>';
                     document.getElementById('progressText').textContent =
                         'Analyzing route 0 of ' + data.total + '...';
+                    // Update page title
+                    document.title = nameText + ' | Reality Check my Route';
                     // Save URL with collection name
                     saveRecentUrl(url, data.name);
                     // Build share URL with all parameters
@@ -2762,8 +2764,8 @@ HTML_TEMPLATE = """
                     }
                     var shareUrl = window.location.origin + window.location.pathname + '?' + shareParams.toString();
                     document.getElementById('collectionShareUrl').value = shareUrl;
-                    // Update browser URL
-                    history.pushState({}, '', shareUrl);
+                    // Update browser URL and title
+                    history.pushState({}, nameText + ' | Reality Check my Route', shareUrl);
                 } else if (data.type === 'progress') {
                     document.getElementById('progressText').textContent =
                         'Analyzing route ' + data.current + ' of ' + data.total + '...';
