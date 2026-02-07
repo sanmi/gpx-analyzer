@@ -4198,15 +4198,17 @@ HTML_TEMPLATE = """
     </div>
     {% if umami_website_id and result %}
     <script>
-        // Track route/trip analysis with Umami
-        if (typeof umami !== 'undefined') {
-            umami.track('analyze', {
-                type: '{{ "trip" if is_trip else "route" }}',
-                distance_km: {{ "%.1f"|format(result.distance_km) }},
-                elevation_m: {{ "%.0f"|format(result.elevation_m) }},
-                name: '{{ result.name|replace("'", "\\'") if result.name else "" }}'
-            });
-        }
+        // Track route/trip analysis with Umami (wait for script to load)
+        window.addEventListener('load', function() {
+            if (typeof umami !== 'undefined') {
+                umami.track('analyze', {
+                    type: '{{ "trip" if is_trip else "route" }}',
+                    distance_km: {{ "%.1f"|format(result.distance_km) }},
+                    elevation_m: {{ "%.0f"|format(result.elevation_m) }},
+                    name: '{{ result.name|replace("'", "\\'") if result.name else "" }}'
+                });
+            }
+        });
     </script>
     {% endif %}
 </body>
@@ -7112,15 +7114,17 @@ RIDE_TEMPLATE = """
     </div>
     {% if umami_website_id and route_name %}
     <script>
-        // Track ride page view with Umami
-        if (typeof umami !== 'undefined') {
-            umami.track('ride-view', {
-                distance_km: {{ "%.1f"|format(distance_km) if distance_km else 0 }},
-                elevation_m: {{ "%.0f"|format(elevation_m) if elevation_m else 0 }},
-                climbs: {{ climbs|length if climbs else 0 }},
-                name: '{{ route_name|replace("'", "\\'") if route_name else "" }}'
-            });
-        }
+        // Track ride page view with Umami (wait for script to load)
+        window.addEventListener('load', function() {
+            if (typeof umami !== 'undefined') {
+                umami.track('ride-view', {
+                    distance_km: {{ "%.1f"|format(distance_km) if distance_km else 0 }},
+                    elevation_m: {{ "%.0f"|format(elevation_m) if elevation_m else 0 }},
+                    climbs: {{ climbs|length if climbs else 0 }},
+                    name: '{{ route_name|replace("'", "\\'") if route_name else "" }}'
+                });
+            }
+        });
     </script>
     {% endif %}
 </body>
