@@ -2745,6 +2745,14 @@ HTML_TEMPLATE = """
                         'Analyzing route 0 of ' + data.total + '...';
                     // Update page title
                     document.title = nameText + ' | Reality Check my Route';
+                    // Track collection analysis with Umami
+                    if (typeof umami !== 'undefined') {
+                        umami.track('analyze', {
+                            type: 'collection',
+                            url: url,
+                            name: nameText
+                        });
+                    }
                     // Save URL with collection name
                     saveRecentUrl(url, data.name);
                     // Build share URL with all parameters
@@ -4205,20 +4213,16 @@ HTML_TEMPLATE = """
             <div class="footer-copyright">© 2025 Frank San Miguel</div>
         </div>
     </div>
-    {% if umami_website_id and (result or mode == 'collection') %}
+    {% if umami_website_id and result %}
     <script>
         // Track analysis with Umami (wait for script to load)
         window.addEventListener('load', function() {
             if (typeof umami !== 'undefined') {
-                {% if mode == 'collection' %}
-                umami.track('analyze', {
-                    type: 'collection',
-                    name: '{{ url }}'
-                });
-                {% elif compare_mode and result2 %}
+                {% if compare_mode and result2 %}
                 umami.track('analyze', {
                     type: '{{ "trip" if is_trip else "route" }}',
                     compare: true,
+                    url: '{{ url }}',
                     distance_km: {{ "%.1f"|format(result.distance_km) }},
                     elevation_m: {{ "%.0f"|format(result.elevation_m) }},
                     name: '{{ result.name|replace("'", "\\'") if result.name else "" }}'
@@ -4226,6 +4230,7 @@ HTML_TEMPLATE = """
                 umami.track('analyze', {
                     type: '{{ "trip" if is_trip2 else "route" }}',
                     compare: true,
+                    url: '{{ url2 }}',
                     distance_km: {{ "%.1f"|format(result2.distance_km) }},
                     elevation_m: {{ "%.0f"|format(result2.elevation_m) }},
                     name: '{{ result2.name|replace("'", "\\'") if result2.name else "" }}'
@@ -4233,6 +4238,7 @@ HTML_TEMPLATE = """
                 {% else %}
                 umami.track('analyze', {
                     type: '{{ "trip" if is_trip else "route" }}',
+                    url: '{{ url }}',
                     distance_km: {{ "%.1f"|format(result.distance_km) }},
                     elevation_m: {{ "%.0f"|format(result.elevation_m) }},
                     name: '{{ result.name|replace("'", "\\'") if result.name else "" }}'
