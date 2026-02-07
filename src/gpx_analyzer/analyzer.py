@@ -249,13 +249,19 @@ def calculate_hilliness(
     steep_distance = 0.0
     very_steep_distance = 0.0
 
-    # Calculate rolling grades for max grade (filters GPS noise)
-    # Use unscaled points if provided, then apply additional smoothing for max grade
-    grade_points = unscaled_points if unscaled_points is not None else points
+    # Calculate rolling grades for histogram binning from unscaled points (already smoothed by user setting)
+    # No additional smoothing - use the same grades that the elevation profile tooltip shows
+    histogram_points = unscaled_points if unscaled_points is not None else points
+    rolling_grades = _calculate_rolling_grades(histogram_points, max_grade_window)
+
+    # Calculate max grade with additional smoothing to filter extreme GPS spikes
+    # This extra smoothing only affects the max_grade value, not histogram bins
     if max_grade_smoothing > 0:
-        grade_points = smooth_elevations(grade_points, max_grade_smoothing, 1.0)
-    rolling_grades = _calculate_rolling_grades(grade_points, max_grade_window)
-    max_grade = max(rolling_grades) if rolling_grades else 0.0
+        max_grade_points = smooth_elevations(histogram_points, max_grade_smoothing, 1.0)
+        max_grade_rolling = _calculate_rolling_grades(max_grade_points, max_grade_window)
+        max_grade = max(max_grade_rolling) if max_grade_rolling else 0.0
+    else:
+        max_grade = max(rolling_grades) if rolling_grades else 0.0
 
     # For steepness calculation (effort-weighted average grade)
     weighted_grade_sum = 0.0

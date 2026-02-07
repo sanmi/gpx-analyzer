@@ -4963,6 +4963,7 @@ def _calculate_elevation_profile_data(url: str, params: RiderParams, smoothing: 
     # Calculate rolling grades from UNSCALED points for accurate per-segment grades
     # Scaling is only used for physics (work/power) and total gain matching API
     # Using scaled points would incorrectly reduce grades on noisy routes
+    # unscaled_points are already smoothed with user's smoothing setting
     max_grade_window = config.get("max_grade_window_route", DEFAULT_MAX_GRADE_WINDOW)
     rolling_grades = _calculate_rolling_grades(unscaled_points, max_grade_window)
 
@@ -5092,6 +5093,7 @@ def _calculate_trip_elevation_profile_data(url: str, collapse_stops: bool = Fals
 
     # Calculate rolling grades from UNSCALED points for accurate per-segment grades
     # Scaling only affects physics/total gain, not per-segment grades shown to users
+    # unscaled_points are already smoothed with user's smoothing setting
     rolling_grades = _calculate_rolling_grades(unscaled_points, max_grade_window)
 
     # Use actual timestamps for x-axis
@@ -5560,36 +5562,23 @@ def elevation_profile_data():
             step = len(times) // max_points
             times = times[::step]
             elevations = elevations[::step]
-            # Recalculate grades from merged distance and elevation change
-            # Grade = (elev_change / distance) * 100
-            if distances and elev_gains and elev_losses:
+            # Use weighted average of rolling grades to match histogram methodology
+            # The grades array already contains rolling grades calculated the same way as the histogram
+            # Don't recalculate from raw elevation data as that bypasses the rolling window
+            if distances and grades:
                 new_grades = []
                 for i in range(0, len(grades), step):
-                    chunk_dist = sum(distances[i:i+step])
-                    chunk_gain = sum(elev_gains[i:i+step])
-                    chunk_loss = sum(elev_losses[i:i+step])
-                    chunk_elev_change = chunk_gain + chunk_loss  # loss is negative
-                    if chunk_dist > 0:
-                        new_grades.append((chunk_elev_change / chunk_dist) * 100)
+                    chunk_grades = grades[i:i+step]
+                    chunk_dists = distances[i:i+step]
+                    total_dist = sum(chunk_dists)
+                    if total_dist > 0:
+                        weighted_grade = sum(g * d for g, d in zip(chunk_grades, chunk_dists)) / total_dist
+                        new_grades.append(weighted_grade)
                     else:
-                        new_grades.append(0.0)
+                        new_grades.append(chunk_grades[0] if chunk_grades else 0.0)
                 grades = new_grades
             else:
-                # Fallback: weighted average by distance if available
-                if distances:
-                    new_grades = []
-                    for i in range(0, len(grades), step):
-                        chunk_grades = grades[i:i+step]
-                        chunk_dists = distances[i:i+step]
-                        total_dist = sum(chunk_dists)
-                        if total_dist > 0:
-                            weighted_grade = sum(g * d for g, d in zip(chunk_grades, chunk_dists)) / total_dist
-                            new_grades.append(weighted_grade)
-                        else:
-                            new_grades.append(chunk_grades[0] if chunk_grades else 0.0)
-                    grades = new_grades
-                else:
-                    grades = grades[::step]
+                grades = grades[::step]
             if speeds:
                 speeds = speeds[::step]
             if distances:
