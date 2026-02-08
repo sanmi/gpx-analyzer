@@ -3835,14 +3835,22 @@ HTML_TEMPLATE = """
 
             // Fetch profile data
             fetch(dataUrl)
-                .then(r => r.json())
+                .then(r => {
+                    if (!r.ok) {
+                        console.error('Profile data fetch failed:', r.status, r.statusText, dataUrl);
+                        return { error: 'HTTP ' + r.status };
+                    }
+                    return r.json();
+                })
                 .then(data => {
-                    if (!data.error) {
+                    if (data && !data.error) {
                         profileData = data;
                         if (!xlimHours) xlimHours = profileData.total_time;
+                    } else if (data && data.error) {
+                        console.error('Profile data error:', data.error, dataUrl);
                     }
                 })
-                .catch(() => {});
+                .catch(err => console.error('Profile data fetch exception:', err, dataUrl));
 
             // The plot area margins match tight_layout() output for figsize=(14,4)
             const plotLeftPct = 0.055;
@@ -4075,7 +4083,10 @@ HTML_TEMPLATE = """
 
             // Event handlers
             function onMouseMove(e) {
-                if (!profileData) return;
+                if (!profileData) {
+                    // Uncomment for debugging: console.log('No profile data yet for', containerId);
+                    return;
+                }
                 const rect = img.getBoundingClientRect();
                 const xPct = (e.clientX - rect.left) / rect.width;
 
@@ -7060,9 +7071,12 @@ RIDE_TEMPLATE = """
             let selectionActive = false;
 
             fetch(dataUrl)
-                .then(r => r.json())
-                .then(data => { if (!data.error) profileData = data; })
-                .catch(() => {});
+                .then(r => {
+                    if (!r.ok) { console.error('Profile data fetch failed:', r.status, dataUrl); return { error: 'HTTP ' + r.status }; }
+                    return r.json();
+                })
+                .then(data => { if (data && !data.error) profileData = data; else if (data?.error) console.error('Profile data error:', data.error, dataUrl); })
+                .catch(err => console.error('Profile data fetch exception:', err, dataUrl));
 
             // Calculate plot margins based on aspect ratio
             // Margins in inches are roughly constant, so as percentage they scale with 1/aspectRatio
