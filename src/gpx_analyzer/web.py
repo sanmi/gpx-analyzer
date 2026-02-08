@@ -685,6 +685,10 @@ HTML_TEMPLATE = """
             width: 100%;
             height: auto;
             display: block;
+            /* Prevent Safari long-press context menu */
+            -webkit-touch-callout: none;
+            -webkit-user-select: none;
+            user-select: none;
         }
         .elevation-tooltip {
             position: absolute;
@@ -774,6 +778,42 @@ HTML_TEMPLATE = """
         .elevation-selection-popup .stat-value {
             font-weight: bold;
         }
+
+        /* Long-press indicator for touch selection */
+        .long-press-indicator {
+            position: absolute;
+            width: 60px;
+            height: 60px;
+            margin-left: -30px;
+            margin-top: -30px;
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.15s ease-out;
+            z-index: 100;
+        }
+        .long-press-indicator.active {
+            opacity: 1;
+        }
+        .long-press-ring {
+            width: 100%;
+            height: 100%;
+            border: 3px solid #2196F3;
+            border-radius: 50%;
+            animation: long-press-pulse 0.4s ease-out forwards;
+            box-sizing: border-box;
+        }
+        @keyframes long-press-pulse {
+            0% {
+                transform: scale(0.3);
+                opacity: 0.8;
+            }
+            100% {
+                transform: scale(1);
+                opacity: 0;
+                border-width: 2px;
+            }
+        }
+
         .elevation-loading {
             display: flex;
             align-items: center;
@@ -4090,60 +4130,140 @@ HTML_TEMPLATE = """
                 hideTooltip();
             }
 
-            // Touch handlers
+            // Long-press touch selection
+            const LONG_PRESS_DURATION = 400;  // ms to trigger long-press
+            const LONG_PRESS_MOVE_THRESHOLD = 15;  // px movement allowed during long-press wait
+            let longPressTimer = null;
+            let longPressStartX = 0;
+            let longPressStartY = 0;
+            let longPressPending = false;
+
+            // Create long-press indicator element
+            let longPressIndicator = container.querySelector('.long-press-indicator');
+            if (!longPressIndicator) {
+                longPressIndicator = document.createElement('div');
+                longPressIndicator.className = 'long-press-indicator';
+                longPressIndicator.innerHTML = '<div class="long-press-ring"></div>';
+                container.appendChild(longPressIndicator);
+            }
+
+            function showLongPressIndicator(clientX, clientY) {
+                const rect = container.getBoundingClientRect();
+                longPressIndicator.style.left = (clientX - rect.left) + 'px';
+                longPressIndicator.style.top = (clientY - rect.top) + 'px';
+                longPressIndicator.classList.add('active');
+            }
+
+            function hideLongPressIndicator() {
+                longPressIndicator.classList.remove('active');
+            }
+
+            function triggerHapticFeedback() {
+                if (navigator.vibrate) {
+                    navigator.vibrate(50);
+                }
+            }
+
+            function cancelLongPress() {
+                if (longPressTimer) {
+                    clearTimeout(longPressTimer);
+                    longPressTimer = null;
+                }
+                longPressPending = false;
+                hideLongPressIndicator();
+            }
+
             function onTouchStart(e) {
                 if (!profileData) return;
-                if (selectionActive) {
-                    clearSelection();
-                    return;
-                }
-                const rect = img.getBoundingClientRect();
+                if (selectionActive) { clearSelection(); return; }
+
                 const touch = e.touches[0];
-                selectionStart = (touch.clientX - rect.left) / rect.width;
-                isSelecting = true;
+                longPressStartX = touch.clientX;
+                longPressStartY = touch.clientY;
+                longPressPending = true;
+
+                // Show visual indicator immediately
+                showLongPressIndicator(touch.clientX, touch.clientY);
+
+                // Start long-press timer
+                longPressTimer = setTimeout(() => {
+                    if (!longPressPending) return;
+                    longPressPending = false;
+                    hideLongPressIndicator();
+
+                    // Trigger haptic feedback
+                    triggerHapticFeedback();
+
+                    // Enter selection mode
+                    const rect = img.getBoundingClientRect();
+                    selectionStart = (touch.clientX - rect.left) / rect.width;
+                    isSelecting = true;
+
+                    // Show initial selection highlight at touch point
+                    updateSelectionHighlight(selectionStart, selectionStart);
+                }, LONG_PRESS_DURATION);
             }
 
             function onTouchMove(e) {
-                e.preventDefault();
                 if (!profileData) return;
-                const rect = img.getBoundingClientRect();
-                const touch = e.touches[0];
-                const xPct = (touch.clientX - rect.left) / rect.width;
 
+                const touch = e.touches[0];
+
+                // If waiting for long-press, check if moved too much
+                if (longPressPending) {
+                    const dx = touch.clientX - longPressStartX;
+                    const dy = touch.clientY - longPressStartY;
+                    const distance = Math.sqrt(dx * dx + dy * dy);
+                    if (distance > LONG_PRESS_MOVE_THRESHOLD) {
+                        // User is scrolling, cancel long-press
+                        cancelLongPress();
+                        return;
+                    }
+                    // Still waiting for long-press, don't prevent default (allow scroll)
+                    return;
+                }
+
+                // In selection mode - prevent scrolling and update selection
                 if (isSelecting) {
+                    e.preventDefault();
+                    const rect = img.getBoundingClientRect();
+                    const xPct = (touch.clientX - rect.left) / rect.width;
                     updateSelectionHighlight(selectionStart, xPct);
-                    updateTooltip(xPct, touch.clientX);
-                } else if (!selectionActive) {
                     updateTooltip(xPct, touch.clientX);
                 }
             }
 
             function onTouchEnd(e) {
-                if (!isSelecting) {
+                // Cancel any pending long-press
+                if (longPressPending) {
+                    cancelLongPress();
                     hideTooltip();
                     return;
                 }
+
+                if (!isSelecting) { hideTooltip(); return; }
                 isSelecting = false;
-                // Use last known position from the selection highlight
                 if (!selection) { hideTooltip(); return; }
+
                 const rect = img.getBoundingClientRect();
                 const selLeft = parseFloat(selection.style.left) / 100;
                 const selWidth = parseFloat(selection.style.width) / 100;
-                const xPctEnd = selLeft + selWidth;
-                const dragPx = selWidth * rect.width;
-
-                if (dragPx > 30) {
+                if (selWidth * rect.width > 30) {
                     const startIdx = getIndexAtPosition(selLeft);
-                    const endIdx = getIndexAtPosition(xPctEnd);
+                    const endIdx = getIndexAtPosition(selLeft + selWidth);
                     if (startIdx >= 0 && endIdx >= 0 && startIdx !== endIdx) {
                         const stats = computeSelectionStats(startIdx, endIdx);
-                        const centerXPct = selLeft + selWidth / 2;
                         hideTooltip();
-                        showSelectionPopup(stats, centerXPct);
-                    } else {
-                        clearSelection();
-                    }
-                } else {
+                        showSelectionPopup(stats, selLeft + selWidth / 2);
+                    } else clearSelection();
+                } else clearSelection();
+                hideTooltip();
+            }
+
+            function onTouchCancel(e) {
+                cancelLongPress();
+                if (isSelecting) {
+                    isSelecting = false;
                     clearSelection();
                 }
                 hideTooltip();
@@ -4166,6 +4286,7 @@ HTML_TEMPLATE = """
             container.addEventListener('touchstart', onTouchStart, { passive: true, signal: abortController.signal });
             container.addEventListener('touchmove', onTouchMove, { passive: false, signal: abortController.signal });
             container.addEventListener('touchend', onTouchEnd, { passive: true, signal: abortController.signal });
+            container.addEventListener('touchcancel', onTouchCancel, { passive: true, signal: abortController.signal });
             document.addEventListener('keydown', onKeyDown, { signal: abortController.signal });
 
             container._profileCleanup = function() {
@@ -5278,6 +5399,30 @@ def _calculate_trip_elevation_profile_data(url: str, collapse_stops: bool = Fals
     }
 
 
+def _set_fixed_margins(fig, fig_width: float, fig_height: float) -> None:
+    """Set fixed margins in inches for consistent JavaScript coordinate mapping.
+
+    Uses fixed inch-based margins so that the plot area is predictable
+    regardless of content. The JavaScript uses the formula:
+        left_pct = 0.77 / fig_width
+        right_pct = 1 - 0.18 / fig_width
+    which corresponds to 0.77 inch left margin and 0.18 inch right margin.
+    """
+    # Fixed margins in inches - these match the JavaScript formula
+    left_margin_in = 0.77
+    right_margin_in = 0.18
+    bottom_margin_in = 0.55
+    top_margin_in = 0.35
+
+    # Convert to figure fractions
+    left = left_margin_in / fig_width
+    right = 1 - right_margin_in / fig_width
+    bottom = bottom_margin_in / fig_height
+    top = 1 - top_margin_in / fig_height
+
+    fig.subplots_adjust(left=left, right=right, bottom=bottom, top=top)
+
+
 def generate_elevation_profile(url: str, params: RiderParams, title_time_hours: float | None = None,
                                max_xlim_hours: float | None = None,
                                overlay: str | None = None, imperial: bool = False,
@@ -5400,7 +5545,7 @@ def generate_elevation_profile(url: str, params: RiderParams, title_time_hours: 
 
     ax.grid(axis='y', alpha=0.3, linestyle='-', linewidth=0.5)
 
-    plt.tight_layout()
+    _set_fixed_margins(fig, fig_width, fig_height)
 
     buf = io.BytesIO()
     fig.savefig(buf, format='png', dpi=100,
@@ -5507,7 +5652,7 @@ def generate_trip_elevation_profile(url: str, title_time_hours: float | None = N
 
     ax.grid(axis='y', alpha=0.3, linestyle='-', linewidth=0.5)
 
-    plt.tight_layout()
+    _set_fixed_margins(fig, 14, 4)
 
     buf = io.BytesIO()
     fig.savefig(buf, format='png', dpi=100,
@@ -6112,6 +6257,10 @@ RIDE_TEMPLATE = """
             width: 100%;
             height: auto;
             display: block;
+            /* Prevent Safari long-press context menu */
+            -webkit-touch-callout: none;
+            -webkit-user-select: none;
+            user-select: none;
         }
         .main-profile-container img.loading {
             display: none;
@@ -6201,6 +6350,42 @@ RIDE_TEMPLATE = """
         }
         .elevation-selection-popup .stat-label { color: #aaa; }
         .elevation-selection-popup .stat-value { font-weight: bold; }
+
+        /* Long-press indicator for touch selection */
+        .long-press-indicator {
+            position: absolute;
+            width: 60px;
+            height: 60px;
+            margin-left: -30px;
+            margin-top: -30px;
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.15s ease-out;
+            z-index: 100;
+        }
+        .long-press-indicator.active {
+            opacity: 1;
+        }
+        .long-press-ring {
+            width: 100%;
+            height: 100%;
+            border: 3px solid var(--primary-color, #2196F3);
+            border-radius: 50%;
+            animation: long-press-pulse 0.4s ease-out forwards;
+            box-sizing: border-box;
+        }
+        @keyframes long-press-pulse {
+            0% {
+                transform: scale(0.3);
+                opacity: 0.8;
+            }
+            100% {
+                transform: scale(1);
+                opacity: 0;
+                border-width: 2px;
+            }
+        }
+
         .climb-profile-container {
             position: relative;
             width: 100%;
@@ -6212,6 +6397,10 @@ RIDE_TEMPLATE = """
             width: 100%;
             height: auto;
             display: block;
+            /* Prevent Safari long-press context menu */
+            -webkit-touch-callout: none;
+            -webkit-user-select: none;
+            user-select: none;
         }
         .sensitivity-control { margin-top: 16px; }
         .sensitivity-label {
@@ -6701,6 +6890,15 @@ RIDE_TEMPLATE = """
         slider.addEventListener('input', () => updateClimbs(true));
 
         // Update main elevation profile with current aspect ratio
+        // Calculate aspect ratio for a specific container
+        function getAspectForContainer(container) {
+            if (!container) return 1;
+            const width = container.offsetWidth;
+            if (width < 500) return 1;
+            if (width < 800) return 2;
+            return Math.min(3.5, width / 250);
+        }
+
         function updateMainProfile() {
             const container = document.getElementById('elevationContainer');
             const img = document.getElementById('elevationImg');
@@ -6709,7 +6907,7 @@ RIDE_TEMPLATE = """
             const baseProfileUrl = container.getAttribute('data-base-profile-url');
             const baseDataUrl = container.getAttribute('data-base-data-url');
             if (!baseProfileUrl) return;
-            const aspect = getAspectRatio();
+            const aspect = getAspectForContainer(container);  // Use this container's width
             const overlayParams = _buildOverlayParams();
             if (loading) loading.classList.remove('hidden');
             img.classList.add('loading');
@@ -6757,7 +6955,7 @@ RIDE_TEMPLATE = """
             const baseProfileUrl = container.getAttribute('data-base-profile-url');
             const baseDataUrl = container.getAttribute('data-base-data-url');
             if (!baseProfileUrl) return;
-            const aspect = getAspectRatio();
+            const aspect = getAspectForContainer(container);  // Use this container's width
             const overlayParams = _buildOverlayParams();
             if (loading) loading.classList.remove('hidden');
             img.classList.add('loading');
@@ -6807,13 +7005,18 @@ RIDE_TEMPLATE = """
             const baseProfileUrl = container.getAttribute('data-base-profile-url');
             const baseDataUrl = container.getAttribute('data-base-data-url');
             if (!baseProfileUrl) return;
+            const aspect = getAspectForContainer(container);  // Use this container's width
             const overlayParams = _buildOverlayParams();
             loading.classList.remove('hidden');
             img.classList.add('loading');
-            img.src = baseProfileUrl + overlayParams;
-            if (typeof setupElevationProfile === 'function' && baseDataUrl) {
-                setupElevationProfile('elevationContainer', 'elevationImg', 'elevationTooltip', 'elevationCursor', baseDataUrl);
-            }
+            img.src = baseProfileUrl + `&aspect=${aspect.toFixed(2)}` + overlayParams;
+            img.onload = () => {
+                loading.classList.add('hidden');
+                img.classList.remove('loading');
+                if (typeof setupElevationProfile === 'function' && baseDataUrl) {
+                    setupElevationProfile('elevationContainer', 'elevationImg', 'elevationTooltip', 'elevationCursor', baseDataUrl);
+                }
+            };
         }
 
         function goBack() {
@@ -6851,11 +7054,18 @@ RIDE_TEMPLATE = """
             // Calculate plot margins based on aspect ratio
             // Margins in inches are roughly constant, so as percentage they scale with 1/aspectRatio
             // Calibrated from figsize=(14,4) where leftMargin=0.77in, rightMargin=0.18in
+            function getContainerAspect() {
+                // Use THIS container's width, not the global getAspectRatio which uses climbProfileContainer
+                const width = container.offsetWidth;
+                if (width < 500) return 1;
+                if (width < 800) return 2;
+                return Math.min(3.5, width / 250);
+            }
             function getPlotMargins() {
-                const aspect = typeof getAspectRatio === 'function' ? getAspectRatio() : 1.0;
+                const aspect = getContainerAspect();
                 return {
-                    left: 0.193 / aspect,   // ~0.055 at aspect=3.5, ~0.193 at aspect=1.0
-                    right: 1 - 0.045 / aspect  // ~0.987 at aspect=3.5, ~0.955 at aspect=1.0
+                    left: 0.1925 / aspect,   // 0.77in / (4in * aspect) = 0.1925/aspect
+                    right: 1 - 0.045 / aspect  // 1 - 0.18in / (4in * aspect) = 1 - 0.045/aspect
                 };
             }
             let plotMargins = getPlotMargins();
@@ -7056,27 +7266,121 @@ RIDE_TEMPLATE = """
 
             function onMouseLeave(e) { if (isSelecting) onMouseUp(e); hideTooltip(); }
 
+            // Long-press touch selection
+            const LONG_PRESS_DURATION = 400;  // ms to trigger long-press
+            const LONG_PRESS_MOVE_THRESHOLD = 15;  // px movement allowed during long-press wait
+            let longPressTimer = null;
+            let longPressStartX = 0;
+            let longPressStartY = 0;
+            let longPressPending = false;
+
+            // Create long-press indicator element
+            let longPressIndicator = container.querySelector('.long-press-indicator');
+            if (!longPressIndicator) {
+                longPressIndicator = document.createElement('div');
+                longPressIndicator.className = 'long-press-indicator';
+                longPressIndicator.innerHTML = '<div class="long-press-ring"></div>';
+                container.appendChild(longPressIndicator);
+            }
+
+            function showLongPressIndicator(clientX, clientY) {
+                const rect = container.getBoundingClientRect();
+                longPressIndicator.style.left = (clientX - rect.left) + 'px';
+                longPressIndicator.style.top = (clientY - rect.top) + 'px';
+                longPressIndicator.classList.add('active');
+            }
+
+            function hideLongPressIndicator() {
+                longPressIndicator.classList.remove('active');
+            }
+
+            function triggerHapticFeedback() {
+                if (navigator.vibrate) {
+                    navigator.vibrate(50);
+                }
+            }
+
+            function cancelLongPress() {
+                if (longPressTimer) {
+                    clearTimeout(longPressTimer);
+                    longPressTimer = null;
+                }
+                longPressPending = false;
+                hideLongPressIndicator();
+            }
+
             function onTouchStart(e) {
                 if (!profileData) return;
                 if (selectionActive) { clearSelection(); return; }
-                const rect = img.getBoundingClientRect();
-                selectionStart = (e.touches[0].clientX - rect.left) / rect.width;
-                isSelecting = true;
+
+                const touch = e.touches[0];
+                longPressStartX = touch.clientX;
+                longPressStartY = touch.clientY;
+                longPressPending = true;
+
+                // Show visual indicator immediately
+                showLongPressIndicator(touch.clientX, touch.clientY);
+
+                // Start long-press timer
+                longPressTimer = setTimeout(() => {
+                    if (!longPressPending) return;
+                    longPressPending = false;
+                    hideLongPressIndicator();
+
+                    // Trigger haptic feedback
+                    triggerHapticFeedback();
+
+                    // Enter selection mode
+                    const rect = img.getBoundingClientRect();
+                    selectionStart = (touch.clientX - rect.left) / rect.width;
+                    isSelecting = true;
+
+                    // Show initial selection highlight at touch point
+                    updateSelectionHighlight(selectionStart, selectionStart);
+                }, LONG_PRESS_DURATION);
             }
 
             function onTouchMove(e) {
-                e.preventDefault();
                 if (!profileData) return;
-                const rect = img.getBoundingClientRect();
-                const xPct = (e.touches[0].clientX - rect.left) / rect.width;
-                if (isSelecting) { updateSelectionHighlight(selectionStart, xPct); updateTooltip(xPct, e.touches[0].clientX); }
-                else if (!selectionActive) updateTooltip(xPct, e.touches[0].clientX);
+
+                const touch = e.touches[0];
+
+                // If waiting for long-press, check if moved too much
+                if (longPressPending) {
+                    const dx = touch.clientX - longPressStartX;
+                    const dy = touch.clientY - longPressStartY;
+                    const distance = Math.sqrt(dx * dx + dy * dy);
+                    if (distance > LONG_PRESS_MOVE_THRESHOLD) {
+                        // User is scrolling, cancel long-press
+                        cancelLongPress();
+                        return;
+                    }
+                    // Still waiting for long-press, don't prevent default (allow scroll)
+                    return;
+                }
+
+                // In selection mode - prevent scrolling and update selection
+                if (isSelecting) {
+                    e.preventDefault();
+                    const rect = img.getBoundingClientRect();
+                    const xPct = (touch.clientX - rect.left) / rect.width;
+                    updateSelectionHighlight(selectionStart, xPct);
+                    updateTooltip(xPct, touch.clientX);
+                }
             }
 
             function onTouchEnd(e) {
+                // Cancel any pending long-press
+                if (longPressPending) {
+                    cancelLongPress();
+                    hideTooltip();
+                    return;
+                }
+
                 if (!isSelecting) { hideTooltip(); return; }
                 isSelecting = false;
                 if (!selection) { hideTooltip(); return; }
+
                 const rect = img.getBoundingClientRect();
                 const selLeft = parseFloat(selection.style.left) / 100;
                 const selWidth = parseFloat(selection.style.width) / 100;
@@ -7092,6 +7396,15 @@ RIDE_TEMPLATE = """
                 hideTooltip();
             }
 
+            function onTouchCancel(e) {
+                cancelLongPress();
+                if (isSelecting) {
+                    isSelecting = false;
+                    clearSelection();
+                }
+                hideTooltip();
+            }
+
             if (container._profileCleanup) container._profileCleanup();
             const ac = new AbortController();
             container.addEventListener('mousemove', onMouseMove, { signal: ac.signal });
@@ -7101,6 +7414,7 @@ RIDE_TEMPLATE = """
             container.addEventListener('touchstart', onTouchStart, { passive: true, signal: ac.signal });
             container.addEventListener('touchmove', onTouchMove, { passive: false, signal: ac.signal });
             container.addEventListener('touchend', onTouchEnd, { passive: true, signal: ac.signal });
+            container.addEventListener('touchcancel', onTouchCancel, { passive: true, signal: ac.signal });
             document.addEventListener('keydown', (e) => { if (e.key === 'Escape') clearSelection(); }, { signal: ac.signal });
             container._profileCleanup = () => ac.abort();
         }
@@ -7482,7 +7796,7 @@ def _generate_ride_profile(times_hours: list, elevations: list, grades: list, cl
     ax.spines['right'].set_visible(False)
     ax.grid(axis='y', alpha=0.3, linestyle='-', linewidth=0.5)
 
-    plt.tight_layout()
+    _set_fixed_margins(fig, fig_width, fig_height)
 
     buf = io.BytesIO()
     fig.savefig(buf, format='png', dpi=100, facecolor='white', edgecolor='none')

@@ -9,7 +9,13 @@ Supports RideWithGPS route URLs with automatic surface type detection for mixed 
 ## Purpose
 
 This quantifies how difficult a route is going to be and lets you compare it to other routes you've made or other rides 
-you've ridden. It is designed for bikepackers who are planning routes on unfamiliar territory and want to
+you've ridden. It is designed for  planning bike adventures on unfamiliar territory, helping you to understand what 
+it will feel like. It helps answer questions like:
+- how hard is this ride?  
+- How long will it take me with all my touring gear?
+- how does it compare to that other ride I did?
+- Are the routes on my tour too much?
+- how long will it take to climb this hill and when will we get to that bakery?
 
 ## How It Works
 

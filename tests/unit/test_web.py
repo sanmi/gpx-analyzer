@@ -1393,10 +1393,10 @@ class TestDynamicPlotMargins:
 
         # Verify the dynamic margin function exists
         assert "function getPlotMargins()" in html
-        # Verify it uses getAspectRatio for dynamic calculation
-        assert "getAspectRatio()" in html
+        # Verify it calculates aspect from the container
+        assert "getContainerAspect()" in html
         # Verify the formula uses division by aspect (margins shrink as aspect increases)
-        assert "0.193 / aspect" in html
+        assert "0.1925 / aspect" in html
         assert "0.045 / aspect" in html
 
     @patch.object(web, "get_route_with_surface")
@@ -1415,18 +1415,19 @@ class TestDynamicPlotMargins:
         response = client.get("/ride?url=https://ridewithgps.com/routes/12345")
         html = response.data.decode()
 
-        # The formula is: left = 0.193/aspect, right = 1 - 0.045/aspect
-        # At aspect=1.0 (mobile/square): left=0.193, right=0.955
+        # The formula is: left = 0.1925/aspect, right = 1 - 0.045/aspect
+        # These come from: 0.77 inch / (4 inch * aspect) and 0.18 inch / (4 inch * aspect)
+        # At aspect=1.0 (mobile/square): left=0.1925, right=0.955
         # At aspect=3.5 (desktop/wide): left=0.055, right=0.987
 
-        left_constant = 0.193
+        left_constant = 0.1925
         right_constant = 0.045
 
         # Verify formula produces correct margins for mobile (aspect=1.0)
         mobile_aspect = 1.0
         mobile_left = left_constant / mobile_aspect
         mobile_right = 1 - right_constant / mobile_aspect
-        assert abs(mobile_left - 0.193) < 0.001, f"Mobile left margin should be ~0.193, got {mobile_left}"
+        assert abs(mobile_left - 0.1925) < 0.001, f"Mobile left margin should be ~0.1925, got {mobile_left}"
         assert abs(mobile_right - 0.955) < 0.001, f"Mobile right margin should be ~0.955, got {mobile_right}"
 
         # Verify formula produces correct margins for desktop (aspect=3.5)
@@ -1437,7 +1438,7 @@ class TestDynamicPlotMargins:
         assert abs(desktop_right - 0.987) < 0.001, f"Desktop right margin should be ~0.987, got {desktop_right}"
 
         # Verify the page uses these exact constants
-        assert "0.193" in html, "Left margin constant 0.193 should be in HTML"
+        assert "0.1925" in html, "Left margin constant 0.1925 should be in HTML"
         assert "0.045" in html, "Right margin constant 0.045 should be in HTML"
 
     @patch.object(web, "get_route_with_surface")
