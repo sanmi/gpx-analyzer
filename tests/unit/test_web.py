@@ -917,6 +917,48 @@ class TestElevationProfileData:
         # Check data consistency
         assert len(data["times"]) == len(data["elevations"])
 
+    @patch.object(web, "get_trip_data")
+    def test_trip_profile_handles_none_grades_in_downsampling(self, mock_get_trip, client, no_config):
+        """Trip profile should handle None grades (stopped segments) during downsampling."""
+        from gpx_analyzer.ridewithgps import TripPoint
+
+        # Create >1000 points to trigger downsampling, with some stopped segments (speed=0, grade=None)
+        points = []
+        for i in range(1200):
+            # Every 50th point is a stop (speed=0)
+            is_stopped = (i % 50 == 25)
+            points.append(TripPoint(
+                lat=37.7749 + i * 0.0001,
+                lon=-122.4194 + i * 0.0001,
+                elevation=100.0 + (i % 100),  # Varying elevation
+                distance=i * 10,
+                speed=0.0 if is_stopped else 5.0,
+                timestamp=i * 2,
+                power=0 if is_stopped else 150,
+                heart_rate=None,
+                cadence=None,
+            ))
+
+        mock_get_trip.return_value = (
+            points,
+            {"name": "Test Trip with Stops", "distance": 12000, "elevation_gain": 1000, "moving_time": 2400},
+        )
+
+        response = client.get("/elevation-profile-data", query_string={
+            "url": "https://ridewithgps.com/trips/12345",
+        })
+
+        # Should not crash with 500 error due to None * float
+        assert response.status_code == 200
+        data = json.loads(response.data)
+
+        # Data should be downsampled (fewer than 1200 points)
+        assert len(data["times"]) < 1200
+        # Grades can include None values for stopped segments
+        assert "grades" in data
+        # Should have valid structure
+        assert len(data["times"]) == len(data["elevations"])
+
 
 class TestComparisonMode:
     """Tests for route/trip comparison mode."""
