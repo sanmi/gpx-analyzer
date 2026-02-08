@@ -6848,13 +6848,25 @@ RIDE_TEMPLATE = """
                 .then(data => { if (!data.error) profileData = data; })
                 .catch(() => {});
 
-            const plotLeftPct = 0.055;
-            const speedCheckbox = document.getElementById('overlay_speed');
-            const plotRightPct = (speedCheckbox && speedCheckbox.checked) ? 0.955 : 0.987;
+            // Calculate plot margins based on aspect ratio
+            // Margins in inches are roughly constant, so as percentage they scale with 1/aspectRatio
+            // Calibrated from figsize=(14,4) where leftMargin=0.77in, rightMargin=0.18in
+            function getPlotMargins() {
+                const aspect = typeof getAspectRatio === 'function' ? getAspectRatio() : 1.0;
+                return {
+                    left: 0.193 / aspect,   // ~0.055 at aspect=3.5, ~0.193 at aspect=1.0
+                    right: 1 - 0.045 / aspect  // ~0.987 at aspect=3.5, ~0.955 at aspect=1.0
+                };
+            }
+            let plotMargins = getPlotMargins();
+            function getPlotLeftPct() { return plotMargins.left; }
+            function getPlotRightPct() { return plotMargins.right; }
+            function updatePlotMargins() { plotMargins = getPlotMargins(); }
 
             function getDataAtPosition(xPct) {
                 if (!profileData || !profileData.times || profileData.times.length < 2) return null;
-                const plotXPct = (xPct - plotLeftPct) / (plotRightPct - plotLeftPct);
+                const leftPct = getPlotLeftPct(), rightPct = getPlotRightPct();
+                const plotXPct = (xPct - leftPct) / (rightPct - leftPct);
                 if (plotXPct < 0 || plotXPct > 1) return null;
                 const time = plotXPct * profileData.total_time;
                 if (time > profileData.total_time) return null;
@@ -6869,7 +6881,8 @@ RIDE_TEMPLATE = """
 
             function getIndexAtPosition(xPct) {
                 if (!profileData || !profileData.times || profileData.times.length < 2) return -1;
-                const plotXPct = Math.max(0, Math.min(1, (xPct - plotLeftPct) / (plotRightPct - plotLeftPct)));
+                const leftPct = getPlotLeftPct(), rightPct = getPlotRightPct();
+                const plotXPct = Math.max(0, Math.min(1, (xPct - leftPct) / (rightPct - leftPct)));
                 const time = Math.min(plotXPct * profileData.total_time, profileData.total_time);
                 for (let i = 0; i < profileData.times.length - 1; i++) {
                     if (time >= profileData.times[i] && time < profileData.times[i + 1]) return i;
@@ -6927,8 +6940,9 @@ RIDE_TEMPLATE = """
 
             function updateSelectionHighlight(startXPct, endXPct) {
                 if (!selection) return;
-                const clampedStart = Math.max(plotLeftPct, Math.min(plotRightPct, startXPct));
-                const clampedEnd = Math.max(plotLeftPct, Math.min(plotRightPct, endXPct));
+                const leftPct = getPlotLeftPct(), rightPct = getPlotRightPct();
+                const clampedStart = Math.max(leftPct, Math.min(rightPct, startXPct));
+                const clampedEnd = Math.max(leftPct, Math.min(rightPct, endXPct));
                 selection.style.left = (Math.min(clampedStart, clampedEnd) * 100) + '%';
                 selection.style.width = (Math.abs(clampedEnd - clampedStart) * 100) + '%';
                 selection.classList.add('visible');

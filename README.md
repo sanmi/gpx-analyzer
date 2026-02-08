@@ -1,24 +1,39 @@
 # Reality Check my Route
 
-Analyze RideWithGPS bike routes and collections using physics-based power estimation. Calculates distance, elevation gain/loss, speed, and estimates work and average power using gravitational, rolling resistance, and aerodynamic drag models.
+Analyze RideWithGPS bike routes and collections using physics-based power estimation. Calculates distance,
+elevation gain/loss, speed, and estimates work and average power using gravitational, rolling resistance, and
+aerodynamic drag models.
 
 Supports RideWithGPS route URLs with automatic surface type detection for mixed road/gravel routes.
 
+## Purpose
+
+This quantifies how difficult a route is going to be and lets you compare it to other routes you've made or other rides 
+you've ridden. It is designed for bikepackers who are planning routes on unfamiliar territory and want to
+
 ## How It Works
 
-Speed is calculated by solving the power balance equation: your power output equals the sum of resistive forces times velocity. All parameters are tunable and have been calibrated against a training set of planned routes compared with actual ride data.
+Speed is calculated by solving the power balance equation: your power output equals the sum of resistive forces times
+velocity. All parameters are tunable and have been calibrated against a training set of planned routes compared with
+actual ride data.
 
 ### Primary Parameters (Biggest Impact)
 
-- **Climbing Power (W)** — Your sustained power output on steep climbs. This is the most important input for hilly routes.
-- **Flat Power (W)** — Power output on flat terrain. On grades between flat and the climb threshold, power ramps linearly between flat and climbing power.
-- **Mass (kg)** — Total weight of rider + bike + gear. Dominates climbing speed since you're lifting this weight against gravity.
-- **CdA (m²)** — Aerodynamic drag coefficient × frontal area. Controls air resistance, which grows with the cube of speed. Typical values: 0.25 (racing tuck) to 0.45 (upright touring).
-- **Crr** — Rolling resistance coefficient. Energy lost to tire deformation and surface friction. Road tires ~0.004, gravel ~0.008-0.012.
+- **Climbing Power (W)** — Your sustained power output on steep climbs. This is the most important input for hilly
+  routes.
+- **Flat Power (W)** — Power output on flat terrain. On grades between flat and the climb threshold, power ramps
+  linearly between flat and climbing power.
+- **Mass (kg)** — Total weight of rider + bike + gear. Dominates climbing speed since you're lifting this weight against
+  gravity.
+- **CdA (m²)** — Aerodynamic drag coefficient × frontal area. Controls air resistance, which grows with the cube of
+  speed. Typical values: 0.25 (racing tuck) to 0.45 (upright touring).
+- **Crr** — Rolling resistance coefficient. Energy lost to tire deformation and surface friction. Road tires ~0.004,
+  gravel ~0.008-0.012.
 
 ### Environmental Factors
 
-- **Headwind (km/h)** — Wind adds to or subtracts from your effective air speed. A 15 km/h headwind at 25 km/h means you experience drag as if riding 40 km/h.
+- **Headwind (km/h)** — Wind adds to or subtracts from your effective air speed. A 15 km/h headwind at 25 km/h means you
+  experience drag as if riding 40 km/h.
 - **Air density (kg/m³)** — Affects aerodynamic drag. Lower at altitude (1.225 at sea level, ~1.0 at 2000m).
 
 ### Power Model
@@ -26,8 +41,10 @@ Speed is calculated by solving the power balance equation: your power output equ
 The model uses three power levels that vary with gradient:
 
 - **Climbing power** — Applied on grades above the climb threshold (~4°). Models the tendency to push harder uphill.
-- **Flat power** — Applied on flat terrain. Power ramps linearly from flat to climbing power as grade increases toward the threshold.
-- **Descending power** — Light pedaling on gentle descents (grade between -2% and the coasting threshold). Drops to zero on steep descents.
+- **Flat power** — Applied on flat terrain. Power ramps linearly from flat to climbing power as grade increases toward
+  the threshold.
+- **Descending power** — Light pedaling on gentle descents (grade between -2% and the coasting threshold). Drops to zero
+  on steep descents.
 - **Climb threshold grade** — Grade (in degrees) where full climbing power kicks in.
 
 ### Descent Model
@@ -35,49 +52,72 @@ The model uses three power levels that vary with gradient:
 Descent speed is limited by two factors: gradient steepness and road curvature.
 
 **Gradient-based limits:**
+
 - **Max coasting speed** — Speed limit when coasting downhill on paved roads. Models braking for safety/comfort.
 - **Max coasting speed unpaved** — Lower speed limit for gravel/dirt descents.
 - **Steep descent speed** — Even slower limit for very steep descents (technical terrain).
 - **Steep descent grade** — Grade threshold where steep descent speed applies.
 - **Coasting grade threshold** — Grade where you stop pedaling entirely and coast.
-- **Descent braking factor** — Multiplier for descent speeds (1.0 = full physics-based speed, 0.5 = cautious braking). Models how aggressively you descend relative to pure physics.
+- **Descent braking factor** — Multiplier for descent speeds (1.0 = full physics-based speed, 0.5 = cautious braking).
+  Models how aggressively you descend relative to pure physics.
 
 **Curvature-based limits:**
-Road curvature is calculated as heading change rate (degrees per meter) using GPS coordinates. On descents, the model limits speed based on how twisty the road is:
+Road curvature is calculated as heading change rate (degrees per meter) using GPS coordinates. On descents, the model
+limits speed based on how twisty the road is:
+
 - **Straight descent speed** — Max speed on straight sections (curvature ≤ straight threshold).
 - **Hairpin speed** — Max speed through tight switchbacks (curvature ≥ hairpin threshold).
 - Between these thresholds, speed is interpolated linearly.
 
-The final descent speed is the more restrictive of gradient and curvature limits. This models real-world behavior: you brake harder on steep grades AND through tight turns.
+The final descent speed is the more restrictive of gradient and curvature limits. This models real-world behavior: you
+brake harder on steep grades AND through tight turns.
 
 ### Gravel/Unpaved Model
 
 For routes with surface type data from RideWithGPS, the model applies two adjustments on unpaved segments:
 
-- **Surface Crr deltas** — Per-surface-type rolling resistance increases based on RideWithGPS surface codes. Rougher surfaces get higher Crr, increasing the energy cost of rolling.
-- **Unpaved power factor** — Multiplier on effective power for unpaved surfaces (default 0.90 = 10% power reduction). Models reduced output due to traction limits, vibration fatigue, and the need to stay seated on rough terrain. Works alongside the Crr increase — Crr dominates the effect on flat terrain while the power factor has more impact on climbs where gravity dominates.
+- **Surface Crr deltas** — Per-surface-type rolling resistance increases based on RideWithGPS surface codes. Rougher
+  surfaces get higher Crr, increasing the energy cost of rolling.
+- **Unpaved power factor** — Multiplier on effective power for unpaved surfaces (default 0.90 = 10% power reduction).
+  Models reduced output due to traction limits, vibration fatigue, and the need to stay seated on rough terrain. Works
+  alongside the Crr increase — Crr dominates the effect on flat terrain while the power factor has more impact on climbs
+  where gravity dominates.
 - **Max coasting speed unpaved** — Lower descent speed limit on gravel/dirt (see Descent Model above).
 
 ### Data Processing
 
-- **Smoothing radius (m)** — Gaussian smoothing applied to elevation data before analysis. GPS elevation is noisy and can show unrealistic grade spikes (e.g., 20%+ grades that don't exist). Smoothing averages elevation over a rolling window, reducing these artifacts while preserving the overall climb profile. Default is 30m; increase for noisier data.
+- **Smoothing radius (m)** — Gaussian smoothing applied to elevation data before analysis. GPS elevation is noisy and
+  can show unrealistic grade spikes (e.g., 20%+ grades that don't exist). Smoothing averages elevation over a rolling
+  window, reducing these artifacts while preserving the overall climb profile. Default is 30m; increase for noisier
+  data.
 
-- **Elevation scale** — Multiplier for elevation changes after smoothing. Auto-calculated from RideWithGPS API data when available. The API provides DEM-corrected elevation gain which is typically more accurate than GPS-derived values. The scale factor adjusts the smoothed elevation to match this reference.
+- **Elevation scale** — Multiplier for elevation changes after smoothing. Auto-calculated from RideWithGPS API data when
+  available. The API provides DEM-corrected elevation gain which is typically more accurate than GPS-derived values. The
+  scale factor adjusts the smoothed elevation to match this reference.
 
-- **Anomaly detection** — Automatic detection and correction of elevation anomalies in DEM data, such as tunnels or bridges where DEM shows the surface above rather than the actual path. These anomalies create artificial elevation spikes. The algorithm detects "Λ" shaped patterns (steep up, peak, steep down, returning near entry elevation) and replaces them with linear interpolation. Corrected anomalies are highlighted with yellow bands in the elevation profile. Typical savings: 5-10% reduction in estimated time/work for routes with tunnels or bridges.
+- **Anomaly detection** — Automatic detection and correction of elevation anomalies in DEM data, such as tunnels or
+  bridges where DEM shows the surface above rather than the actual path. These anomalies create artificial elevation
+  spikes. The algorithm detects "Λ" shaped patterns (steep up, peak, steep down, returning near entry elevation) and
+  replaces them with linear interpolation. Corrected anomalies are highlighted with yellow bands in the elevation
+  profile. Typical savings: 5-10% reduction in estimated time/work for routes with tunnels or bridges.
 
 ### Terrain Metrics
 
-- **Hilliness** — Total elevation gain per unit distance (m/km or ft/mi). Measures *how much* climbing a route has, normalized by length. Typical values: flat (0-5), rolling (5-15), hilly (15-25), mountainous (25+).
+- **Hilliness** — Total elevation gain per unit distance (m/km or ft/mi). Measures *how much* climbing a route has,
+  normalized by length. Typical values: flat (0-5), rolling (5-15), hilly (15-25), mountainous (25+).
 
-- **Steepness** — Effort-weighted average grade of climbs ≥2%. Measures *how steep* the climbs are, not just total climbing. Steeper sections contribute more because they require disproportionately more power. A route with punchy 10% grades scores higher than one with gentle 4% grades, even if total climbing is similar.
+- **Steepness** — Effort-weighted average grade of climbs ≥2%. Measures *how steep* the climbs are, not just total
+  climbing. Steeper sections contribute more because they require disproportionately more power. A route with punchy 10%
+  grades scores higher than one with gentle 4% grades, even if total climbing is similar.
 
-- **Grade histogram** — Time spent at each grade bucket, showing the character of a route. Displayed as a bar chart in the web UI and ASCII art in the CLI.
+- **Grade histogram** — Time spent at each grade bucket, showing the character of a route. Displayed as a bar chart in
+  the web UI and ASCII art in the CLI.
 
 - **Steep climbs section** — Detailed breakdown of grades ≥10%, including:
-  - **Max grade** — Maximum sustained grade, calculated using a 150m rolling average to filter GPS noise.
-  - **Distance at steep grades** — How much of the route is at ≥10% and ≥15% grades.
-  - **Steep grade histogram** — Time and distance distribution across steep grade buckets (10-12%, 12-14%, etc.), using the same 150m rolling average for consistency with max grade.
+    - **Max grade** — Maximum sustained grade, calculated using a 150m rolling average to filter GPS noise.
+    - **Distance at steep grades** — How much of the route is at ≥10% and ≥15% grades.
+    - **Steep grade histogram** — Time and distance distribution across steep grade buckets (10-12%, 12-14%, etc.),
+      using the same 150m rolling average for consistency with max grade.
 
 ## Installation
 
@@ -87,12 +127,13 @@ pip install -e ".[dev]"
 
 ### RideWithGPS API Credentials (Optional)
 
-To access private routes or get surface type data, add your RideWithGPS credentials to `~/.config/gpx-analyzer/gpx-analyzer.json`:
+To access private routes or get surface type data, add your RideWithGPS credentials to
+`~/.config/gpx-analyzer/gpx-analyzer.json`:
 
 ```json
 {
-    "ridewithgps_api_key": "your-api-key",
-    "ridewithgps_auth_token": "your-auth-token"
+  "ridewithgps_api_key": "your-api-key",
+  "ridewithgps_auth_token": "your-auth-token"
 }
 ```
 
@@ -121,6 +162,7 @@ gpx-analyzer-web
 ```
 
 Then open http://localhost:5050 in your browser. The web interface supports:
+
 - Single route analysis with shareable URLs
 - Side-by-side route comparison
 - Collection analysis with real-time progress
@@ -135,15 +177,24 @@ Then open http://localhost:5050 in your browser. The web interface supports:
 
 The application uses multiple levels of caching for performance:
 
-1. **Route JSON Cache** - RideWithGPS route data is cached to disk (`~/.cache/gpx-analyzer/routes_json/`) with ETag-based validation and TTL expiration (5 minutes). When you re-analyze a route, the app sends the cached ETag to RideWithGPS — if the route hasn't changed, RWGPS returns 304 Not Modified and the cached data is used. If the route was modified on RWGPS, the new data is fetched automatically.
+1. **Route JSON Cache** - RideWithGPS route data is cached to disk (`~/.cache/gpx-analyzer/routes_json/`) with
+   ETag-based validation and TTL expiration (5 minutes). When you re-analyze a route, the app sends the cached ETag to
+   RideWithGPS — if the route hasn't changed, RWGPS returns 304 Not Modified and the cached data is used. If the route
+   was modified on RWGPS, the new data is fetched automatically.
 
-2. **Analysis Result Cache** - Computed analysis results are cached in-memory (500 entries, ~0.75 MB). The cache key includes the route's ETag, so when a route changes on RWGPS, the analysis is automatically recomputed. Resets on server restart.
+2. **Analysis Result Cache** - Computed analysis results are cached in-memory (500 entries, ~0.75 MB). The cache key
+   includes the route's ETag, so when a route changes on RWGPS, the analysis is automatically recomputed. Resets on
+   server restart.
 
-3. **Elevation Profile Cache** - Generated elevation profile images are cached to disk (`~/.cache/gpx-analyzer/profiles/`, max 150 images, ~9 MB). This avoids regenerating expensive chart images on repeat views.
+3. **Elevation Profile Cache** - Generated elevation profile images are cached to disk (
+   `~/.cache/gpx-analyzer/profiles/`, max 150 images, ~9 MB). This avoids regenerating expensive chart images on repeat
+   views.
 
 4. **GPX Download Cache** - Legacy GPX file cache (`~/.cache/gpx-analyzer/routes/` and `trips/`) with LRU eviction.
 
-**Cache Invalidation**: Routes are automatically refreshed when modified on RideWithGPS. The app uses HTTP conditional requests (If-None-Match with ETags) to detect changes without downloading the full route data. This means:
+**Cache Invalidation**: Routes are automatically refreshed when modified on RideWithGPS. The app uses HTTP conditional
+requests (If-None-Match with ETags) to detect changes without downloading the full route data. This means:
+
 - If you modify a route on RWGPS and re-analyze, you'll see the updated data
 - Unchanged routes are served from cache instantly (304 Not Modified)
 - Cache TTL (5 minutes) ensures stale data is eventually refreshed even if ETags fail
@@ -168,7 +219,8 @@ Analyze routes directly from RideWithGPS URLs:
 gpx-analyzer https://ridewithgps.com/routes/48889111
 ```
 
-This fetches route data including surface type information (road vs gravel) for more accurate rolling resistance estimation.
+This fetches route data including surface type information (road vs gravel) for more accurate rolling resistance
+estimation.
 
 ### Analyzing Collections
 
@@ -289,12 +341,14 @@ Speed by gradient (actual vs predicted):
   +12% |     6.5 |     4.2 |     -35% |   155W
 ```
 
-The gradient breakdown shows how well the model predicts speed at different grades, with actual power data from the ride.
+The gradient breakdown shows how well the model predicts speed at different grades, with actual power data from the
+ride.
 
 ## Training Data for Parameter Tuning
 
-The physics model parameters (CdA, Crr, coasting speeds, gravel power factor, etc.) have been calibrated against a training set of planned routes compared with actual ride data. You can run the same analysis on your own routes to tune parameters for your riding style:
-
+The physics model parameters (CdA, Crr, coasting speeds, gravel power factor, etc.) have been calibrated against a
+training set of planned routes compared with actual ride data. You can run the same analysis on your own routes to tune
+parameters for your riding style:
 
 ```bash
 gpx-analyzer --training training-data.json
@@ -310,14 +364,19 @@ Training data JSON format:
       "route_url": "https://ridewithgps.com/routes/48889111",
       "trip_url": "https://ridewithgps.com/trips/233763291",
       "avg_watts": 101,
-      "tags": ["road", "gravel", "hilly"],
+      "tags": [
+        "road",
+        "gravel",
+        "hilly"
+      ],
       "notes": "Mixed surface route with significant climbing"
     }
   ]
 }
 ```
 
-The `avg_watts` field specifies the average power for that specific ride (from power meter data). This allows comparing rides at different intensities. If omitted, the default `--climbing-power` value is used.
+The `avg_watts` field specifies the average power for that specific ride (from power meter data). This allows comparing
+rides at different intensities. If omitted, the default `--climbing-power` value is used.
 
 Output shows aggregate statistics and per-route breakdown:
 
@@ -352,7 +411,8 @@ Col de La Croix de Fe   118W    63k  1801m    -0%  -13.1%     +2%
 Lexington, OSC, Loma    101W    86k  1794m   +24%  +10.5%    +20%
 ```
 
-The `Elev%` column shows the difference between route and actual trip elevation gain, helping identify routes with inaccurate elevation data.
+The `Elev%` column shows the difference between route and actual trip elevation gain, helping identify routes with
+inaccurate elevation data.
 
 ## Parameter Optimization
 
@@ -363,6 +423,7 @@ python3 -m gpx_analyzer --optimize training-data.json
 ```
 
 This uses differential evolution to find optimal values for:
+
 - **crr** — Rolling resistance coefficient
 - **cda** — Aerodynamic drag area
 - **coasting_grade** — Grade threshold for coasting
@@ -375,6 +436,7 @@ This uses differential evolution to find optimal values for:
 The optimizer minimizes weighted error across estimated work, time, and max grade for all routes in your training set.
 
 Progress is displayed during optimization:
+
 ```
   Gen  15/100 * error=0.0823  elapsed=2.5m  ETA=14.2m
   Best: crr=0.008, cda=0.320, smoothing=45.0, ...
@@ -386,11 +448,13 @@ To save optimized parameters to a config file:
 python3 -m gpx_analyzer --optimize training-data.json --optimize-output optimized.json
 ```
 
-Note: The optimizer does **not** automatically update your config file. Use `--optimize-output` to save results, then copy the values you want to your `gpx-analyzer.json`.
+Note: The optimizer does **not** automatically update your config file. Use `--optimize-output` to save results, then
+copy the values you want to your `gpx-analyzer.json`.
 
 ## Configuration File
 
-Create `gpx-analyzer.json` in the project directory or `~/.config/gpx-analyzer/gpx-analyzer.json` for persistent settings:
+Create `gpx-analyzer.json` in the project directory or `~/.config/gpx-analyzer/gpx-analyzer.json` for persistent
+settings:
 
 ```json
 {

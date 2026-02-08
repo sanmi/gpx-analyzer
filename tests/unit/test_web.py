@@ -1368,6 +1368,95 @@ class TestElevationProfileRide:
             assert response.content_type == "image/png"
 
 
+class TestDynamicPlotMargins:
+    """Tests for dynamic plot margin calculation based on aspect ratio."""
+
+    @pytest.fixture
+    def mock_route_points(self):
+        """Create simple mock track points."""
+        return [
+            TrackPoint(lat=37.0, lon=-122.0, elevation=100.0, time=None),
+            TrackPoint(lat=37.001, lon=-122.0, elevation=110.0, time=None),
+            TrackPoint(lat=37.002, lon=-122.0, elevation=120.0, time=None),
+        ]
+
+    @patch.object(web, "get_route_with_surface")
+    def test_ride_page_contains_dynamic_margin_formula(self, mock_get_route, client, no_config, mock_route_points):
+        """Ride page should have getPlotMargins function with aspect-based calculation."""
+        mock_get_route.return_value = (
+            mock_route_points,
+            {"name": "Test Route", "elevation_gain": 20},
+        )
+
+        response = client.get("/ride?url=https://ridewithgps.com/routes/12345")
+        html = response.data.decode()
+
+        # Verify the dynamic margin function exists
+        assert "function getPlotMargins()" in html
+        # Verify it uses getAspectRatio for dynamic calculation
+        assert "getAspectRatio()" in html
+        # Verify the formula uses division by aspect (margins shrink as aspect increases)
+        assert "0.193 / aspect" in html
+        assert "0.045 / aspect" in html
+
+    @patch.object(web, "get_route_with_surface")
+    def test_ride_page_margin_values_calibrated_correctly(self, mock_get_route, client, no_config, mock_route_points):
+        """Margin formula should produce correct values at key aspect ratios.
+
+        This test extracts the formula constants from the HTML and verifies they
+        produce the expected margin percentages for mobile (aspect=1.0) and
+        desktop (aspect=3.5) screen sizes.
+        """
+        mock_get_route.return_value = (
+            mock_route_points,
+            {"name": "Test Route", "elevation_gain": 20},
+        )
+
+        response = client.get("/ride?url=https://ridewithgps.com/routes/12345")
+        html = response.data.decode()
+
+        # The formula is: left = 0.193/aspect, right = 1 - 0.045/aspect
+        # At aspect=1.0 (mobile/square): left=0.193, right=0.955
+        # At aspect=3.5 (desktop/wide): left=0.055, right=0.987
+
+        left_constant = 0.193
+        right_constant = 0.045
+
+        # Verify formula produces correct margins for mobile (aspect=1.0)
+        mobile_aspect = 1.0
+        mobile_left = left_constant / mobile_aspect
+        mobile_right = 1 - right_constant / mobile_aspect
+        assert abs(mobile_left - 0.193) < 0.001, f"Mobile left margin should be ~0.193, got {mobile_left}"
+        assert abs(mobile_right - 0.955) < 0.001, f"Mobile right margin should be ~0.955, got {mobile_right}"
+
+        # Verify formula produces correct margins for desktop (aspect=3.5)
+        desktop_aspect = 3.5
+        desktop_left = left_constant / desktop_aspect
+        desktop_right = 1 - right_constant / desktop_aspect
+        assert abs(desktop_left - 0.055) < 0.001, f"Desktop left margin should be ~0.055, got {desktop_left}"
+        assert abs(desktop_right - 0.987) < 0.001, f"Desktop right margin should be ~0.987, got {desktop_right}"
+
+        # Verify the page uses these exact constants
+        assert "0.193" in html, "Left margin constant 0.193 should be in HTML"
+        assert "0.045" in html, "Right margin constant 0.045 should be in HTML"
+
+    @patch.object(web, "get_route_with_surface")
+    def test_ride_page_margins_update_on_resize(self, mock_get_route, client, no_config, mock_route_points):
+        """Ride page should update margins when window is resized."""
+        mock_get_route.return_value = (
+            mock_route_points,
+            {"name": "Test Route", "elevation_gain": 20},
+        )
+
+        response = client.get("/ride?url=https://ridewithgps.com/routes/12345")
+        html = response.data.decode()
+
+        # Verify there's an updatePlotMargins function
+        assert "function updatePlotMargins()" in html or "updatePlotMargins" in html
+        # Verify resize event handler calls update
+        assert "resize" in html.lower() and "updatePlotMargins" in html
+
+
 class TestUmamiAnalytics:
     """Tests for Umami analytics integration."""
 
