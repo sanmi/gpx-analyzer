@@ -5814,12 +5814,18 @@ def elevation_profile_data():
                 for i in range(0, len(grades), step):
                     chunk_grades = grades[i:i+step]
                     chunk_dists = distances[i:i+step]
-                    total_dist = sum(chunk_dists)
-                    if total_dist > 0:
-                        weighted_grade = sum(g * d for g, d in zip(chunk_grades, chunk_dists)) / total_dist
-                        new_grades.append(weighted_grade)
+                    # Filter out None grades (stopped segments in trips)
+                    valid_pairs = [(g, d) for g, d in zip(chunk_grades, chunk_dists) if g is not None]
+                    if valid_pairs:
+                        total_valid_dist = sum(d for _, d in valid_pairs)
+                        if total_valid_dist > 0:
+                            weighted_grade = sum(g * d for g, d in valid_pairs) / total_valid_dist
+                            new_grades.append(weighted_grade)
+                        else:
+                            new_grades.append(valid_pairs[0][0])
                     else:
-                        new_grades.append(chunk_grades[0] if chunk_grades else 0.0)
+                        # All grades in chunk are None (stopped)
+                        new_grades.append(None)
                 grades = new_grades
             else:
                 grades = grades[::step]
