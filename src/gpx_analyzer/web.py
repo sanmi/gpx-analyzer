@@ -3999,23 +3999,24 @@ HTML_TEMPLATE = """
                 // Avg speed (km/h) = total distance / total time
                 const avgSpeed = (duration > 0 && distKm > 0) ? distKm / duration : null;
 
-                // Avg power and total work
-                let powerSum = 0, powerCount = 0, workJ = 0;
-                if (d.powers) {
+                // Total work (using pre-computed works array for accuracy)
+                let workJ = 0;
+                if (d.works) {
+                    for (let k = i; k <= j; k++) {
+                        workJ += (d.works[k] || 0);
+                    }
+                } else if (d.powers) {
+                    // Fall back to power*time if works not available
                     for (let k = i; k <= j; k++) {
                         if (d.powers[k] !== null && d.powers[k] !== undefined) {
-                            // Work = power * time_delta (seconds) - include all segments
                             const dt = ((d.times[k + 1 < d.times.length ? k + 1 : k] - d.times[k]) * 3600);
                             workJ += d.powers[k] * dt;
-                            // Only count positive power for avg (exclude coasting/descent segments)
-                            if (d.powers[k] > 0) {
-                                powerSum += d.powers[k];
-                                powerCount++;
-                            }
                         }
                     }
                 }
-                const avgPower = powerCount > 0 ? powerSum / powerCount : null;
+                // Avg power = work / time (matches summary calculation)
+                const durationSec = duration * 3600;
+                const avgPower = (workJ > 0 && durationSec > 0) ? workJ / durationSec : null;
                 const workKJ = workJ / 1000;
 
                 return { duration, distKm, elevGain, elevLoss, avgGrade, avgSpeed, avgPower, workKJ };
@@ -5160,6 +5161,7 @@ def _calculate_elevation_profile_data(url: str, params: RiderParams, smoothing: 
     elev_result = process_elevation_data(points, route_metadata, smoothing_radius, smoothing_override)
     scaled_points = elev_result.scaled_points
     unscaled_points = elev_result.unscaled_points
+    api_elevation_scale = elev_result.api_elevation_scale
 
     # Calculate rolling grades from UNSCALED points for accurate per-segment grades
     # Scaling is only used for physics (work/power) and total gain matching API
@@ -5177,6 +5179,7 @@ def _calculate_elevation_profile_data(url: str, params: RiderParams, smoothing: 
     speeds_ms = []
     segment_distances = []
     segment_powers = []
+    segment_works = []  # Work in joules for accurate summing during downsampling
     segment_elev_gains = []
     segment_elev_losses = []
 
@@ -5189,11 +5192,13 @@ def _calculate_elevation_profile_data(url: str, params: RiderParams, smoothing: 
         speeds_ms.append(dist / elapsed if elapsed > 0 else 0.0)
         segment_distances.append(dist)
         segment_powers.append(work / elapsed if elapsed > 0 else 0.0)
-        # Gain/loss from UNSCALED points for accurate grade recalculation during downsampling
-        # Scaling only affects physics, not per-segment grades shown to users
+        segment_works.append(work)  # Store actual work for accurate totals
+        # Gain/loss scaled to match API-reported totals (same as summary)
+        # This ensures selection popup values match summary when selecting entire route
         unscaled_delta = (unscaled_points[i].elevation or 0) - (unscaled_points[i-1].elevation or 0)
-        segment_elev_gains.append(unscaled_delta if unscaled_delta > 0 else 0.0)
-        segment_elev_losses.append(unscaled_delta if unscaled_delta < 0 else 0.0)
+        scaled_delta = unscaled_delta * api_elevation_scale
+        segment_elev_gains.append(scaled_delta if scaled_delta > 0 else 0.0)
+        segment_elev_losses.append(scaled_delta if scaled_delta < 0 else 0.0)
 
     # Convert to hours
     times_hours = [t / 3600 for t in cum_time]
@@ -5235,6 +5240,7 @@ def _calculate_elevation_profile_data(url: str, params: RiderParams, smoothing: 
         "speeds_kmh": speeds_kmh,
         "distances": segment_distances,
         "powers": segment_powers,
+        "works": segment_works,  # Work in joules for accurate selection totals
         "elev_gains": segment_elev_gains,
         "elev_losses": segment_elev_losses,
         "route_name": route_name,
@@ -5356,14 +5362,15 @@ def _calculate_trip_elevation_profile_data(url: str, collapse_stops: bool = Fals
             times_hours.append(hours)
             elevations.append(up.elevation or 0.0)
 
-    # Pre-compute per-segment elevation gains and losses from UNSCALED points
-    # for accurate grade recalculation during downsampling
+    # Pre-compute per-segment elevation gains and losses
+    # Scale to match API-reported totals so selection popup matches summary
     segment_elev_gains = []
     segment_elev_losses = []
     for i in range(len(elevations) - 1):
         unscaled_delta = (unscaled_points[i + 1].elevation or 0) - (unscaled_points[i].elevation or 0)
-        segment_elev_gains.append(unscaled_delta if unscaled_delta > 0 else 0.0)
-        segment_elev_losses.append(unscaled_delta if unscaled_delta < 0 else 0.0)
+        scaled_delta = unscaled_delta * api_elevation_scale
+        segment_elev_gains.append(scaled_delta if scaled_delta > 0 else 0.0)
+        segment_elev_losses.append(scaled_delta if scaled_delta < 0 else 0.0)
 
     grades = rolling_grades if rolling_grades else [0.0] * (len(trip_points) - 1)
 
@@ -5780,6 +5787,7 @@ def elevation_profile_data():
         speeds = data.get("speeds_kmh", [])
         distances = data.get("distances", [])
         powers = data.get("powers", [])
+        works = data.get("works", [])  # Work in joules for accurate totals
         elev_gains = data.get("elev_gains", [])
         elev_losses = data.get("elev_losses", [])
 
@@ -5813,6 +5821,9 @@ def elevation_profile_data():
                     valid = [p for p in chunk if p is not None]
                     return sum(valid) / len(valid) if valid else None
                 powers = [_avg_power(powers[i:i+step]) for i in range(0, len(powers), step)]
+            if works:
+                # Sum work (energy is additive, preserves total work accurately)
+                works = [sum(works[i:i+step]) for i in range(0, len(works), step)]
             if elev_gains:
                 elev_gains = [sum(elev_gains[i:i+step]) for i in range(0, len(elev_gains), step)]
             if elev_losses:
@@ -5830,6 +5841,8 @@ def elevation_profile_data():
             result["distances"] = distances
         if powers and any(p is not None for p in powers):
             result["powers"] = powers
+        if works:
+            result["works"] = works  # Work in joules for accurate selection totals
         if elev_gains:
             result["elev_gains"] = elev_gains
         if elev_losses:
@@ -7179,19 +7192,21 @@ RIDE_TEMPLATE = """
                 for (let k = i; k <= j; k++) if (d.grades[k] !== null && d.grades[k] !== undefined) { gradeSum += d.grades[k]; gradeCount++; }
                 const avgGrade = gradeCount > 0 ? gradeSum / gradeCount : null;
                 const avgSpeed = (duration > 0 && distM > 0) ? (distM / 1000) / duration : null;
-                let powerSum = 0, powerCount = 0, workJ = 0;
-                if (d.powers) {
+                let workJ = 0;
+                // Use pre-computed works array (accurate through downsampling) if available
+                if (d.works) {
+                    for (let k = i; k <= j; k++) { workJ += (d.works[k] || 0); }
+                } else if (d.powers) {
                     for (let k = i; k <= j; k++) {
                         if (d.powers[k] !== null && d.powers[k] !== undefined) {
                             workJ += d.powers[k] * ((d.times[k + 1 < d.times.length ? k + 1 : k] - d.times[k]) * 3600);
-                            // Only count positive power for avg (exclude coasting/descent segments)
-                            if (d.powers[k] > 0) {
-                                powerSum += d.powers[k]; powerCount++;
-                            }
                         }
                     }
                 }
-                return { duration, distKm: distM / 1000, elevGain, elevLoss, avgGrade, avgSpeed, avgPower: powerCount > 0 ? powerSum / powerCount : null, workKJ: workJ / 1000 };
+                // Avg power = work / time (matches summary calculation)
+                const durationSec = duration * 3600;
+                const avgPower = (workJ > 0 && durationSec > 0) ? workJ / durationSec : null;
+                return { duration, distKm: distM / 1000, elevGain, elevLoss, avgGrade, avgSpeed, avgPower, workKJ: workJ / 1000 };
             }
 
             function showSelectionPopup(stats, xPctCenter) {
