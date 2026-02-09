@@ -311,6 +311,7 @@ HTML_TEMPLATE = """
         }
         @media (min-width: 1200px) {
             body { max-width: 1100px; }
+            body.collection-mode { max-width: 90%; }
         }
         @media (max-width: 480px) {
             body { padding: 12px; }
@@ -1844,10 +1845,10 @@ HTML_TEMPLATE = """
                 <span>Advanced Options</span>
             </div>
             <span class="custom-settings" title="Advanced physics model settings">
-                <span class="setting{% if descending_power != defaults.descending_power %} modified{% endif %}"><span class="setting-label">Desc Pwr:</span> <span class="setting-value">{{ descending_power|int }}W</span></span>
-                <span class="setting{% if descent_braking_factor != defaults.descent_braking_factor %} modified{% endif %}"><span class="setting-label">Braking:</span> <span class="setting-value">{{ "%.2f"|format(descent_braking_factor) }}</span></span>
-                <span class="setting{% if unpaved_power_factor != defaults.unpaved_power_factor %} modified{% endif %}"><span class="setting-label">Gravel Pwr:</span> <span class="setting-value">{{ "%.2f"|format(unpaved_power_factor) }}</span></span>
-                <span class="setting{% if result and result.noise_ratio and result.noise_ratio > 1.8 %}{% if smoothing > 300 %} modified{% endif %}{% elif smoothing != defaults.smoothing %} modified{% endif %}"><span class="setting-label">Smoothing:</span> <span class="setting-value">{% if result and result.effective_smoothing %}{{ result.effective_smoothing|int }}{% else %}{{ smoothing|int }}{% endif %}m</span></span>
+                <span class="setting" id="summaryDescPwr"><span class="setting-label">Desc Pwr:</span> <span class="setting-value">{{ descending_power|int }}W</span></span>
+                <span class="setting" id="summaryBraking"><span class="setting-label">Braking:</span> <span class="setting-value">{{ "%.2f"|format(descent_braking_factor) }}</span></span>
+                <span class="setting" id="summaryGravelPwr"><span class="setting-label">Gravel Pwr:</span> <span class="setting-value">{{ "%.2f"|format(unpaved_power_factor) }}</span></span>
+                <span class="setting" id="summarySmoothing"><span class="setting-label">Smoothing:</span> <span class="setting-value">{% if result and result.effective_smoothing %}{{ result.effective_smoothing|int }}{% else %}{{ smoothing|int }}{% endif %}m</span></span>
             </span>
         </div>
 
@@ -1948,6 +1949,7 @@ HTML_TEMPLATE = """
                     <th class="num">Dist</th>
                     <th class="num">Elev</th>
                     <th class="num"><span class="th-with-info">Hilly <button type="button" class="info-btn" onclick="showModal('hillyModal')">?</button></span></th>
+                    <th class="num"><span class="th-with-info">&gt;10% <button type="button" class="info-btn" onclick="showModal('steepTimeModal')">?</button></span></th>
                     <th class="num"><span class="th-with-info">Steep <button type="button" class="info-btn" onclick="showModal('steepModal')">?</button></span></th>
                     <th class="num">Speed</th>
                     <th class="num">Unpvd</th>
@@ -2200,6 +2202,15 @@ HTML_TEMPLATE = """
         </div>
     </div>
 
+    <div id="steepTimeModal" class="modal-overlay" onclick="hideModal('steepTimeModal')">
+        <div class="modal" onclick="event.stopPropagation()">
+            <h3>Time at &gt;10% Grade</h3>
+            <p>Total time spent climbing at grades steeper than 10%, based on the physics simulation using your input parameters (power, mass, etc.).</p>
+            <p>This measures how long you'll be grinding up very steep sections. Even short steep pitches add up and can significantly affect overall effort and pacing.</p>
+            <button class="modal-close" onclick="hideModal('steepTimeModal')">Got it</button>
+        </div>
+    </div>
+
     <div id="steepClimbsModal" class="modal-overlay" onclick="hideModal('steepClimbsModal')">
         <div class="modal" onclick="event.stopPropagation()">
             <h3>Steep Climbs Methodology</h3>
@@ -2394,6 +2405,13 @@ HTML_TEMPLATE = """
                     options.classList.add('visible');
                 }
             }
+            // Sync summary with actual input values
+            updateAdvancedSummary();
+            // Add listeners to keep summary in sync
+            ['descending_power', 'descent_braking_factor', 'unpaved_power_factor', 'smoothing'].forEach(function(id) {
+                var el = document.getElementById(id);
+                if (el) el.addEventListener('input', updateAdvancedSummary);
+            });
         }
 
         function resetAdvancedOptions() {
@@ -2403,6 +2421,47 @@ HTML_TEMPLATE = """
             var smoothingInput = document.getElementById('smoothing');
             var minSmoothing = parseInt(smoothingInput.min) || 10;
             smoothingInput.value = Math.max({{ defaults.smoothing|int }}, minSmoothing);
+            updateAdvancedSummary();
+        }
+
+        function updateAdvancedSummary() {
+            var defaults = {
+                descending_power: {{ defaults.descending_power|int }},
+                descent_braking_factor: {{ defaults.descent_braking_factor }},
+                unpaved_power_factor: {{ defaults.unpaved_power_factor }},
+                smoothing: {{ defaults.smoothing|int }}
+            };
+
+            var descPwr = parseInt(document.getElementById('descending_power').value) || 0;
+            var braking = parseFloat(document.getElementById('descent_braking_factor').value) || 0;
+            var gravelPwr = parseFloat(document.getElementById('unpaved_power_factor').value) || 0;
+            var smoothingInput = document.getElementById('smoothing');
+            var smoothing = parseInt(smoothingInput.value) || 0;
+            var minSmoothing = parseInt(smoothingInput.min) || 10;
+
+            var summaryDescPwr = document.getElementById('summaryDescPwr');
+            var summaryBraking = document.getElementById('summaryBraking');
+            var summaryGravelPwr = document.getElementById('summaryGravelPwr');
+            var summarySmoothing = document.getElementById('summarySmoothing');
+
+            if (summaryDescPwr) {
+                summaryDescPwr.querySelector('.setting-value').textContent = descPwr + 'W';
+                summaryDescPwr.classList.toggle('modified', descPwr !== defaults.descending_power);
+            }
+            if (summaryBraking) {
+                summaryBraking.querySelector('.setting-value').textContent = braking.toFixed(2);
+                summaryBraking.classList.toggle('modified', Math.abs(braking - defaults.descent_braking_factor) > 0.001);
+            }
+            if (summaryGravelPwr) {
+                summaryGravelPwr.querySelector('.setting-value').textContent = gravelPwr.toFixed(2);
+                summaryGravelPwr.classList.toggle('modified', Math.abs(gravelPwr - defaults.unpaved_power_factor) > 0.001);
+            }
+            if (summarySmoothing) {
+                summarySmoothing.querySelector('.setting-value').textContent = smoothing + 'm';
+                // Modified if different from default (considering auto-adjusted minimum)
+                var isModified = (minSmoothing > defaults.smoothing) ? (smoothing > minSmoothing) : (smoothing !== defaults.smoothing);
+                summarySmoothing.classList.toggle('modified', isModified);
+            }
         }
 
         function _buildOverlayParams() {
@@ -2682,6 +2741,7 @@ HTML_TEMPLATE = """
             document.getElementById('progressContainer').classList.add('hidden');
             document.getElementById('errorContainer').classList.add('hidden');
             document.getElementById('collectionResults').classList.add('hidden');
+            document.body.classList.remove('collection-mode');
             // Hide server-rendered single route results
             var singleResults = document.getElementById('singleRouteResults');
             if (singleResults) singleResults.style.display = 'none';
@@ -2730,6 +2790,15 @@ HTML_TEMPLATE = """
             return Math.round(mkm);
         }
 
+        function formatSteepTime(seconds) {
+            if (!seconds || seconds < 60) return '-';
+            var mins = Math.round(seconds / 60);
+            if (mins < 60) return mins + 'm';
+            var hours = Math.floor(mins / 60);
+            var remainMins = mins % 60;
+            return hours + 'h ' + (remainMins < 10 ? '0' : '') + remainMins + 'm';
+        }
+
         function formatDistFull(km) {
             if (isImperial()) {
                 return Math.round(km * 0.621371) + ' mi';
@@ -2759,12 +2828,13 @@ HTML_TEMPLATE = """
         }
 
         function updateTotals(routes) {
-            var totalDist = 0, totalElev = 0, totalTime = 0, totalWork = 0;
+            var totalDist = 0, totalElev = 0, totalTime = 0, totalWork = 0, totalSteepTime = 0;
             routes.forEach(function(r) {
                 totalDist += r.distance_km;
                 totalElev += r.elevation_m;
                 totalTime += r.time_seconds;
                 totalWork += r.work_kj;
+                totalSteepTime += r.steep_time_seconds || 0;
             });
             document.getElementById('totalRoutes').textContent = routes.length;
             document.getElementById('totalDistance').textContent = formatDistFull(totalDist);
@@ -2787,7 +2857,7 @@ HTML_TEMPLATE = """
                 '<td class="num primary separator">' + Math.round(totalWork * 1.075) + '</td>' +
                 '<td class="num">' + formatDist(totalDist) + '</td>' +
                 '<td class="num">' + formatElev(totalElev) + '</td>' +
-                '<td class="num"></td><td class="num"></td><td class="num"></td><td class="num"></td><td class="num"></td>';
+                '<td class="num"></td><td class="num">' + formatSteepTime(totalSteepTime) + '</td><td class="num"></td><td class="num"></td><td class="num"></td><td class="num"></td>';
             tbody.appendChild(totalsRow);
         }
 
@@ -2827,6 +2897,8 @@ HTML_TEMPLATE = """
                 descending_power: document.getElementById('descending_power').value,
                 mass: mass,
                 headwind: headwind,
+                descent_braking_factor: document.getElementById('descent_braking_factor').value,
+                unpaved_power_factor: document.getElementById('unpaved_power_factor').value,
                 smoothing: document.getElementById('smoothing').value
             });
 
@@ -2895,6 +2967,7 @@ HTML_TEMPLATE = """
                         '<td class="num">' + formatDist(r.distance_km) + '</td>' +
                         '<td class="num">' + formatElev(r.elevation_m) + '</td>' +
                         '<td class="num">' + formatHilliness(r.hilliness_score || 0) + '</td>' +
+                        '<td class="num">' + formatSteepTime(r.steep_time_seconds) + '</td>' +
                         '<td class="num">' + (r.steepness_score || 0).toFixed(1) + '%</td>' +
                         '<td class="num">' + formatSpeed(r.avg_speed_kmh) + '</td>' +
                         '<td class="num">' + Math.round(r.unpaved_pct || 0) + '%</td>' +
@@ -2903,6 +2976,7 @@ HTML_TEMPLATE = """
 
                     // Show results container and update totals
                     document.getElementById('collectionResults').classList.remove('hidden');
+                    document.body.classList.add('collection-mode');
                     updateTotals(collectionRoutes);
                 } else if (data.type === 'complete') {
                     eventSource.close();
@@ -2945,6 +3019,7 @@ HTML_TEMPLATE = """
                     '<td class="num">' + formatDist(r.distance_km) + '</td>' +
                     '<td class="num">' + formatElev(r.elevation_m) + '</td>' +
                     '<td class="num">' + formatHilliness(r.hilliness_score || 0) + '</td>' +
+                    '<td class="num">' + formatSteepTime(r.steep_time_seconds) + '</td>' +
                     '<td class="num">' + (r.steepness_score || 0).toFixed(1) + '%</td>' +
                     '<td class="num">' + formatSpeed(r.avg_speed_kmh) + '</td>' +
                     '<td class="num">' + Math.round(r.unpaved_pct || 0) + '%</td>' +
@@ -5083,6 +5158,8 @@ def analyze_collection_stream():
         descending_power = float(request.args.get("descending_power", defaults["descending_power"]))
         mass = float(request.args.get("mass", defaults["mass"]))
         headwind = float(request.args.get("headwind", defaults["headwind"]))
+        descent_braking_factor = float(request.args.get("descent_braking_factor", defaults["descent_braking_factor"]))
+        unpaved_power_factor = float(request.args.get("unpaved_power_factor", defaults["unpaved_power_factor"]))
         smoothing = float(request.args.get("smoothing", defaults["smoothing"]))
     except ValueError:
         def error_gen():
@@ -5104,7 +5181,7 @@ def analyze_collection_stream():
 
             yield f"data: {json.dumps({'type': 'start', 'name': collection_name, 'total': len(route_ids)})}\n\n"
 
-            params = build_params(climbing_power, flat_power, mass, headwind, descending_power=descending_power)
+            params = build_params(climbing_power, flat_power, mass, headwind, descending_power=descending_power, descent_braking_factor=descent_braking_factor, unpaved_power_factor=unpaved_power_factor)
 
             for i, route_id in enumerate(route_ids):
                 route_url = f"https://ridewithgps.com/routes/{route_id}"
@@ -5116,6 +5193,7 @@ def analyze_collection_stream():
                     route_result = analyze_single_route(route_url, params, smoothing)
                     route_result["time_str"] = format_duration(route_result["time_seconds"])
                     route_result["route_id"] = route_id
+                    route_result["steep_time_seconds"] = sum(route_result.get("steep_time_histogram", {}).values())
 
                     yield f"data: {json.dumps({'type': 'route', 'route': route_result, 'total': len(route_ids)})}\n\n"
                 except Exception as e:
