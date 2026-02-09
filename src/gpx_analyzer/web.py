@@ -451,6 +451,36 @@ HTML_TEMPLATE = """
         .result-row.primary .result-value {
             font-weight: 700;
         }
+        .unit-select {
+            padding: 1px 2px;
+            font-size: 0.75em;
+            border: 1px solid #ccc;
+            border-radius: 3px;
+            background: #fff;
+            cursor: pointer;
+            max-width: 70px;
+            -webkit-appearance: none;
+            -moz-appearance: none;
+            appearance: none;
+            background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23666' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e");
+            background-repeat: no-repeat;
+            background-position: right 2px center;
+            background-size: 12px;
+            padding-right: 16px;
+        }
+        .unit-select:hover {
+            border-color: #4CAF50;
+        }
+        .result-row .unit-select {
+            margin-left: 4px;
+        }
+        .result-row .result-label {
+            flex-shrink: 0;
+        }
+        .result-row .result-value {
+            text-align: right;
+            margin-left: auto;
+        }
         .primary-results {
             margin-bottom: 12px;
             padding-bottom: 8px;
@@ -1527,6 +1557,15 @@ HTML_TEMPLATE = """
             background: #f5f5f5;
             font-weight: 600;
         }
+        .comparison-table td:first-child {
+            white-space: nowrap;
+            padding-right: 3%;
+        }
+        @media (max-width: 700px) {
+            .comparison-table td:first-child {
+                white-space: normal;
+            }
+        }
         .comparison-table .route-col {
             text-align: right;
             min-width: 100px;
@@ -2097,7 +2136,7 @@ HTML_TEMPLATE = """
 
     <div id="timeModal" class="modal-overlay" onclick="hideModal('timeModal')">
         <div class="modal" onclick="event.stopPropagation()">
-            <h3>Estimated Moving Time</h3>
+            <h3>Est. Moving Time</h3>
             <p>Moving time estimate based on your power output and the route's terrain. This is the time you'd spend actually riding, excluding stops.</p>
             <p>The estimate accounts for:</p>
             <p>• Slower speeds on climbs (more power needed to fight gravity)<br>
@@ -2109,12 +2148,23 @@ HTML_TEMPLATE = """
 
     <div id="workModal" class="modal-overlay" onclick="hideModal('workModal')">
         <div class="modal" onclick="event.stopPropagation()">
-            <h3>Estimated Work</h3>
+            <h3>Est. Work</h3>
             <p>Total mechanical energy expenditure in kilojoules (kJ). This is the energy your legs put into the pedals.</p>
             <p>Useful for estimating food/fuel needs:</p>
             <p>• Human efficiency is ~20-25%, so multiply by 4-5 for calories burned<br>
             • Example: 1000 kJ of work ≈ 4000-5000 kJ (950-1200 kcal) of food energy</p>
             <button class="modal-close" onclick="hideModal('workModal')">Got it</button>
+        </div>
+    </div>
+
+    <div id="energyModal" class="modal-overlay" onclick="hideModal('energyModal')">
+        <div class="modal" onclick="event.stopPropagation()">
+            <h3>Est. Energy</h3>
+            <p>Estimated food energy needed to fuel this ride, accounting for ~22% human efficiency.</p>
+            <p><strong>Unit equivalents:</strong></p>
+            <p>• 1 medium banana ≈ 100 kcal<br>
+            • 1 baguette (250g) ≈ 680 kcal</p>
+            <button class="modal-close" onclick="hideModal('energyModal')">Got it</button>
         </div>
     </div>
 
@@ -2959,6 +3009,72 @@ HTML_TEMPLATE = """
             });
         }
 
+        function getEnergyUnit() {
+            return document.getElementById('energyUnitSelect')?.value || 'kcal';
+        }
+
+        function formatEnergy(kj) {
+            if (kj === null || kj === undefined || isNaN(kj)) return '-';
+            var kcal = kj * 1.075;  // Convert work to food calories
+            var unit = getEnergyUnit();
+            if (unit === 'bananas') {
+                return (kcal / 100).toFixed(1) + ' bananas';
+            } else if (unit === 'baguettes') {
+                return (kcal / 680).toFixed(2) + ' baguettes';
+            }
+            return Math.round(kcal) + ' kcal';
+        }
+
+        function formatEnergyDiff(kj1, kj2) {
+            if (kj1 === null || kj2 === null || isNaN(kj1) || isNaN(kj2)) return '-';
+            var kcal1 = kj1 * 1.075;
+            var kcal2 = kj2 * 1.075;
+            var diff = kcal1 - kcal2;
+            var unit = getEnergyUnit();
+            var sign = diff > 0 ? '+' : '';
+            if (unit === 'bananas') {
+                return sign + (diff / 100).toFixed(1) + ' bananas';
+            } else if (unit === 'baguettes') {
+                return sign + (diff / 680).toFixed(2) + ' baguettes';
+            }
+            return sign + Math.round(diff) + ' kcal';
+        }
+
+        function updateEnergyUnits() {
+            // Single route
+            var el = document.getElementById('singleEnergy');
+            if (el && el.dataset.kj) {
+                el.textContent = formatEnergy(parseFloat(el.dataset.kj));
+            }
+            // Comparison mode
+            ['1', '2'].forEach(function(n) {
+                var el = document.getElementById('energy' + n);
+                if (el && el.dataset.kj) {
+                    el.textContent = formatEnergy(parseFloat(el.dataset.kj));
+                }
+            });
+            // Comparison diff
+            var diffEl = document.getElementById('energyDiff');
+            if (diffEl && diffEl.dataset.kj1 && diffEl.dataset.kj2) {
+                diffEl.textContent = formatEnergyDiff(parseFloat(diffEl.dataset.kj1), parseFloat(diffEl.dataset.kj2));
+            }
+            // Save preference
+            try { localStorage.setItem('energyUnit', getEnergyUnit()); } catch (e) {}
+        }
+
+        function initEnergyUnit() {
+            try {
+                var saved = localStorage.getItem('energyUnit');
+                if (saved) {
+                    var select = document.getElementById('energyUnitSelect');
+                    if (select) {
+                        select.value = saved;
+                        updateEnergyUnits();
+                    }
+                }
+            } catch (e) {}
+        }
+
         function updateComparisonTableUnits() {
             var imperial = isImperial();
             // Distance columns
@@ -3250,23 +3366,31 @@ HTML_TEMPLATE = """
                 </thead>
                 <tbody>
                     <tr class="primary">
-                        <td><span class="label-with-info">Moving Time <button type="button" class="info-btn" onclick="showModal('timeModal')">?</button></span></td>
-                        <td class="route-col">{{ result.time_str }}{% if not is_trip %} <span class="est-marker" title="Estimated">*</span>{% endif %}</td>
-                        <td class="route-col">{{ result2.time_str }}{% if not is_trip2 %} <span class="est-marker" title="Estimated">*</span>{% endif %}</td>
+                        <td>{% if is_trip and is_trip2 %}Moving Time{% else %}Est. Moving Time{% endif %}</td>
+                        <td class="route-col">{{ result.time_str }}</td>
+                        <td class="route-col">{{ result2.time_str }}</td>
                         <td class="diff-col">{{ format_time_diff(result.time_seconds, result2.time_seconds) }}</td>
                     </tr>
                     {% if (not is_trip or result.work_kj is not none) and (not is_trip2 or result2.work_kj is not none) %}
                     <tr class="primary">
-                        <td><span class="label-with-info">Work <button type="button" class="info-btn" onclick="showModal('workModal')">?</button></span></td>
-                        <td class="route-col">{% if result.work_kj is not none %}{{ "%.0f"|format(result.work_kj) }} kJ{% if not is_trip %} <span class="est-marker" title="Estimated">*</span>{% endif %}{% else %}-{% endif %}</td>
-                        <td class="route-col">{% if result2.work_kj is not none %}{{ "%.0f"|format(result2.work_kj) }} kJ{% if not is_trip2 %} <span class="est-marker" title="Estimated">*</span>{% endif %}{% else %}-{% endif %}</td>
+                        <td>{% if is_trip and is_trip2 %}Work{% else %}Est. Work{% endif %}</td>
+                        <td class="route-col">{% if result.work_kj is not none %}{{ "%.0f"|format(result.work_kj) }} kJ{% else %}-{% endif %}</td>
+                        <td class="route-col">{% if result2.work_kj is not none %}{{ "%.0f"|format(result2.work_kj) }} kJ{% else %}-{% endif %}</td>
                         <td class="diff-col">{% if result.work_kj is not none and result2.work_kj is not none %}{{ format_diff(result.work_kj, result2.work_kj, 'kJ') }}{% else %}-{% endif %}</td>
                     </tr>
                     {% endif %}
+                    {% if result.work_kj is not none or result2.work_kj is not none %}
                     <tr class="primary">
-                        <td>Avg Power</td>
-                        <td class="route-col">{% if result.avg_watts is not none %}{{ result.avg_watts|int }} W{% if not is_trip %} <span class="est-marker" title="Estimated">*</span>{% endif %}{% else %}-{% endif %}</td>
-                        <td class="route-col">{% if result2.avg_watts is not none %}{{ result2.avg_watts|int }} W{% if not is_trip2 %} <span class="est-marker" title="Estimated">*</span>{% endif %}{% else %}-{% endif %}</td>
+                        <td>{% if is_trip and is_trip2 %}Energy{% else %}Est. Energy{% endif %} <select id="energyUnitSelect" class="unit-select" onchange="updateEnergyUnits()"><option value="kcal">kcal</option><option value="bananas">Bananas</option><option value="baguettes">Baguettes</option></select></td>
+                        <td class="route-col"><span id="energy1" data-kj="{{ result.work_kj if result.work_kj is not none else '' }}">{% if result.work_kj is not none %}{{ "%.0f"|format(result.work_kj * 1.075) }} kcal{% else %}-{% endif %}</span></td>
+                        <td class="route-col"><span id="energy2" data-kj="{{ result2.work_kj if result2.work_kj is not none else '' }}">{% if result2.work_kj is not none %}{{ "%.0f"|format(result2.work_kj * 1.075) }} kcal{% else %}-{% endif %}</span></td>
+                        <td class="diff-col"><span id="energyDiff" data-kj1="{{ result.work_kj if result.work_kj is not none else '' }}" data-kj2="{{ result2.work_kj if result2.work_kj is not none else '' }}">{% if result.work_kj is not none and result2.work_kj is not none %}{{ format_diff(result.work_kj * 1.075, result2.work_kj * 1.075, 'kcal') }}{% else %}-{% endif %}</span></td>
+                    </tr>
+                    {% endif %}
+                    <tr class="primary">
+                        <td>{% if is_trip and is_trip2 %}Avg Power{% else %}Est. Avg Power{% endif %}</td>
+                        <td class="route-col">{% if result.avg_watts is not none %}{{ result.avg_watts|int }} W{% else %}-{% endif %}</td>
+                        <td class="route-col">{% if result2.avg_watts is not none %}{{ result2.avg_watts|int }} W{% else %}-{% endif %}</td>
                         <td class="diff-col">{% if result.avg_watts is not none and result2.avg_watts is not none %}{{ format_diff(result.avg_watts, result2.avg_watts, 'W') }}{% else %}-{% endif %}</td>
                     </tr>
                     <tr>
@@ -3317,18 +3441,28 @@ HTML_TEMPLATE = """
         <!-- Single route/trip results -->
         <div class="primary-results">
             <div class="result-row primary">
-                <span class="result-label label-with-info">{% if is_trip %}Moving Time{% else %}Estimated Moving Time{% endif %} <button type="button" class="info-btn" onclick="showModal('timeModal')">?</button></span>
+                <span class="result-label label-with-info">{% if is_trip %}Moving Time{% else %}Est. Moving Time{% endif %} <button type="button" class="info-btn" onclick="showModal('timeModal')">?</button></span>
                 <span class="result-value">{{ result.time_str }}</span>
             </div>
             {% if not is_trip or result.work_kj is not none %}
             <div class="result-row primary">
-                <span class="result-label label-with-info">{% if is_trip %}Work{% else %}Estimated Work{% endif %} <button type="button" class="info-btn" onclick="showModal('workModal')">?</button></span>
+                <span class="result-label label-with-info">{% if is_trip %}Work{% else %}Est. Work{% endif %} <button type="button" class="info-btn" onclick="showModal('workModal')">?</button></span>
                 <span class="result-value">{% if result.work_kj is not none %}{{ "%.0f"|format(result.work_kj) }} kJ{% else %}-{% endif %}</span>
+            </div>
+            <div class="result-row primary">
+                <span class="result-label label-with-info">{% if is_trip %}Energy{% else %}Est. Energy{% endif %} <button type="button" class="info-btn" onclick="showModal('energyModal')">?</button>
+                    <select id="energyUnitSelect" class="unit-select" onchange="updateEnergyUnits()">
+                        <option value="kcal">kcal</option>
+                        <option value="bananas">Bananas</option>
+                        <option value="baguettes">Baguettes</option>
+                    </select>
+                </span>
+                <span class="result-value" id="singleEnergy" data-kj="{{ result.work_kj if result.work_kj is not none else '' }}">{% if result.work_kj is not none %}{{ "%.0f"|format(result.work_kj * 1.075) }} kcal{% else %}-{% endif %}</span>
             </div>
             {% endif %}
             {% if result.has_power and result.avg_watts is not none %}
             <div class="result-row primary">
-                <span class="result-label">{% if is_trip %}Avg Power{% else %}Estimated Avg Power{% endif %}</span>
+                <span class="result-label">{% if is_trip %}Avg Power{% else %}Est. Avg Power{% endif %}</span>
                 <span class="result-value">{{ result.avg_watts|int }} W</span>
             </div>
             {% endif %}
@@ -3809,6 +3943,7 @@ HTML_TEMPLATE = """
         // Initialize units display
         updateSingleRouteUnits();
         updateComparisonTableUnits();
+        initEnergyUnit();
 
         // Elevation profile hover interaction
         // Setup function for a single profile (global so toggleCollapseStops/toggleOverlay can call it)

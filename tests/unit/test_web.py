@@ -129,8 +129,8 @@ class TestIndexPostSingleRoute:
         assert response.status_code == 200
         assert "Test Route" in html
         assert "Distance" in html
-        assert "Estimated Moving Time" in html
-        assert "Estimated Work" in html
+        assert "Est. Moving Time" in html
+        assert "Est. Work" in html
 
     @patch.object(web, "get_route_with_surface")
     def test_result_has_data_attributes_for_unit_conversion(self, mock_get_route, client, no_config, mock_route_points):
@@ -670,7 +670,7 @@ class TestTripSupport:
 
     @patch.object(web, "get_trip_data")
     def test_trip_shows_moving_time_not_estimated(self, mock_get_trip, client, no_config):
-        """Trip should show 'Moving Time' not 'Estimated Moving Time' in results."""
+        """Trip should show 'Moving Time' not 'Est. Moving Time' in results."""
         from gpx_analyzer.ridewithgps import TripPoint
 
         mock_get_trip.return_value = (
@@ -695,7 +695,7 @@ class TestTripSupport:
         # Should show "Moving Time" label in the results section
         # The label appears with info button like: "Moving Time <button..."
         assert 'Moving Time <button type="button" class="info-btn"' in html
-        # The results section should NOT have "Estimated Moving Time" as the label
+        # The results section should NOT have "Est. Moving Time" as the label
         # (note: it will still appear in the modal explanation text, so we check the label context)
         assert 'result-label label-with-info">Moving Time' in html or '>Moving Time <button' in html
 
