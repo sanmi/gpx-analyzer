@@ -20,6 +20,12 @@ from gpx_analyzer.ridewithgps import (
     is_ridewithgps_trip_url,
     is_ridewithgps_url,
 )
+from gpx_analyzer.strava import (
+    is_strava_route_url,
+    is_strava_activity_url,
+    get_strava_route,
+    get_strava_activity,
+)
 from gpx_analyzer.smoothing import smooth_elevations
 from gpx_analyzer.training import (
     format_training_summary,
@@ -77,12 +83,13 @@ def build_parser(config: dict | None = None) -> argparse.ArgumentParser:
         epilog="""Examples:
   gpx-analyzer route.gpx                      Analyze a local GPX file
   gpx-analyzer https://ridewithgps.com/routes/123  Analyze a RideWithGPS route
+  gpx-analyzer https://strava.com/routes/456      Analyze a Strava route
   gpx-analyzer --collection URL               Analyze all routes in a collection
   gpx-analyzer --training data.json           Batch compare predictions vs actual rides
   gpx-analyzer --optimize data.json           Tune model parameters from training data
 
 Config file: ~/.config/gpx-analyzer/gpx-analyzer.json or ./gpx-analyzer.json
-  Set default parameters and RideWithGPS API credentials.
+  Set default parameters and RideWithGPS/Strava API credentials.
 
 See README.md for detailed parameter descriptions.""",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -680,6 +687,12 @@ def main(argv: list[str] | None = None) -> None:
         except Exception as e:
             print(f"Error downloading from RideWithGPS: {e}", file=sys.stderr)
             sys.exit(1)
+    elif is_strava_route_url(args.gpx_file):
+        try:
+            points, route_metadata = get_strava_route(args.gpx_file, args.crr)
+        except Exception as e:
+            print(f"Error downloading from Strava: {e}", file=sys.stderr)
+            sys.exit(1)
     else:
         gpx_path = args.gpx_file
         try:
@@ -831,14 +844,21 @@ def main(argv: list[str] | None = None) -> None:
 
     # Compare with actual trip data if provided
     if args.compare_trip:
-        if not is_ridewithgps_trip_url(args.compare_trip):
-            print(f"Error: Invalid RideWithGPS trip URL: {args.compare_trip}", file=sys.stderr)
-            sys.exit(1)
-
-        try:
-            trip_points, trip_metadata = get_trip_data(args.compare_trip)
-        except Exception as e:
-            print(f"Error downloading trip data: {e}", file=sys.stderr)
+        if is_ridewithgps_trip_url(args.compare_trip):
+            try:
+                trip_points, trip_metadata = get_trip_data(args.compare_trip)
+            except Exception as e:
+                print(f"Error downloading trip data from RideWithGPS: {e}", file=sys.stderr)
+                sys.exit(1)
+        elif is_strava_activity_url(args.compare_trip):
+            try:
+                trip_points, trip_metadata = get_strava_activity(args.compare_trip)
+            except Exception as e:
+                print(f"Error downloading activity data from Strava: {e}", file=sys.stderr)
+                sys.exit(1)
+        else:
+            print(f"Error: Invalid trip/activity URL: {args.compare_trip}", file=sys.stderr)
+            print("Expected: ridewithgps.com/trips/XXX or strava.com/activities/XXX", file=sys.stderr)
             sys.exit(1)
 
         if len(trip_points) < 2:

@@ -83,7 +83,7 @@ class TestIndexPostSingleRoute:
             "headwind": "0",
         })
         html = response.data.decode()
-        assert "Invalid RideWithGPS URL" in html
+        assert "Invalid URL" in html
 
     def test_empty_url_shows_error(self, client, no_config):
         response = client.post("/", data={
@@ -95,7 +95,7 @@ class TestIndexPostSingleRoute:
             "headwind": "0",
         })
         html = response.data.decode()
-        assert "Please enter a RideWithGPS URL" in html
+        assert "Please enter a RideWithGPS or Strava URL" in html
 
     def test_invalid_power_shows_error(self, client, no_config):
         response = client.post("/", data={
@@ -671,7 +671,7 @@ class TestTripSupport:
             "headwind": "0",
         })
         html = response.data.decode()
-        assert "Invalid RideWithGPS URL" in html
+        assert "Invalid URL" in html
 
     @patch.object(web, "get_trip_data")
     def test_trip_url_shows_trip_badge(self, mock_get_trip, client, no_config):

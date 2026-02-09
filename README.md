@@ -1,10 +1,11 @@
 # Reality Check my Route
 
-Analyze RideWithGPS bike routes and collections using physics-based power estimation. Calculates distance,
+Analyze bike routes and collections using physics-based power estimation. Calculates distance,
 elevation gain/loss, speed, and estimates work and average power using gravitational, rolling resistance, and
 aerodynamic drag models.
 
-Supports RideWithGPS route URLs with automatic surface type detection for mixed road/gravel routes.
+Supports RideWithGPS route URLs with automatic surface type detection for mixed road/gravel routes. Also supports
+Strava routes and activities.
 
 ## Purpose
 
@@ -145,6 +146,25 @@ To access private routes or get surface type data, add your RideWithGPS credenti
 
 You can find your API credentials in your [RideWithGPS account settings](https://ridewithgps.com/api).
 
+### Strava API Credentials (Optional)
+
+To analyze Strava routes and activities, add your Strava API credentials to the config file:
+
+```json
+{
+  "strava_client_id": "your-client-id",
+  "strava_client_secret": "your-client-secret",
+  "strava_refresh_token": "your-refresh-token"
+}
+```
+
+To get these credentials:
+1. Create a Strava API application at https://www.strava.com/settings/api
+2. Note your Client ID and Client Secret
+3. Generate a refresh token by authorizing your app with the `activity:read_all` scope
+
+Note: Strava does not provide surface type data, so gravel overlays are not available for Strava routes.
+
 ## Usage
 
 ### Command Line
@@ -227,6 +247,21 @@ gpx-analyzer https://ridewithgps.com/routes/48889111
 
 This fetches route data including surface type information (road vs gravel) for more accurate rolling resistance
 estimation.
+
+### Strava Integration
+
+Analyze routes and activities from Strava URLs:
+
+```bash
+# Analyze a Strava route
+gpx-analyzer https://strava.com/routes/123456789
+
+# Analyze a Strava activity
+gpx-analyzer https://strava.com/activities/123456789
+```
+
+Strava activities include recorded ride data (speed, power if available) similar to RideWithGPS trips.
+Note: Strava does not provide surface type data, so all segments are treated as paved.
 
 ### Analyzing Collections
 
@@ -315,11 +350,16 @@ Time at Grade:
 
 ## Comparing Predictions with Actual Rides
 
-Compare route predictions against actual ride data from RideWithGPS trips:
+Compare route predictions against actual ride data from RideWithGPS trips or Strava activities:
 
 ```bash
+# Compare with RideWithGPS trip
 gpx-analyzer https://ridewithgps.com/routes/48889111 \
   --compare-trip https://ridewithgps.com/trips/233763291
+
+# Compare with Strava activity
+gpx-analyzer https://strava.com/routes/123456789 \
+  --compare-trip https://strava.com/activities/987654321
 ```
 
 Output shows predicted vs actual metrics:
@@ -468,6 +508,9 @@ settings:
 {
   "ridewithgps_api_key": "your-api-key",
   "ridewithgps_auth_token": "your-auth-token",
+  "strava_client_id": "your-client-id",
+  "strava_client_secret": "your-client-secret",
+  "strava_refresh_token": "your-refresh-token",
   "mass": 84.0,
   "climbing_power": 150.0,
   "flat_power": 120.0,

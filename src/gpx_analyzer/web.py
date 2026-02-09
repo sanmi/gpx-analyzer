@@ -33,6 +33,14 @@ from gpx_analyzer.ridewithgps import (
     is_ridewithgps_trip_url,
     TripPoint,
 )
+from gpx_analyzer.strava import (
+    is_strava_route_url,
+    is_strava_activity_url,
+    is_strava_url,
+    get_strava_route,
+    get_strava_activity,
+    TripPoint as StravaTripPoint,
+)
 from gpx_analyzer.smoothing import smooth_elevations
 from gpx_analyzer.tunnel import detect_and_correct_tunnels
 from gpx_analyzer.climb import detect_climbs, slider_to_sensitivity, ClimbInfo
@@ -1767,12 +1775,12 @@ HTML_TEMPLATE = """
 
     <form method="POST" id="analyzeForm">
         <div class="label-row">
-            <label for="url">RideWithGPS URL (route, trip, or collection)</label>
+            <label for="url">RideWithGPS or Strava URL</label>
             <button type="button" class="info-btn" onclick="showModal('urlModal')">?</button>
         </div>
         <div class="url-input-wrapper">
             <input type="text" id="url" name="url"
-                   placeholder="https://ridewithgps.com/routes/... or .../collections/..."
+                   placeholder="ridewithgps.com/routes/... or strava.com/routes/..."
                    value="{{ url or '' }}" required
                    autocomplete="off">
             <div id="recentUrlsDropdown" class="recent-urls-dropdown hidden"></div>
@@ -1793,7 +1801,7 @@ HTML_TEMPLATE = """
             </div>
             <div class="url-input-wrapper">
                 <input type="text" id="url2" name="url2"
-                       placeholder="https://ridewithgps.com/routes/... or .../trips/..."
+                       placeholder="ridewithgps.com or strava.com route/trip/activity"
                        value="{{ url2 or '' }}"
                        autocomplete="off">
                 <div id="recentUrlsDropdown2" class="recent-urls-dropdown hidden"></div>
@@ -1962,13 +1970,16 @@ HTML_TEMPLATE = """
     <!-- Info Modals -->
     <div id="urlModal" class="modal-overlay" onclick="hideModal('urlModal')">
         <div class="modal" onclick="event.stopPropagation()">
-            <h3>RideWithGPS URL</h3>
-            <p>Paste the URL of a route or collection from <a href="https://ridewithgps.com" target="_blank">ridewithgps.com</a>.</p>
-            <p><strong>Route URL format:</strong><br>
-            <code>https://ridewithgps.com/routes/12345678</code></p>
-            <p><strong>Collection URL format:</strong><br>
-            <code>https://ridewithgps.com/collections/12345</code></p>
-            <p>The route must be public, or you must be logged into RideWithGPS with access to private routes.</p>
+            <h3>Supported URLs</h3>
+            <p>Paste the URL of a route, trip, or activity from <a href="https://ridewithgps.com" target="_blank">RideWithGPS</a> or <a href="https://strava.com" target="_blank">Strava</a>.</p>
+            <p><strong>RideWithGPS:</strong><br>
+            <code>ridewithgps.com/routes/12345678</code><br>
+            <code>ridewithgps.com/trips/12345678</code><br>
+            <code>ridewithgps.com/collections/12345</code></p>
+            <p><strong>Strava:</strong><br>
+            <code>strava.com/routes/12345678</code><br>
+            <code>strava.com/activities/12345678</code></p>
+            <p>Routes must be public or you must have Strava API credentials configured.</p>
             <button class="modal-close" onclick="hideModal('urlModal')">Got it</button>
         </div>
     </div>
@@ -2245,7 +2256,7 @@ HTML_TEMPLATE = """
         }
 
         function saveRecentUrl(url, name) {
-            if (!url || !url.includes('ridewithgps.com')) return;
+            if (!url || (!url.includes('ridewithgps.com') && !url.includes('strava.com'))) return;
             var urls = getRecentUrls();
             // Remove if already exists (will re-add at top)
             urls = urls.filter(function(u) { return u.url !== url; });
@@ -2274,7 +2285,7 @@ HTML_TEMPLATE = """
             }
             var html = '<div class="recent-urls-header">Recent</div>';
             urls.forEach(function(item) {
-                var urlPreview = item.url.replace('https://ridewithgps.com/', '');
+                var urlPreview = item.url.replace('https://ridewithgps.com/', '').replace('https://www.strava.com/', '').replace('https://strava.com/', '');
                 if (item.name) {
                     html += '<div class="recent-url-item" data-url="' + item.url + '">' +
                             '<div class="recent-url-name">' + item.name + '</div>' +
@@ -4705,7 +4716,7 @@ def analyze_single_route(url: str, params: RiderParams, smoothing: float | None 
     repeated access when comparing routes.
 
     Args:
-        url: RideWithGPS route URL
+        url: RideWithGPS or Strava route URL
         params: Rider parameters
         smoothing: Smoothing radius in meters (or None for default)
         smoothing_override: If True, skip auto-adjustment for high-noise data
@@ -4713,8 +4724,11 @@ def analyze_single_route(url: str, params: RiderParams, smoothing: float | None 
     config = _load_config() or {}
     smoothing_radius = smoothing if smoothing is not None else config.get("smoothing", DEFAULTS["smoothing"])
 
-    # Fetch route first to get current ETag (uses ETag-based caching internally)
-    points, route_metadata = get_route_with_surface(url, params.crr)
+    # Fetch route from appropriate source
+    if is_strava_route_url(url):
+        points, route_metadata = get_strava_route(url, params.crr)
+    else:
+        points, route_metadata = get_route_with_surface(url, params.crr)
     route_etag = route_metadata.get("etag", "")
 
     # Check analysis cache with ETag in key (invalidates when route changes)
@@ -4807,10 +4821,10 @@ def analyze_single_route(url: str, params: RiderParams, smoothing: float | None 
 
 
 def analyze_trip(url: str) -> dict:
-    """Analyze a recorded trip - actual values, no estimation needed.
+    """Analyze a recorded trip/activity - actual values, no estimation needed.
 
     Args:
-        url: RideWithGPS trip URL
+        url: RideWithGPS trip URL or Strava activity URL
 
     Returns:
         Dict with trip analysis results including actual recorded time and power.
@@ -4820,7 +4834,11 @@ def analyze_trip(url: str) -> dict:
     max_grade_window = config.get("max_grade_window_route", DEFAULTS["max_grade_window_route"])
     max_grade_smoothing = config.get("max_grade_smoothing", DEFAULTS["max_grade_smoothing"])
 
-    trip_points, trip_metadata = get_trip_data(url)
+    # Fetch from appropriate source
+    if is_strava_activity_url(url):
+        trip_points, trip_metadata = get_strava_activity(url)
+    else:
+        trip_points, trip_metadata = get_trip_data(url)
 
     if len(trip_points) < 2:
         raise ValueError("Trip contains fewer than 2 track points")
@@ -5304,7 +5322,11 @@ def _calculate_elevation_profile_data(url: str, params: RiderParams, smoothing: 
     config = _load_config() or {}
     smoothing_radius = smoothing if smoothing is not None else config.get("smoothing", DEFAULTS["smoothing"])
 
-    points, route_metadata = get_route_with_surface(url, params.crr)
+    # Fetch route from appropriate source
+    if is_strava_route_url(url):
+        points, route_metadata = get_strava_route(url, params.crr)
+    else:
+        points, route_metadata = get_route_with_surface(url, params.crr)
 
     if len(points) < 2:
         raise ValueError("Route contains fewer than 2 track points")
@@ -5408,10 +5430,10 @@ def _calculate_elevation_profile_data(url: str, params: RiderParams, smoothing: 
 
 
 def _calculate_trip_elevation_profile_data(url: str, collapse_stops: bool = False) -> dict:
-    """Calculate elevation profile data for a trip using actual timestamps.
+    """Calculate elevation profile data for a trip/activity using actual timestamps.
 
     Args:
-        url: RideWithGPS trip URL
+        url: RideWithGPS trip URL or Strava activity URL
         collapse_stops: If True, use cumulative moving time (excludes stops) for x-axis.
                        This makes the profile comparable to route profiles.
 
@@ -5421,7 +5443,11 @@ def _calculate_trip_elevation_profile_data(url: str, collapse_stops: bool = Fals
     smoothing_radius = config.get("smoothing", DEFAULTS["smoothing"])
     max_grade_window = config.get("max_grade_window_route", DEFAULT_MAX_GRADE_WINDOW)
 
-    trip_points, trip_metadata = get_trip_data(url)
+    # Fetch from appropriate source
+    if is_strava_activity_url(url):
+        trip_points, trip_metadata = get_strava_activity(url)
+    else:
+        trip_points, trip_metadata = get_trip_data(url)
 
     if len(trip_points) < 2:
         raise ValueError("Trip contains fewer than 2 track points")
@@ -6032,10 +6058,10 @@ def extract_trip_id(url: str) -> str | None:
 
 
 def _analyze_url(url: str, params: RiderParams, smoothing: float | None = None, smoothing_override: bool = False) -> tuple[dict, bool]:
-    """Analyze a URL (route or trip) and return result and is_trip flag.
+    """Analyze a URL (route or trip/activity) and return result and is_trip flag.
 
     Args:
-        url: RideWithGPS route or trip URL
+        url: RideWithGPS or Strava route/trip/activity URL
         params: Rider parameters (only used for routes)
         smoothing: Optional override for elevation smoothing radius
         smoothing_override: If True, skip auto-adjustment for high-noise data
@@ -6043,7 +6069,7 @@ def _analyze_url(url: str, params: RiderParams, smoothing: float | None = None, 
     Returns:
         Tuple of (analysis result dict, is_trip flag)
     """
-    if is_ridewithgps_trip_url(url):
+    if is_ridewithgps_trip_url(url) or is_strava_activity_url(url):
         result = analyze_trip(url)
         return result, True
     else:
@@ -6053,8 +6079,13 @@ def _analyze_url(url: str, params: RiderParams, smoothing: float | None = None, 
 
 
 def _is_valid_rwgps_url(url: str) -> bool:
-    """Check if URL is a valid RideWithGPS route or trip URL."""
-    return is_ridewithgps_url(url) or is_ridewithgps_trip_url(url)
+    """Check if URL is a valid RideWithGPS or Strava route/trip/activity URL."""
+    return (
+        is_ridewithgps_url(url) or
+        is_ridewithgps_trip_url(url) or
+        is_strava_route_url(url) or
+        is_strava_activity_url(url)
+    )
 
 
 def _extract_id_from_url(url: str) -> str | None:
@@ -6141,7 +6172,7 @@ def index():
                         except Exception as e:
                             error = f"Error analyzing second {'trip' if is_ridewithgps_trip_url(url2) else 'route'}: {e}"
                     else:
-                        error = "Invalid second RideWithGPS URL"
+                        error = "Invalid second URL (must be RideWithGPS or Strava route/activity)"
 
     elif request.method == "POST":
         url = request.form.get("url", "").strip()
@@ -6167,10 +6198,10 @@ def index():
 
         if not error:
             if not url:
-                error = "Please enter a RideWithGPS URL"
+                error = "Please enter a RideWithGPS or Strava URL"
             elif mode == "route":
                 if not _is_valid_rwgps_url(url):
-                    error = "Invalid RideWithGPS URL. Expected format: https://ridewithgps.com/routes/XXXXX or /trips/XXXXX"
+                    error = "Invalid URL. Supported: ridewithgps.com/routes/XXX, /trips/XXX, or strava.com/routes/XXX, /activities/XXX"
                 else:
                     try:
                         params = build_params(climbing_power, flat_power, mass, headwind, descent_braking_factor, descending_power, unpaved_power_factor)
@@ -6191,7 +6222,7 @@ def index():
                             except Exception as e:
                                 error = f"Error analyzing second {'trip' if is_ridewithgps_trip_url(url2) else 'route'}: {e}"
                         else:
-                            error = "Invalid second RideWithGPS URL"
+                            error = "Invalid second URL (must be RideWithGPS or Strava route/activity)"
             # Collection mode is handled by JavaScript + SSE
 
     # Compute synchronized Y-axis limits for comparison mode
@@ -7698,7 +7729,7 @@ def api_detect_climbs():
     unpaved_power_factor = float(request.args.get("unpaved_power_factor", defaults["unpaved_power_factor"]))
     smoothing = float(request.args.get("smoothing", defaults["smoothing"]))
 
-    if not url or not is_ridewithgps_url(url):
+    if not url or not (is_ridewithgps_url(url) or is_strava_route_url(url)):
         return jsonify({"error": "Invalid route URL"}), 400
 
     try:
@@ -7724,7 +7755,10 @@ def api_detect_climbs():
         powers = profile_data.get("powers", [])
 
         # Get route data for climb detection
-        points, route_metadata = get_route_with_surface(url, params.crr)
+        if is_strava_route_url(url):
+            points, route_metadata = get_strava_route(url, params.crr)
+        else:
+            points, route_metadata = get_route_with_surface(url, params.crr)
         points, _ = detect_and_correct_tunnels(points)
 
         # Process elevation
@@ -7824,7 +7858,7 @@ def elevation_profile_ride():
     unpaved_power_factor = float(request.args.get("unpaved_power_factor", defaults["unpaved_power_factor"]))
     smoothing = float(request.args.get("smoothing", defaults["smoothing"]))
 
-    if not url or not is_ridewithgps_url(url):
+    if not url or not (is_ridewithgps_url(url) or is_strava_route_url(url)):
         # Return placeholder image with appropriate aspect ratio
         fig_height = 4
         fig_width = fig_height * aspect_ratio
@@ -7856,7 +7890,10 @@ def elevation_profile_ride():
         powers = data.get("powers", [])
 
         # Get climb data
-        points, route_metadata = get_route_with_surface(url, params.crr)
+        if is_strava_route_url(url):
+            points, route_metadata = get_strava_route(url, params.crr)
+        else:
+            points, route_metadata = get_route_with_surface(url, params.crr)
         points, _ = detect_and_correct_tunnels(points)
         smoothing_radius = smoothing if smoothing is not None else config.get("smoothing", DEFAULTS["smoothing"])
         elev_result = process_elevation_data(points, route_metadata, smoothing_radius)
@@ -8008,7 +8045,7 @@ def ride_page():
     elevation_m = 0
     climbs = []
 
-    if url and is_ridewithgps_url(url):
+    if url and (is_ridewithgps_url(url) or is_strava_route_url(url)):
         try:
             params = build_params(climbing_power, flat_power, mass, headwind, descent_braking_factor, descending_power, unpaved_power_factor)
             config = _load_config() or {}
@@ -8027,7 +8064,10 @@ def ride_page():
             powers = profile_data.get("powers", [])
 
             # Get route data for climb detection
-            points, route_metadata = get_route_with_surface(url, params.crr)
+            if is_strava_route_url(url):
+                points, route_metadata = get_strava_route(url, params.crr)
+            else:
+                points, route_metadata = get_route_with_surface(url, params.crr)
             points, _ = detect_and_correct_tunnels(points)
             smoothing_radius = smoothing if smoothing is not None else config.get("smoothing", DEFAULTS["smoothing"])
             elev_result = process_elevation_data(points, route_metadata, smoothing_radius)
@@ -8053,7 +8093,7 @@ def ride_page():
         except Exception as e:
             error = str(e)
     elif url:
-        error = "Invalid RideWithGPS route URL"
+        error = "Invalid route URL (must be RideWithGPS or Strava route)"
 
     return render_template_string(
         RIDE_TEMPLATE,
