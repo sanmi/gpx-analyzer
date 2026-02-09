@@ -131,6 +131,8 @@ class TestIndexPostSingleRoute:
         assert "Distance" in html
         assert "Est. Moving Time" in html
         assert "Est. Work" in html
+        assert "Est. Energy" in html
+        assert "kcal" in html
 
     @patch.object(web, "get_route_with_surface")
     def test_result_has_data_attributes_for_unit_conversion(self, mock_get_route, client, no_config, mock_route_points):
@@ -157,6 +159,37 @@ class TestIndexPostSingleRoute:
         assert 'id="singleDistance"' in html
         assert 'id="singleElevGain"' in html
         assert 'id="singleSpeed"' in html
+
+    @patch.object(web, "get_route_with_surface")
+    def test_energy_display_with_unit_selector(self, mock_get_route, client, no_config, mock_route_points):
+        """Energy display should show kcal value and unit selector dropdown."""
+        mock_get_route.return_value = (
+            mock_route_points,
+            {"name": "Test Route", "elevation_gain": 100},
+        )
+
+        response = client.post("/", data={
+            "url": "https://ridewithgps.com/routes/12345",
+            "mode": "route",
+            "climbing_power": "150",
+            "flat_power": "120",
+            "mass": "85",
+            "headwind": "0",
+        })
+        html = response.data.decode()
+
+        # Check energy display elements
+        assert 'id="singleEnergy"' in html
+        assert 'data-kj="' in html
+        assert 'id="energyUnitSelect"' in html
+        assert 'class="unit-select"' in html
+        # Check unit options
+        assert 'value="kcal"' in html
+        assert 'value="bananas"' in html
+        assert 'value="baguettes"' in html
+        # Check JavaScript functions
+        assert 'updateEnergyUnits' in html
+        assert 'formatEnergy' in html
 
     @patch.object(web, "get_route_with_surface")
     def test_imperial_toggle_js_function_exists(self, mock_get_route, client, no_config, mock_route_points):
@@ -1022,6 +1055,33 @@ class TestComparisonMode:
 
         # Check for y-axis limit attributes
         assert 'data-max-ylim' in html
+
+    @patch.object(web, "get_route_with_surface")
+    def test_comparison_mode_has_energy_display(self, mock_get_route, client, no_config, mock_route_points):
+        """Comparison mode should show energy values with unit selector."""
+        mock_get_route.return_value = (
+            mock_route_points,
+            {"name": "Test Route", "elevation_gain": 100},
+        )
+
+        response = client.post("/", data={
+            "url": "https://ridewithgps.com/routes/12345",
+            "url2": "https://ridewithgps.com/routes/67890",
+            "compare": "on",
+            "mode": "route",
+            "climbing_power": "150",
+            "flat_power": "120",
+            "mass": "85",
+            "headwind": "0",
+        })
+        html = response.data.decode()
+
+        # Check energy display in comparison table
+        assert 'id="energy1"' in html
+        assert 'id="energy2"' in html
+        assert 'id="energyDiff"' in html
+        assert 'id="energyUnitSelect"' in html
+        assert "Est. Energy" in html
 
 
 class TestRidePage:

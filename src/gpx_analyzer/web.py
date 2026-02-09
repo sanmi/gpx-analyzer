@@ -1934,12 +1934,17 @@ HTML_TEMPLATE = """
             <span class="result-label">Total Work</span>
             <span class="result-value" id="totalWork">-</span>
         </div>
+        <div class="result-row">
+            <span class="result-label">Total Energy</span>
+            <span class="result-value" id="totalEnergy">-</span>
+        </div>
         <table class="collection-table">
             <thead>
                 <tr>
                     <th>Route</th>
                     <th class="num primary"><span class="th-with-info">Time <button type="button" class="info-btn" onclick="showModal('timeModal')">?</button></span></th>
-                    <th class="num primary separator"><span class="th-with-info">Work <button type="button" class="info-btn" onclick="showModal('workModal')">?</button></span></th>
+                    <th class="num primary"><span class="th-with-info">Work <button type="button" class="info-btn" onclick="showModal('workModal')">?</button></span></th>
+                    <th class="num primary separator"><span class="th-with-info">kcal <button type="button" class="info-btn" onclick="showModal('energyModal')">?</button></span></th>
                     <th class="num">Dist</th>
                     <th class="num">Elev</th>
                     <th class="num"><span class="th-with-info">Hilly <button type="button" class="info-btn" onclick="showModal('hillyModal')">?</button></span></th>
@@ -2766,6 +2771,7 @@ HTML_TEMPLATE = """
             document.getElementById('totalElevation').textContent = formatElevFull(totalElev);
             document.getElementById('totalTime').textContent = formatDuration(totalTime);
             document.getElementById('totalWork').textContent = Math.round(totalWork) + ' kJ';
+            document.getElementById('totalEnergy').textContent = Math.round(totalWork * 1.075) + ' kcal';
 
             // Update totals row
             var tbody = document.getElementById('routesTableBody');
@@ -2777,7 +2783,8 @@ HTML_TEMPLATE = """
             totalsRow.className = 'totals-row';
             totalsRow.innerHTML = '<td>Total</td>' +
                 '<td class="num primary">' + formatDuration(totalTime) + '</td>' +
-                '<td class="num primary separator">' + Math.round(totalWork) + 'kJ</td>' +
+                '<td class="num primary">' + Math.round(totalWork) + 'kJ</td>' +
+                '<td class="num primary separator">' + Math.round(totalWork * 1.075) + '</td>' +
                 '<td class="num">' + formatDist(totalDist) + '</td>' +
                 '<td class="num">' + formatElev(totalElev) + '</td>' +
                 '<td class="num"></td><td class="num"></td><td class="num"></td><td class="num"></td><td class="num"></td>';
@@ -2883,7 +2890,8 @@ HTML_TEMPLATE = """
                     var analyzeUrl = buildAnalyzeUrl(rwgpsUrl);
                     row.innerHTML = '<td class="route-name" title="' + r.name + '"><a href="' + analyzeUrl + '">' + r.name + '</a><a href="' + rwgpsUrl + '" target="_blank" class="rwgps-link" title="View on RideWithGPS">↗</a></td>' +
                         '<td class="num primary">' + r.time_str + '</td>' +
-                        '<td class="num primary separator">' + Math.round(r.work_kj) + 'kJ</td>' +
+                        '<td class="num primary">' + Math.round(r.work_kj) + 'kJ</td>' +
+                        '<td class="num primary separator">' + Math.round(r.work_kj * 1.075) + '</td>' +
                         '<td class="num">' + formatDist(r.distance_km) + '</td>' +
                         '<td class="num">' + formatElev(r.elevation_m) + '</td>' +
                         '<td class="num">' + formatHilliness(r.hilliness_score || 0) + '</td>' +
@@ -2932,7 +2940,8 @@ HTML_TEMPLATE = """
                 var analyzeUrl = buildAnalyzeUrl(rwgpsUrl);
                 row.innerHTML = '<td class="route-name" title="' + r.name + '"><a href="' + analyzeUrl + '">' + r.name + '</a><a href="' + rwgpsUrl + '" target="_blank" class="rwgps-link" title="View on RideWithGPS">↗</a></td>' +
                     '<td class="num primary">' + r.time_str + '</td>' +
-                    '<td class="num primary separator">' + Math.round(r.work_kj) + 'kJ</td>' +
+                    '<td class="num primary">' + Math.round(r.work_kj) + 'kJ</td>' +
+                    '<td class="num primary separator">' + Math.round(r.work_kj * 1.075) + '</td>' +
                     '<td class="num">' + formatDist(r.distance_km) + '</td>' +
                     '<td class="num">' + formatElev(r.elevation_m) + '</td>' +
                     '<td class="num">' + formatHilliness(r.hilliness_score || 0) + '</td>' +

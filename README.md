@@ -251,6 +251,7 @@ Total distance:  249 km
 Total elevation: 3200 m
 Total time:      14.5 hours
 Total work:      4050 kJ
+Total energy:    4354 kcal
 
 PER-ROUTE BREAKDOWN:
 -----------------------------------------------------------------------------------------------
@@ -285,6 +286,7 @@ Config: mass=75kg cda=0.30 crr=0.005 climb=120W flat=120W ...
 ========================================
   Est. Time @120W: 5h 18m 22s
   Est. Work:       1901.4 kJ
+  Est. Energy:     2044 kcal
 ========================================
 Distance:       72.23 km
 Elevation Gain: 1802 m
