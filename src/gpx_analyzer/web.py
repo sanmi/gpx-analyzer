@@ -4295,11 +4295,11 @@ HTML_TEMPLATE = """
                 })
                 .catch(err => console.error('Profile data fetch exception:', err, dataUrl));
 
-            // The plot area margins match tight_layout() output for figsize=(14,4)
+            // The plot area margins match _set_fixed_margins() for figsize=(14,4)
+            // Left: 0.77in/14in = 0.055, Right: 1 - 0.18in/14in = 0.987
+            // These are constant regardless of speed overlay (overlay shares same plot area)
             const plotLeftPct = 0.055;
-            var speedCheckbox = document.getElementById('overlay_speed');
-            const hasOverlay = speedCheckbox && speedCheckbox.checked;
-            const plotRightPct = hasOverlay ? 0.955 : 0.987;
+            const plotRightPct = 0.987;
 
             function getDataAtPosition(xPct) {
                 if (!profileData || !profileData.times || profileData.times.length < 2) return null;
