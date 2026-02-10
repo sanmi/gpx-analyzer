@@ -22,9 +22,12 @@ CACHE_INDEX_PATH = CACHE_DIR / "cache_index.json"
 ROUTE_JSON_CACHE_INDEX_PATH = CACHE_DIR / "route_json_cache_index.json"
 ROUTE_JSON_ETAG_INDEX_PATH = CACHE_DIR / "route_json_etag_index.json"
 MAX_CACHED_ROUTES = 10
-MAX_CACHED_ROUTE_JSON = 50
+MAX_CACHED_ROUTE_JSON = 175
 MAX_CACHED_TRIPS = 20
 ROUTE_JSON_CACHE_TTL_SECONDS = 300  # 5 minutes - refetch if cache is older
+
+# Route JSON cache statistics
+_route_cache_stats = {"hits": 0, "misses": 0, "etag_validated": 0}
 
 RIDEWITHGPS_PATTERN = re.compile(r"^https?://(?:www\.)?ridewithgps\.com/routes/(\d+)")
 RIDEWITHGPS_TRIP_PATTERN = re.compile(r"^https?://(?:www\.)?ridewithgps\.com/trips/(\d+)")
@@ -391,6 +394,7 @@ def _enforce_route_json_lru_limit() -> None:
 
 def clear_route_json_cache() -> int:
     """Clear all cached route JSON files. Returns number of files removed."""
+    global _route_cache_stats
     index = _load_route_json_cache_index()
     count = 0
 
@@ -403,7 +407,31 @@ def clear_route_json_cache() -> int:
 
     _save_route_json_cache_index({})
     _save_etag_index({})
+    # Reset stats
+    _route_cache_stats = {"hits": 0, "misses": 0, "etag_validated": 0}
     return count
+
+
+def get_route_cache_stats() -> dict:
+    """Return route JSON cache statistics."""
+    index = _load_route_json_cache_index()
+    total = _route_cache_stats["hits"] + _route_cache_stats["misses"]
+    hit_rate = (_route_cache_stats["hits"] / total * 100) if total > 0 else 0
+    # Calculate disk usage
+    total_bytes = 0
+    for route_id_str in index:
+        path = ROUTES_JSON_DIR / f"{route_id_str}.json"
+        if path.exists():
+            total_bytes += path.stat().st_size
+    return {
+        "hit_rate": f"{hit_rate:.1f}%",
+        "hits": _route_cache_stats["hits"],
+        "max_size": MAX_CACHED_ROUTE_JSON,
+        "misses": _route_cache_stats["misses"],
+        "size": len(index),
+        "disk_kb": round(total_bytes / 1024, 1),
+        "etag_validated": _route_cache_stats["etag_validated"],
+    }
 
 
 def _load_cached_route_json(route_id: int) -> dict | None:
@@ -681,22 +709,27 @@ def get_route_with_surface(url: str, baseline_crr: float) -> tuple[list[TrackPoi
     if cached_data and cached_etag:
         route_data, new_etag, not_modified = _download_json(route_id, privacy_code, cached_etag)
         if not_modified:
-            # Cache is still valid
+            # Cache is still valid (304 Not Modified)
             route_data = cached_data
+            _route_cache_stats["hits"] += 1
+            _route_cache_stats["etag_validated"] += 1
         else:
             # Route was updated, save new data
             _save_route_json_to_cache(route_id, route_data, new_etag)
+            _route_cache_stats["misses"] += 1
         current_etag = new_etag if not not_modified else cached_etag
     elif cached_data:
         # Have cached data but no ETag, fetch fresh to get ETag
         route_data, new_etag, _ = _download_json(route_id, privacy_code)
         _save_route_json_to_cache(route_id, route_data, new_etag)
         current_etag = new_etag
+        _route_cache_stats["misses"] += 1
     else:
         # No cached data, download fresh
         route_data, etag, _ = _download_json(route_id, privacy_code)
         _save_route_json_to_cache(route_id, route_data, etag)
         current_etag = etag
+        _route_cache_stats["misses"] += 1
 
     points = parse_json_track_points(route_data, baseline_crr)
 

@@ -26,6 +26,7 @@ from gpx_analyzer.ridewithgps import (
     clear_route_json_cache,
     extract_privacy_code,
     get_collection_route_ids,
+    get_route_cache_stats,
     get_route_with_surface,
     get_trip_data,
     is_ridewithgps_collection_url,
@@ -127,15 +128,15 @@ class AnalysisCache:
         with self.lock:
             total = self.hits + self.misses
             hit_rate = (self.hits / total * 100) if total > 0 else 0
-            # Estimate ~1.2 KB per entry based on typical result dict size
-            memory_kb = int(len(self.cache) * 1.2)
+            # Estimate ~1.5 KB per entry based on typical result dict size
+            memory_kb = round(len(self.cache) * 1.5, 1)
             return {
-                "size": len(self.cache),
-                "max_size": self.max_size,
-                "memory_kb": memory_kb,
-                "hits": self.hits,
-                "misses": self.misses,
                 "hit_rate": f"{hit_rate:.1f}%",
+                "hits": self.hits,
+                "max_size": self.max_size,
+                "misses": self.misses,
+                "size": len(self.cache),
+                "memory_kb": memory_kb,
             }
 
     def clear(self) -> None:
@@ -147,19 +148,21 @@ class AnalysisCache:
 
 
 # Global cache instance (~0.75 MB at full capacity)
-_analysis_cache = AnalysisCache(max_size=500)
+_analysis_cache = AnalysisCache(max_size=175)
 
 
 # Disk cache for elevation profile images
 PROFILE_CACHE_DIR = Path.home() / ".cache" / "gpx-analyzer" / "profiles"
 PROFILE_CACHE_INDEX_PATH = PROFILE_CACHE_DIR / "cache_index.json"
-MAX_CACHED_PROFILES = 150  # ~150 images, each ~60KB = ~9MB max
+MAX_CACHED_PROFILES = 525  # ~525 images, each ~37KB = ~19MB max
+_elevation_profile_cache_stats = {"hits": 0, "misses": 0}
 
 # In-memory cache for climb detection results (avoids re-processing on sensitivity changes)
 # Key: (url, sensitivity, params_hash) -> Value: (climbs_json, sensitivity_m, timestamp)
 _climb_cache: dict[str, tuple[list, float, float]] = {}
-MAX_CLIMB_CACHE_ENTRIES = 50
+MAX_CLIMB_CACHE_ENTRIES = 175
 CLIMB_CACHE_TTL = 3600  # 1 hour
+_climb_cache_stats = {"hits": 0, "misses": 0}
 
 
 def _make_climb_cache_key(url: str, sensitivity: int, params_hash: str) -> str:
@@ -172,9 +175,11 @@ def _get_cached_climbs(cache_key: str) -> tuple[list, float] | None:
     if cache_key in _climb_cache:
         climbs_json, sensitivity_m, timestamp = _climb_cache[cache_key]
         if time.time() - timestamp < CLIMB_CACHE_TTL:
+            _climb_cache_stats["hits"] += 1
             return climbs_json, sensitivity_m
         else:
             del _climb_cache[cache_key]
+    _climb_cache_stats["misses"] += 1
     return None
 
 
@@ -185,6 +190,31 @@ def _save_climbs_to_cache(cache_key: str, climbs_json: list, sensitivity_m: floa
         oldest_key = min(_climb_cache.keys(), key=lambda k: _climb_cache[k][2])
         del _climb_cache[oldest_key]
     _climb_cache[cache_key] = (climbs_json, sensitivity_m, time.time())
+
+
+def _get_climb_cache_stats() -> dict:
+    """Return climb cache statistics."""
+    total = _climb_cache_stats["hits"] + _climb_cache_stats["misses"]
+    hit_rate = (_climb_cache_stats["hits"] / total * 100) if total > 0 else 0
+    # Estimate ~2 KB per entry (climbs list + metadata)
+    memory_kb = round(len(_climb_cache) * 2, 1)
+    return {
+        "hit_rate": f"{hit_rate:.1f}%",
+        "hits": _climb_cache_stats["hits"],
+        "max_size": MAX_CLIMB_CACHE_ENTRIES,
+        "misses": _climb_cache_stats["misses"],
+        "size": len(_climb_cache),
+        "memory_kb": memory_kb,
+    }
+
+
+def _clear_climb_cache() -> int:
+    """Clear the climb detection cache. Returns number of entries removed."""
+    global _climb_cache_stats
+    count = len(_climb_cache)
+    _climb_cache.clear()
+    _climb_cache_stats = {"hits": 0, "misses": 0}
+    return count
 
 
 def _make_ride_profile_cache_key(url: str, sensitivity: int, aspect: float, params_hash: str) -> str:
@@ -235,7 +265,9 @@ def _get_cached_profile(cache_key: str) -> bytes | None:
         index = _load_profile_cache_index()
         index[cache_key] = time.time()
         _save_profile_cache_index(index)
+        _elevation_profile_cache_stats["hits"] += 1
         return path.read_bytes()
+    _elevation_profile_cache_stats["misses"] += 1
     return None
 
 
@@ -5106,7 +5138,7 @@ def analyze_trip(url: str) -> dict:
     return result
 
 
-def _get_profile_cache_stats() -> dict:
+def _get_elevation_profile_cache_stats() -> dict:
     """Get statistics for the elevation profile disk cache."""
     index = _load_profile_cache_index()
     total_bytes = 0
@@ -5114,15 +5146,21 @@ def _get_profile_cache_stats() -> dict:
         path = PROFILE_CACHE_DIR / f"{key}.png"
         if path.exists():
             total_bytes += path.stat().st_size
+    total = _elevation_profile_cache_stats["hits"] + _elevation_profile_cache_stats["misses"]
+    hit_rate = (_elevation_profile_cache_stats["hits"] / total * 100) if total > 0 else 0
     return {
-        "size": len(index),
+        "hit_rate": f"{hit_rate:.1f}%",
+        "hits": _elevation_profile_cache_stats["hits"],
         "max_size": MAX_CACHED_PROFILES,
-        "disk_mb": round(total_bytes / (1024 * 1024), 2),
+        "misses": _elevation_profile_cache_stats["misses"],
+        "size": len(index),
+        "disk_kb": round(total_bytes / 1024, 1),
     }
 
 
-def _clear_profile_cache() -> int:
+def _clear_elevation_profile_cache() -> int:
     """Clear the elevation profile disk cache. Returns number of files removed."""
+    global _elevation_profile_cache_stats
     index = _load_profile_cache_index()
     count = 0
     for key in list(index.keys()):
@@ -5130,29 +5168,47 @@ def _clear_profile_cache() -> int:
         if path.exists():
             path.unlink()
             count += 1
-    # Clear the index
+    # Clear the index and reset stats
     _save_profile_cache_index({})
+    _elevation_profile_cache_stats = {"hits": 0, "misses": 0}
     return count
 
 
 @app.route("/cache-stats")
 def cache_stats():
-    """Return cache statistics as JSON."""
+    """Return cache statistics as JSON for all four caches."""
+    analysis = _analysis_cache.stats()
+    elevation_profile = _get_elevation_profile_cache_stats()
+    climb = _get_climb_cache_stats()
+    route_json = get_route_cache_stats()
+
+    # Calculate totals (memory caches use memory_kb, disk caches use disk_kb)
+    total_memory_kb = analysis["memory_kb"] + climb["memory_kb"]
+    total_disk_kb = elevation_profile["disk_kb"] + route_json["disk_kb"]
+
     return {
-        "analysis_cache": _analysis_cache.stats(),
-        "profile_cache": _get_profile_cache_stats(),
+        "analysis_cache": analysis,
+        "elevation_profile_cache": elevation_profile,
+        "climb_cache": climb,
+        "route_json_cache": route_json,
+        "totals": {
+            "memory_kb": total_memory_kb,
+            "disk_kb": total_disk_kb,
+        },
     }
 
 
 @app.route("/cache-clear", methods=["GET", "POST"])
 def cache_clear():
-    """Clear all caches: analysis, profile images, and route JSON."""
+    """Clear all caches: analysis, elevation profiles, climb detection, and route JSON."""
+    analysis_size = _analysis_cache.stats()["size"]
     _analysis_cache.clear()
-    profiles_cleared = _clear_profile_cache()
+    profiles_cleared = _clear_elevation_profile_cache()
+    climbs_cleared = _clear_climb_cache()
     routes_cleared = clear_route_json_cache()
     return {
         "status": "ok",
-        "message": f"Caches cleared (analysis + {profiles_cleared} profiles + {routes_cleared} routes)"
+        "message": f"Caches cleared: analysis ({analysis_size}), elevation_profiles ({profiles_cleared}), climbs ({climbs_cleared}), routes ({routes_cleared})"
     }
 
 
