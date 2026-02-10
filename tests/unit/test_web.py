@@ -1630,3 +1630,73 @@ class TestUmamiAnalytics:
             html = response.data.decode()
             assert "data-website-id" not in html
             assert "cloud.umami.is/script.js" not in html
+
+
+class TestCollectionRouteComparisonSelection:
+    """Tests for route comparison selection in collections table."""
+
+    def test_collections_table_has_checkbox_column_header(self, client):
+        """Collections table should have a checkbox column header."""
+        response = client.get("/")
+        html = response.data.decode()
+        # Check for the compare column header with tooltip
+        assert 'Select routes to compare' in html
+        assert '<th style="width: 40px; text-align: center;">' in html
+
+    def test_compare_action_bar_exists(self, client):
+        """Compare action bar should exist in collections page."""
+        response = client.get("/")
+        html = response.data.decode()
+        assert 'id="compareActionBar"' in html
+        assert 'id="compareLink"' in html
+        assert '>Compare</a>' in html
+        assert 'class="compare-action-bar"' in html
+        assert 'id="compareSelectionCount"' in html
+
+    def test_compare_action_bar_css_exists(self, client):
+        """CSS for compare action bar should be present."""
+        response = client.get("/")
+        html = response.data.decode()
+        assert '.compare-action-bar' in html
+        assert '.compare-btn' in html
+        assert '.route-select-checkbox' in html
+        assert '.selected-route' in html
+
+    def test_compare_javascript_functions_exist(self, client):
+        """JavaScript functions for route comparison should be present."""
+        response = client.get("/")
+        html = response.data.decode()
+        assert 'function toggleRouteSelection' in html
+        assert 'function updateCompareActionBar' in html
+        assert 'function buildCompareUrl' in html
+        assert 'function clearRouteSelection' in html
+        assert 'var selectedRouteIds = []' in html
+
+    def test_javascript_builds_comparison_url_with_params(self, client):
+        """buildCompareUrl should build URL with both route URLs and rider params."""
+        response = client.get("/")
+        html = response.data.decode()
+        # Check that buildCompareUrl builds proper URL params
+        assert "params.set('url', selectedRouteIds[0].url)" in html
+        assert "params.set('url2', selectedRouteIds[1].url)" in html
+        assert "params.set('climbing_power'" in html
+        assert "params.set('flat_power'" in html
+        assert "params.set('mass'" in html
+
+    def test_selection_preserved_on_rerender(self, client):
+        """rerenderCollectionTable should preserve selected state."""
+        response = client.get("/")
+        html = response.data.decode()
+        # Check that rerender checks for selected state
+        assert 'selectedRouteIds.some' in html
+        assert "isSelected ? ' checked' : ''" in html
+        assert "row.classList.add('selected-route')" in html
+
+    def test_clear_selection_on_new_analysis(self, client):
+        """Starting a new collection analysis should clear selection."""
+        response = client.get("/")
+        html = response.data.decode()
+        # Check that clearRouteSelection is called on start event
+        assert "clearRouteSelection()" in html
+        # Verify the call is in the start handler context
+        assert "if (data.type === 'start')" in html

@@ -1047,6 +1047,52 @@ HTML_TEMPLATE = """
         .collection-table .separator {
             border-right: 2px solid #ccc;
         }
+        /* Route selection in collections table */
+        .route-select-checkbox {
+            width: 16px;
+            height: 16px;
+            cursor: pointer;
+            accent-color: #3b82f6;
+        }
+        .collection-table tr.selected-route {
+            background-color: #dbeafe !important;
+        }
+        .collection-table tr.selected-route:hover {
+            background-color: #bfdbfe !important;
+        }
+        .compare-action-bar {
+            display: none;
+            padding: 8px 12px;
+            background: #f0f9ff;
+            border: 1px solid #3b82f6;
+            border-radius: 8px;
+            margin-bottom: 12px;
+            align-items: center;
+            justify-content: flex-start;
+            gap: 12px;
+        }
+        .compare-action-bar.visible {
+            display: flex;
+        }
+        .compare-btn {
+            padding: 4px 10px;
+            background: #3b82f6;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: 500;
+            font-size: 13px;
+            text-decoration: none;
+        }
+        .compare-btn:hover {
+            background: #2563eb;
+        }
+        .compare-selection-info {
+            color: #1e40af;
+            font-size: 13px;
+            white-space: nowrap;
+        }
         .route-name {
             max-width: 280px;
             display: flex;
@@ -2052,9 +2098,14 @@ HTML_TEMPLATE = """
             <span class="result-label">Total Energy</span>
             <span class="result-value" id="totalEnergy">-</span>
         </div>
+        <div class="compare-action-bar" id="compareActionBar">
+            <span class="compare-selection-info"><span id="compareSelectionCount">0</span> routes selected</span>
+            <a href="#" class="compare-btn" id="compareLink">Compare</a>
+        </div>
         <table class="collection-table">
             <thead>
                 <tr>
+                    <th style="width: 40px; text-align: center;"><span title="Select routes to compare">Cmp</span></th>
                     <th>Route</th>
                     <th class="num primary"><span class="th-with-info">Time <button type="button" class="info-btn" onclick="showModal('timeModal')">?</button></span></th>
                     <th class="num primary"><span class="th-with-info">Work <button type="button" class="info-btn" onclick="showModal('workModal')">?</button></span></th>
@@ -3183,6 +3234,8 @@ HTML_TEMPLATE = """
                 var data = JSON.parse(event.data);
 
                 if (data.type === 'start') {
+                    // Clear any previous route selection when starting new analysis
+                    clearRouteSelection();
                     var collectionNameEl = document.getElementById('collectionName');
                     var nameText = data.name || 'Collection Analysis';
                     collectionNameEl.innerHTML = '<a href="' + url + '" target="_blank">' + nameText + '</a>';
@@ -3235,7 +3288,8 @@ HTML_TEMPLATE = """
                     var row = document.createElement('tr');
                     var rwgpsUrl = 'https://ridewithgps.com/routes/' + r.route_id;
                     var analyzeUrl = buildAnalyzeUrl(rwgpsUrl);
-                    row.innerHTML = '<td class="route-name" title="' + r.name + '"><a href="' + analyzeUrl + '">' + r.name + '</a><a href="' + rwgpsUrl + '" target="_blank" class="rwgps-link" title="View on RideWithGPS">↗</a></td>' +
+                    row.innerHTML = '<td style="text-align: center;"><input type="checkbox" class="route-select-checkbox" data-route-url="' + rwgpsUrl + '" data-route-id="' + r.route_id + '" onchange="toggleRouteSelection(this)"></td>' +
+                        '<td class="route-name" title="' + r.name + '"><a href="' + analyzeUrl + '">' + r.name + '</a><a href="' + rwgpsUrl + '" target="_blank" class="rwgps-link" title="View on RideWithGPS">↗</a></td>' +
                         '<td class="num primary">' + r.time_str + '</td>' +
                         '<td class="num primary">' + Math.round(r.work_kj) + 'kJ</td>' +
                         '<td class="num primary separator">' + Math.round(r.work_kj * 1.075) + '</td>' +
@@ -3277,6 +3331,91 @@ HTML_TEMPLATE = """
         // Store routes globally so we can re-render when units change
         var collectionRoutes = [];
 
+        // Route selection state for comparison (max 2 routes)
+        var selectedRouteIds = [];  // Array of {url, routeId} objects
+
+        function toggleRouteSelection(checkbox) {
+            var url = checkbox.dataset.routeUrl;
+            var routeId = checkbox.dataset.routeId;
+            var row = checkbox.closest('tr');
+
+            if (checkbox.checked) {
+                // Add to selection (max 2)
+                if (selectedRouteIds.length >= 2) {
+                    // Deselect oldest
+                    var oldest = selectedRouteIds.shift();
+                    var oldRow = document.querySelector('input[data-route-id="' + oldest.routeId + '"]');
+                    if (oldRow) {
+                        oldRow.checked = false;
+                        oldRow.closest('tr').classList.remove('selected-route');
+                    }
+                }
+                selectedRouteIds.push({url: url, routeId: routeId});
+                row.classList.add('selected-route');
+            } else {
+                // Remove from selection
+                selectedRouteIds = selectedRouteIds.filter(function(item) {
+                    return item.routeId !== routeId;
+                });
+                row.classList.remove('selected-route');
+            }
+
+            updateCompareActionBar();
+        }
+
+        function buildCompareUrl() {
+            if (selectedRouteIds.length !== 2) return '#';
+
+            // Build comparison URL with both routes
+            var params = new URLSearchParams();
+            params.set('url', selectedRouteIds[0].url);
+            params.set('url2', selectedRouteIds[1].url);
+
+            // Preserve rider params from current page
+            var climbingPower = document.getElementById('climbing_power');
+            var flatPower = document.getElementById('flat_power');
+            var mass = document.getElementById('mass');
+            var headwind = document.getElementById('headwind');
+
+            if (climbingPower) params.set('climbing_power', climbingPower.value);
+            if (flatPower) params.set('flat_power', flatPower.value);
+            if (mass) params.set('mass', mass.value);
+            if (headwind) params.set('headwind', headwind.value);
+
+            // Preserve imperial setting
+            if (document.getElementById('imperial').checked) {
+                params.set('imperial', '1');
+            }
+
+            return '/?' + params.toString();
+        }
+
+        function updateCompareActionBar() {
+            var bar = document.getElementById('compareActionBar');
+            var count = document.getElementById('compareSelectionCount');
+            var link = document.getElementById('compareLink');
+            count.textContent = selectedRouteIds.length;
+
+            if (selectedRouteIds.length === 2) {
+                bar.classList.add('visible');
+                link.href = buildCompareUrl();
+            } else {
+                bar.classList.remove('visible');
+                link.href = '#';
+            }
+        }
+
+        function clearRouteSelection() {
+            selectedRouteIds = [];
+            var checkboxes = document.querySelectorAll('.route-select-checkbox');
+            checkboxes.forEach(function(cb) {
+                cb.checked = false;
+                var row = cb.closest('tr');
+                if (row) row.classList.remove('selected-route');
+            });
+            updateCompareActionBar();
+        }
+
         function rerenderCollectionTable() {
             if (collectionRoutes.length === 0) return;
 
@@ -3287,7 +3426,11 @@ HTML_TEMPLATE = """
                 var row = document.createElement('tr');
                 var rwgpsUrl = 'https://ridewithgps.com/routes/' + r.route_id;
                 var analyzeUrl = buildAnalyzeUrl(rwgpsUrl);
-                row.innerHTML = '<td class="route-name" title="' + r.name + '"><a href="' + analyzeUrl + '">' + r.name + '</a><a href="' + rwgpsUrl + '" target="_blank" class="rwgps-link" title="View on RideWithGPS">↗</a></td>' +
+                // Check if this route was selected (preserve selection across rerender)
+                var isSelected = selectedRouteIds.some(function(item) { return item.routeId === String(r.route_id); });
+                if (isSelected) row.classList.add('selected-route');
+                row.innerHTML = '<td style="text-align: center;"><input type="checkbox" class="route-select-checkbox" data-route-url="' + rwgpsUrl + '" data-route-id="' + r.route_id + '" onchange="toggleRouteSelection(this)"' + (isSelected ? ' checked' : '') + '></td>' +
+                    '<td class="route-name" title="' + r.name + '"><a href="' + analyzeUrl + '">' + r.name + '</a><a href="' + rwgpsUrl + '" target="_blank" class="rwgps-link" title="View on RideWithGPS">↗</a></td>' +
                     '<td class="num primary">' + r.time_str + '</td>' +
                     '<td class="num primary">' + Math.round(r.work_kj) + 'kJ</td>' +
                     '<td class="num primary separator">' + Math.round(r.work_kj * 1.075) + '</td>' +
