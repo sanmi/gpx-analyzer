@@ -232,10 +232,11 @@ def _make_profile_cache_key(url: str, climbing_power: float, flat_power: float, 
                             max_ylim: float | None = None,
                             max_speed_ylim: float | None = None,
                             unpaved_power_factor: float = 0.0,
-                            smoothing: float = 50.0) -> str:
+                            smoothing: float = 50.0,
+                            min_xlim_hours: float | None = None) -> str:
     """Create a unique cache key for elevation profile parameters."""
     config_hash = _get_config_hash()
-    key_str = f"{url}|{climbing_power}|{flat_power}|{descending_power}|{mass}|{headwind}|{descent_braking_factor}|{collapse_stops}|{max_xlim_hours}|{overlay}|{imperial}|{show_gravel}|{max_ylim}|{max_speed_ylim}|{unpaved_power_factor}|{smoothing}|{config_hash}"
+    key_str = f"{url}|{climbing_power}|{flat_power}|{descending_power}|{mass}|{headwind}|{descent_braking_factor}|{collapse_stops}|{min_xlim_hours}|{max_xlim_hours}|{overlay}|{imperial}|{show_gravel}|{max_ylim}|{max_speed_ylim}|{unpaved_power_factor}|{smoothing}|{config_hash}"
     return hashlib.md5(key_str.encode()).hexdigest()
 
 
@@ -840,6 +841,34 @@ HTML_TEMPLATE = """
         }
         .elevation-selection-popup .stat-value {
             font-weight: bold;
+        }
+        .selection-zoom-btn {
+            margin-top: 8px;
+            padding: 6px 12px;
+            background: #3b82f6;
+            color: white;
+            border-radius: 4px;
+            text-align: center;
+            cursor: pointer;
+            font-size: 12px;
+            font-weight: 500;
+        }
+        .selection-zoom-btn:hover {
+            background: #2563eb;
+        }
+        .zoom-out-link {
+            position: absolute;
+            bottom: 2px;
+            right: 10%;
+            z-index: 100;
+        }
+        .zoom-out-link a {
+            color: #3b82f6;
+            font-size: 12px;
+            text-decoration: none;
+        }
+        .zoom-out-link a:hover {
+            text-decoration: underline;
         }
 
         /* Long-press indicator for touch selection */
@@ -2860,9 +2889,17 @@ HTML_TEMPLATE = """
                 var collapseParam = (collapseCheckbox && collapseCheckbox.checked) ? '&collapse_stops=true' : '';
                 var overlayParams = _buildOverlayParams();
 
+                // Preserve zoom state from container data attributes
+                var zoomParams = '';
+                var zoomMin = container.getAttribute('data-zoom-min');
+                var zoomMax = container.getAttribute('data-zoom-max');
+                if (zoomMin && zoomMax) {
+                    zoomParams = '&min_xlim_hours=' + zoomMin + '&max_xlim_hours=' + zoomMax;
+                }
+
                 loading.classList.remove('hidden');
                 img.classList.add('loading');
-                img.src = baseProfileUrl + collapseParam + overlayParams;
+                img.src = baseProfileUrl + collapseParam + overlayParams + zoomParams;
 
                 if (typeof window.setupElevationProfile === 'function' && baseDataUrl) {
                     window.setupElevationProfile(
@@ -4110,6 +4147,7 @@ HTML_TEMPLATE = """
                     </div>
                     <div class="elevation-selection" id="elevationSelection1"></div>
                     <div class="elevation-selection-popup" id="elevationSelectionPopup1" style="display: none;"></div>
+                    <div class="zoom-out-link" id="zoomOutLink1" style="display: none;"><a href="#" onclick="return false;">Zoom Out</a></div>
                 </div>
             </div>
             {% if result2.tunnels_corrected > 0 %}
@@ -4152,6 +4190,7 @@ HTML_TEMPLATE = """
                     </div>
                     <div class="elevation-selection" id="elevationSelection2"></div>
                     <div class="elevation-selection-popup" id="elevationSelectionPopup2" style="display: none;"></div>
+                    <div class="zoom-out-link" id="zoomOutLink2" style="display: none;"><a href="#" onclick="return false;">Zoom Out</a></div>
                 </div>
             </div>
         </div>
@@ -4199,6 +4238,7 @@ HTML_TEMPLATE = """
                 </div>
                 <div class="elevation-selection" id="elevationSelection"></div>
                 <div class="elevation-selection-popup" id="elevationSelectionPopup" style="display: none;"></div>
+                <div class="zoom-out-link" id="zoomOutLink" style="display: none;"><a href="#" onclick="return false;">Zoom Out</a></div>
             </div>
         </div>
         {% endif %}
@@ -4276,6 +4316,31 @@ HTML_TEMPLATE = """
             let isSelecting = false;
             let selectionActive = false;
 
+            // Zoom state - restore from container data attributes if present
+            const savedZoomMin = container.getAttribute('data-zoom-min');
+            const savedZoomMax = container.getAttribute('data-zoom-max');
+            let isZoomed = !!(savedZoomMin && savedZoomMax);
+            let zoomMinHours = savedZoomMin ? parseFloat(savedZoomMin) : null;
+            let zoomMaxHours = savedZoomMax ? parseFloat(savedZoomMax) : null;
+            let selectionStartTime = null;
+            let selectionEndTime = null;
+            const zoomOutLink = document.getElementById('zoomOutLink' + suffix);
+
+            // Clear any stale popup and selection from previous initialization
+            if (selectionPopup) { selectionPopup.style.display = 'none'; selectionPopup.innerHTML = ''; }
+            if (selection) selection.classList.remove('visible');
+
+            // Show/hide zoom out link based on restored state
+            if (zoomOutLink) {
+                zoomOutLink.style.display = isZoomed ? 'block' : 'none';
+                if (isZoomed) {
+                    zoomOutLink.querySelector('a').onclick = function(e) {
+                        e.preventDefault();
+                        zoomOut();
+                    };
+                }
+            }
+
             // Fetch profile data
             fetch(dataUrl)
                 .then(r => {
@@ -4307,8 +4372,11 @@ HTML_TEMPLATE = """
                 const plotXPct = (xPct - plotLeftPct) / (plotRightPct - plotLeftPct);
                 if (plotXPct < 0 || plotXPct > 1) return null;
 
-                const time = plotXPct * (xlimHours || profileData.total_time);
-                if (time > profileData.total_time) return null;
+                // Use zoom bounds if zoomed, otherwise full range
+                const minTime = isZoomed ? zoomMinHours : 0;
+                const maxTime = isZoomed ? zoomMaxHours : (xlimHours || profileData.total_time);
+                const time = minTime + plotXPct * (maxTime - minTime);
+                if (time > profileData.total_time || time < 0) return null;
 
                 for (let i = 0; i < profileData.times.length - 1; i++) {
                     if (time >= profileData.times[i] && time < profileData.times[i + 1]) {
@@ -4333,7 +4401,19 @@ HTML_TEMPLATE = """
                 if (!profileData || !profileData.times || profileData.times.length < 2) return -1;
                 // Clamp to plot boundaries so extremities still work
                 const plotXPct = Math.max(0, Math.min(1, (xPct - plotLeftPct) / (plotRightPct - plotLeftPct)));
-                const time = Math.min(plotXPct * (xlimHours || profileData.total_time), profileData.total_time);
+                // Use zoom bounds if zoomed
+                const minTime = isZoomed ? zoomMinHours : 0;
+                const maxTime = isZoomed ? zoomMaxHours : (xlimHours || profileData.total_time);
+                const time = Math.max(0, Math.min(minTime + plotXPct * (maxTime - minTime), profileData.total_time));
+                for (let i = 0; i < profileData.times.length - 1; i++) {
+                    if (time >= profileData.times[i] && time < profileData.times[i + 1]) return i;
+                }
+                return profileData.times.length - 2;
+            }
+
+            // Convert time to index (for selection repositioning after zoom)
+            function getIndexAtTime(time) {
+                if (!profileData || !profileData.times || profileData.times.length < 2) return -1;
                 for (let i = 0; i < profileData.times.length - 1; i++) {
                     if (time >= profileData.times[i] && time < profileData.times[i + 1]) return i;
                 }
@@ -4500,6 +4580,9 @@ HTML_TEMPLATE = """
                     html += '<div class="selection-stat"><span class="stat-label">Work</span><span class="stat-value">' + stats.workKJ.toFixed(1) + ' kJ</span></div>';
                 }
 
+                // Add zoom button
+                html += '<div class="selection-zoom-btn">' + (isZoomed ? 'Zoom Out' : 'Zoom In') + '</div>';
+
                 selectionPopup.innerHTML = html;
                 selectionPopup.style.display = 'block';
                 selectionPopup.style.left = (xPctCenter * 100) + '%';
@@ -4514,6 +4597,19 @@ HTML_TEMPLATE = """
                         clearSelection();
                     });
                 }
+
+                // Zoom button handler
+                var zoomBtn = selectionPopup.querySelector('.selection-zoom-btn');
+                if (zoomBtn) {
+                    zoomBtn.addEventListener('click', function(ev) {
+                        ev.stopPropagation();
+                        if (isZoomed) {
+                            zoomOut();
+                        } else {
+                            zoomIn();
+                        }
+                    });
+                }
             }
 
             function clearSelection() {
@@ -4522,6 +4618,133 @@ HTML_TEMPLATE = """
                 selectionStart = null;
                 isSelecting = false;
                 selectionActive = false;
+            }
+
+            function zoomIn() {
+                if (!profileData || !selection) return;
+
+                // Get selection bounds in pixel percentages
+                const selLeft = parseFloat(selection.style.left) / 100;
+                const selWidth = parseFloat(selection.style.width) / 100;
+
+                // Convert to time using current zoom state
+                const plotRange = plotRightPct - plotLeftPct;
+                const minTime = isZoomed ? zoomMinHours : 0;
+                const maxTime = isZoomed ? zoomMaxHours : (xlimHours || profileData.total_time);
+                const viewRange = maxTime - minTime;
+
+                const startPct = (selLeft - plotLeftPct) / plotRange;
+                const endPct = (selLeft + selWidth - plotLeftPct) / plotRange;
+
+                selectionStartTime = minTime + startPct * viewRange;
+                selectionEndTime = minTime + endPct * viewRange;
+
+                // Calculate zoom bounds with padding so selection takes 90% of view
+                const selectionDuration = selectionEndTime - selectionStartTime;
+                const totalZoomRange = selectionDuration / 0.9;
+                const padding = (totalZoomRange - selectionDuration) / 2;
+
+                zoomMinHours = Math.max(0, selectionStartTime - padding);
+                zoomMaxHours = Math.min(profileData.total_time, selectionEndTime + padding);
+
+                // Store zoom state on container for persistence across overlay toggles
+                container.setAttribute('data-zoom-min', zoomMinHours.toFixed(4));
+                container.setAttribute('data-zoom-max', zoomMaxHours.toFixed(4));
+
+                isZoomed = true;
+                refreshZoomedProfile();
+            }
+
+            function zoomOut() {
+                isZoomed = false;
+                zoomMinHours = null;
+                zoomMaxHours = null;
+                selectionStartTime = null;
+                selectionEndTime = null;
+
+                // Clear zoom state from container
+                container.removeAttribute('data-zoom-min');
+                container.removeAttribute('data-zoom-max');
+
+                clearSelection();
+                refreshZoomedProfile();
+            }
+
+            function refreshZoomedProfile() {
+                var baseProfileUrl = container.getAttribute('data-base-profile-url');
+                var baseDataUrl = container.getAttribute('data-base-data-url');
+                var loading = document.getElementById('elevationLoading' + suffix);
+
+                if (!baseProfileUrl) return;
+
+                // Build URL parameters
+                var params = '';
+                var collapseCheckbox = document.getElementById('collapseStops' + suffix);
+                if (collapseCheckbox && collapseCheckbox.checked) params += '&collapse_stops=true';
+                if (typeof _buildOverlayParams === 'function') params += _buildOverlayParams();
+
+                // Add zoom parameters
+                if (isZoomed && zoomMinHours !== null && zoomMaxHours !== null) {
+                    params += '&min_xlim_hours=' + zoomMinHours.toFixed(4);
+                    params += '&max_xlim_hours=' + zoomMaxHours.toFixed(4);
+                }
+
+                // Show loading spinner
+                if (loading) loading.classList.remove('hidden');
+                img.classList.add('loading');
+
+                // Update image
+                img.src = baseProfileUrl + params;
+
+                img.onload = function() {
+                    if (loading) loading.classList.add('hidden');
+                    img.classList.remove('loading');
+
+                    // Show/hide zoom out link
+                    if (zoomOutLink) {
+                        zoomOutLink.style.display = isZoomed ? 'block' : 'none';
+                        if (isZoomed) {
+                            zoomOutLink.querySelector('a').onclick = function(e) {
+                                e.preventDefault();
+                                zoomOut();
+                            };
+                        }
+                    }
+
+                    // Reposition selection if zoomed
+                    if (isZoomed && selectionStartTime !== null && selectionEndTime !== null) {
+                        repositionSelectionAfterZoom();
+                    }
+                };
+            }
+
+            function repositionSelectionAfterZoom() {
+                if (!selection || !isZoomed || selectionStartTime === null || selectionEndTime === null) return;
+
+                // Calculate the new position of selection in zoomed view
+                const zoomRange = zoomMaxHours - zoomMinHours;
+                const plotRange = plotRightPct - plotLeftPct;
+
+                // Convert time to plot percentage
+                const startPct = plotLeftPct + ((selectionStartTime - zoomMinHours) / zoomRange) * plotRange;
+                const endPct = plotLeftPct + ((selectionEndTime - zoomMinHours) / zoomRange) * plotRange;
+
+                // Clamp to plot boundaries
+                const clampedStart = Math.max(plotLeftPct, Math.min(plotRightPct, startPct));
+                const clampedEnd = Math.max(plotLeftPct, Math.min(plotRightPct, endPct));
+
+                selection.style.left = (Math.min(clampedStart, clampedEnd) * 100) + '%';
+                selection.style.width = (Math.abs(clampedEnd - clampedStart) * 100) + '%';
+                selection.classList.add('visible');
+
+                // Re-show popup with Zoom Out button
+                const centerXPct = (clampedStart + clampedEnd) / 2;
+                const startIdx = getIndexAtTime(selectionStartTime);
+                const endIdx = getIndexAtTime(selectionEndTime);
+                const stats = computeSelectionStats(startIdx, endIdx);
+                if (stats) {
+                    showSelectionPopup(stats, centerXPct);
+                }
             }
 
             // Event handlers
@@ -4543,9 +4766,21 @@ HTML_TEMPLATE = """
 
             function onMouseDown(e) {
                 if (!profileData) return;
-                // If popup is showing and click is outside popup, clear it
+                // If popup is showing and click is outside popup, dismiss popup but keep selection if zoomed
                 if (selectionActive) {
-                    clearSelection();
+                    // Don't dismiss if clicking inside the popup
+                    if (selectionPopup && selectionPopup.contains(e.target)) {
+                        return;
+                    }
+                    if (selectionPopup) {
+                        selectionPopup.style.display = 'none';
+                        selectionPopup.innerHTML = '';
+                    }
+                    selectionActive = false;
+                    // Keep selection visible if zoomed
+                    if (!isZoomed && selection) {
+                        selection.classList.remove('visible');
+                    }
                     return;
                 }
                 const rect = img.getBoundingClientRect();
@@ -4630,7 +4865,23 @@ HTML_TEMPLATE = """
 
             function onTouchStart(e) {
                 if (!profileData) return;
-                if (selectionActive) { clearSelection(); return; }
+                // If popup is showing, check if tap is inside popup
+                if (selectionActive) {
+                    // Don't dismiss if tapping inside the popup
+                    if (selectionPopup && e.touches[0] && selectionPopup.contains(document.elementFromPoint(e.touches[0].clientX, e.touches[0].clientY))) {
+                        return;
+                    }
+                    if (selectionPopup) {
+                        selectionPopup.style.display = 'none';
+                        selectionPopup.innerHTML = '';
+                    }
+                    selectionActive = false;
+                    // Keep selection visible if zoomed
+                    if (!isZoomed && selection) {
+                        selection.classList.remove('visible');
+                    }
+                    return;
+                }
 
                 const touch = e.touches[0];
                 longPressStartX = touch.clientX;
@@ -5918,7 +6169,8 @@ def generate_elevation_profile(url: str, params: RiderParams, title_time_hours: 
                                max_speed_ylim: float | None = None,
                                show_gravel: bool = False,
                                smoothing: float | None = None,
-                               aspect_ratio: float = 3.5) -> bytes:
+                               aspect_ratio: float = 3.5,
+                               min_xlim_hours: float | None = None) -> bytes:
     """Generate elevation profile image with grade-based coloring.
 
     Args:
@@ -5935,6 +6187,7 @@ def generate_elevation_profile(url: str, params: RiderParams, title_time_hours: 
         show_gravel: If True, highlight unpaved/gravel sections with a brown strip.
         smoothing: Optional override for elevation smoothing radius.
         aspect_ratio: Width/height ratio (1.0 = square, 3.5 = wide default).
+        min_xlim_hours: Optional min x-axis limit in hours (for zooming).
 
     Returns PNG image as bytes.
     """
@@ -6017,9 +6270,10 @@ def generate_elevation_profile(url: str, params: RiderParams, title_time_hours: 
             ax.fill_between([start_time, end_time], 0, strip_height,
                             color='#8B6914', alpha=0.5, zorder=1)
 
-    # Style the plot - use max_xlim_hours if provided for synchronized comparison
-    xlim = max_xlim_hours if max_xlim_hours is not None else times_hours[-1]
-    ax.set_xlim(0, xlim)
+    # Style the plot - use xlim parameters for zooming/comparison
+    x_min = min_xlim_hours if min_xlim_hours is not None else 0
+    x_max = max_xlim_hours if max_xlim_hours is not None else times_hours[-1]
+    ax.set_xlim(x_min, x_max)
     ax.set_ylim(0, max_elev)
     ax.set_xlabel('Time (hours)', fontsize=10)
     ax.set_ylabel('Elevation (m)', fontsize=10)
@@ -6047,7 +6301,8 @@ def generate_trip_elevation_profile(url: str, title_time_hours: float | None = N
                                     max_xlim_hours: float | None = None,
                                     overlay: str | None = None, imperial: bool = False,
                                     max_ylim: float | None = None,
-                                    max_speed_ylim: float | None = None) -> bytes:
+                                    max_speed_ylim: float | None = None,
+                                    min_xlim_hours: float | None = None) -> bytes:
     """Generate elevation profile image for a trip with grade-based coloring.
 
     Args:
@@ -6060,6 +6315,7 @@ def generate_trip_elevation_profile(url: str, title_time_hours: float | None = N
         imperial: If True, use imperial units for overlay axis.
         max_ylim: Optional max y-axis limit in meters (for synchronized comparison).
         max_speed_ylim: Optional max speed y-axis limit in km/h (for synchronized comparison).
+        min_xlim_hours: Optional min x-axis limit in hours (for zooming).
 
     Returns PNG image as bytes.
     """
@@ -6124,9 +6380,10 @@ def generate_trip_elevation_profile(url: str, title_time_hours: float | None = N
                 color='#E65100', ha='center', va='center',
                 bbox=dict(boxstyle='circle,pad=0.2', facecolor='#FFF3E0', edgecolor='#FF9800', linewidth=1))
 
-    # Use max_xlim_hours if provided for synchronized comparison
-    xlim = max_xlim_hours if max_xlim_hours is not None else times_hours[-1]
-    ax.set_xlim(0, xlim)
+    # Use xlim parameters for zooming/comparison
+    x_min = min_xlim_hours if min_xlim_hours is not None else 0
+    x_max = max_xlim_hours if max_xlim_hours is not None else times_hours[-1]
+    ax.set_xlim(x_min, x_max)
     ax.set_ylim(0, max_elev)
     ax.set_xlabel('Time (hours)', fontsize=10)
     ax.set_ylabel('Elevation (m)', fontsize=10)
@@ -6166,6 +6423,8 @@ def elevation_profile():
     collapse_stops = request.args.get("collapse_stops", "false").lower() == "true"
     max_xlim_str = request.args.get("max_xlim_hours", "")
     max_xlim_hours = float(max_xlim_str) if max_xlim_str else None
+    min_xlim_str = request.args.get("min_xlim_hours", "")
+    min_xlim_hours = float(min_xlim_str) if min_xlim_str else None
     overlay = request.args.get("overlay", "") or None
     imperial = request.args.get("imperial", "false").lower() == "true"
     max_ylim_str = request.args.get("max_ylim", "")
@@ -6199,7 +6458,7 @@ def elevation_profile():
         return send_file(buf, mimetype='image/png')
 
     # Check disk cache first (include aspect in cache key)
-    cache_key = _make_profile_cache_key(url, climbing_power, flat_power, mass, headwind, descent_braking_factor, collapse_stops, max_xlim_hours, descending_power, overlay=(overlay or "") + f"|aspect{aspect_ratio:.1f}", imperial=imperial, show_gravel=show_gravel, max_ylim=max_ylim, max_speed_ylim=max_speed_ylim, unpaved_power_factor=unpaved_power_factor, smoothing=smoothing)
+    cache_key = _make_profile_cache_key(url, climbing_power, flat_power, mass, headwind, descent_braking_factor, collapse_stops, max_xlim_hours, descending_power, overlay=(overlay or "") + f"|aspect{aspect_ratio:.1f}", imperial=imperial, show_gravel=show_gravel, max_ylim=max_ylim, max_speed_ylim=max_speed_ylim, unpaved_power_factor=unpaved_power_factor, smoothing=smoothing, min_xlim_hours=min_xlim_hours)
     cached_bytes = _get_cached_profile(cache_key)
     if cached_bytes:
         return send_file(io.BytesIO(cached_bytes), mimetype='image/png')
@@ -6209,13 +6468,13 @@ def elevation_profile():
             # Trip: use actual timestamps, no physics params needed
             trip_result = analyze_trip(url)
             title_time_hours = trip_result["time_seconds"] / 3600
-            img_bytes = generate_trip_elevation_profile(url, title_time_hours, collapse_stops=collapse_stops, max_xlim_hours=max_xlim_hours, overlay=overlay, imperial=imperial, max_ylim=max_ylim, max_speed_ylim=max_speed_ylim)
+            img_bytes = generate_trip_elevation_profile(url, title_time_hours, collapse_stops=collapse_stops, max_xlim_hours=max_xlim_hours, overlay=overlay, imperial=imperial, max_ylim=max_ylim, max_speed_ylim=max_speed_ylim, min_xlim_hours=min_xlim_hours)
         else:
             # Route: use physics estimation
             params = build_params(climbing_power, flat_power, mass, headwind, descent_braking_factor, descending_power, unpaved_power_factor)
             analysis = analyze_single_route(url, params, smoothing)
             title_time_hours = analysis["time_seconds"] / 3600
-            img_bytes = generate_elevation_profile(url, params, title_time_hours, max_xlim_hours=max_xlim_hours, overlay=overlay, imperial=imperial, max_ylim=max_ylim, max_speed_ylim=max_speed_ylim, show_gravel=show_gravel, smoothing=smoothing, aspect_ratio=aspect_ratio)
+            img_bytes = generate_elevation_profile(url, params, title_time_hours, max_xlim_hours=max_xlim_hours, overlay=overlay, imperial=imperial, max_ylim=max_ylim, max_speed_ylim=max_speed_ylim, show_gravel=show_gravel, smoothing=smoothing, aspect_ratio=aspect_ratio, min_xlim_hours=min_xlim_hours)
         # Save to disk cache
         _save_profile_to_cache(cache_key, img_bytes)
         return send_file(io.BytesIO(img_bytes), mimetype='image/png')
@@ -6850,6 +7109,30 @@ RIDE_TEMPLATE = """
         }
         .elevation-selection-popup .stat-label { color: #aaa; }
         .elevation-selection-popup .stat-value { font-weight: bold; }
+        .selection-zoom-btn {
+            margin-top: 8px;
+            padding: 6px 12px;
+            background: #3b82f6;
+            color: white;
+            border-radius: 4px;
+            text-align: center;
+            cursor: pointer;
+            font-size: 12px;
+            font-weight: 500;
+        }
+        .selection-zoom-btn:hover { background: #2563eb; }
+        .zoom-out-link {
+            position: absolute;
+            bottom: 2px;
+            right: 10%;
+            z-index: 100;
+        }
+        .zoom-out-link a {
+            color: #3b82f6;
+            font-size: 12px;
+            text-decoration: none;
+        }
+        .zoom-out-link a:hover { text-decoration: underline; }
 
         /* Long-press indicator for touch selection */
         .long-press-indicator {
@@ -7191,6 +7474,7 @@ RIDE_TEMPLATE = """
             </div>
             <div class="elevation-selection" id="elevationSelection"></div>
             <div class="elevation-selection-popup" id="elevationSelectionPopup" style="display: none;"></div>
+            <div class="zoom-out-link" id="zoomOutLink" style="display: none;"><a href="#" onclick="return false;">Zoom Out</a></div>
         </div>
     </div>
 
@@ -7457,9 +7741,18 @@ RIDE_TEMPLATE = """
             if (!baseProfileUrl) return;
             const aspect = getAspectForContainer(container);  // Use this container's width
             const overlayParams = _buildOverlayParams();
+
+            // Preserve zoom state from container data attributes
+            let zoomParams = '';
+            const zoomMin = container.getAttribute('data-zoom-min');
+            const zoomMax = container.getAttribute('data-zoom-max');
+            if (zoomMin && zoomMax) {
+                zoomParams = `&min_xlim_hours=${zoomMin}&max_xlim_hours=${zoomMax}`;
+            }
+
             if (loading) loading.classList.remove('hidden');
             img.classList.add('loading');
-            img.src = baseProfileUrl + `&aspect=${aspect.toFixed(2)}` + overlayParams;
+            img.src = baseProfileUrl + `&aspect=${aspect.toFixed(2)}` + overlayParams + zoomParams;
             img.onload = () => {
                 if (loading) loading.classList.add('hidden');
                 img.classList.remove('loading');
@@ -7546,6 +7839,31 @@ RIDE_TEMPLATE = """
             let isSelecting = false;
             let selectionActive = false;
 
+            // Zoom state - restore from container data attributes if present
+            const savedZoomMin = container.getAttribute('data-zoom-min');
+            const savedZoomMax = container.getAttribute('data-zoom-max');
+            let isZoomed = !!(savedZoomMin && savedZoomMax);
+            let zoomMinHours = savedZoomMin ? parseFloat(savedZoomMin) : null;
+            let zoomMaxHours = savedZoomMax ? parseFloat(savedZoomMax) : null;
+            let selectionStartTime = null;
+            let selectionEndTime = null;
+            const zoomOutLink = document.getElementById('zoomOutLink');
+
+            // Clear any stale popup and selection from previous initialization
+            if (selectionPopup) { selectionPopup.style.display = 'none'; selectionPopup.innerHTML = ''; }
+            if (selection) selection.classList.remove('visible');
+
+            // Show/hide zoom out link based on restored state
+            if (zoomOutLink) {
+                zoomOutLink.style.display = isZoomed ? 'block' : 'none';
+                if (isZoomed) {
+                    zoomOutLink.querySelector('a').onclick = function(e) {
+                        e.preventDefault();
+                        zoomOut();
+                    };
+                }
+            }
+
             fetch(dataUrl)
                 .then(r => {
                     if (!r.ok) { console.error('Profile data fetch failed:', r.status, dataUrl); return { error: 'HTTP ' + r.status }; }
@@ -7581,8 +7899,11 @@ RIDE_TEMPLATE = """
                 const leftPct = getPlotLeftPct(), rightPct = getPlotRightPct();
                 const plotXPct = (xPct - leftPct) / (rightPct - leftPct);
                 if (plotXPct < 0 || plotXPct > 1) return null;
-                const time = plotXPct * profileData.total_time;
-                if (time > profileData.total_time) return null;
+                // Use zoom bounds if zoomed, otherwise full range
+                const minTime = isZoomed ? zoomMinHours : 0;
+                const maxTime = isZoomed ? zoomMaxHours : profileData.total_time;
+                const time = minTime + plotXPct * (maxTime - minTime);
+                if (time > profileData.total_time || time < 0) return null;
                 for (let i = 0; i < profileData.times.length - 1; i++) {
                     if (time >= profileData.times[i] && time < profileData.times[i + 1]) {
                         return { grade: profileData.grades[i], elevation: profileData.elevations[i] || 0, speed: profileData.speeds ? profileData.speeds[i] : null, time: time };
@@ -7596,7 +7917,19 @@ RIDE_TEMPLATE = """
                 if (!profileData || !profileData.times || profileData.times.length < 2) return -1;
                 const leftPct = getPlotLeftPct(), rightPct = getPlotRightPct();
                 const plotXPct = Math.max(0, Math.min(1, (xPct - leftPct) / (rightPct - leftPct)));
-                const time = Math.min(plotXPct * profileData.total_time, profileData.total_time);
+                // Use zoom bounds if zoomed
+                const minTime = isZoomed ? zoomMinHours : 0;
+                const maxTime = isZoomed ? zoomMaxHours : profileData.total_time;
+                const time = Math.max(0, Math.min(minTime + plotXPct * (maxTime - minTime), profileData.total_time));
+                for (let i = 0; i < profileData.times.length - 1; i++) {
+                    if (time >= profileData.times[i] && time < profileData.times[i + 1]) return i;
+                }
+                return profileData.times.length - 2;
+            }
+
+            // Convert time to index (for selection repositioning after zoom)
+            function getIndexAtTime(time) {
+                if (!profileData || !profileData.times || profileData.times.length < 2) return -1;
                 for (let i = 0; i < profileData.times.length - 1; i++) {
                     if (time >= profileData.times[i] && time < profileData.times[i + 1]) return i;
                 }
@@ -7721,18 +8054,171 @@ RIDE_TEMPLATE = """
                     html += '<div class="selection-stat"><span class="stat-label">Avg Power</span><span class="stat-value">' + Math.round(stats.avgPower) + ' W</span></div>';
                     html += '<div class="selection-stat"><span class="stat-label">Work</span><span class="stat-value">' + stats.workKJ.toFixed(1) + ' kJ</span></div>';
                 }
+                // Add zoom button
+                html += '<div class="selection-zoom-btn">' + (isZoomed ? 'Zoom Out' : 'Zoom In') + '</div>';
                 selectionPopup.innerHTML = html;
                 selectionPopup.style.display = 'block';
                 selectionPopup.style.left = (xPctCenter * 100) + '%';
                 selectionPopup.style.bottom = '70px';
                 selectionActive = true;
                 selectionPopup.querySelector('.selection-close')?.addEventListener('click', (ev) => { ev.stopPropagation(); clearSelection(); });
+                // Zoom button handler
+                var zoomBtn = selectionPopup.querySelector('.selection-zoom-btn');
+                if (zoomBtn) {
+                    zoomBtn.addEventListener('click', function(ev) {
+                        ev.stopPropagation();
+                        if (isZoomed) {
+                            zoomOut();
+                        } else {
+                            zoomIn();
+                        }
+                    });
+                }
             }
 
             function clearSelection() {
                 if (selection) selection.classList.remove('visible');
                 if (selectionPopup) { selectionPopup.style.display = 'none'; selectionPopup.innerHTML = ''; }
                 selectionStart = null; isSelecting = false; selectionActive = false;
+            }
+
+            function zoomIn() {
+                if (!profileData || !selection) return;
+
+                // Get selection bounds in pixel percentages
+                const selLeft = parseFloat(selection.style.left) / 100;
+                const selWidth = parseFloat(selection.style.width) / 100;
+
+                // Convert to time using current zoom state
+                const leftPct = getPlotLeftPct(), rightPct = getPlotRightPct();
+                const plotRange = rightPct - leftPct;
+                const minTime = isZoomed ? zoomMinHours : 0;
+                const maxTime = isZoomed ? zoomMaxHours : profileData.total_time;
+                const viewRange = maxTime - minTime;
+
+                const startPct = (selLeft - leftPct) / plotRange;
+                const endPct = (selLeft + selWidth - leftPct) / plotRange;
+
+                selectionStartTime = minTime + startPct * viewRange;
+                selectionEndTime = minTime + endPct * viewRange;
+
+                // Calculate zoom bounds with padding so selection takes 90% of view
+                const selectionDuration = selectionEndTime - selectionStartTime;
+                const totalZoomRange = selectionDuration / 0.9;
+                const padding = (totalZoomRange - selectionDuration) / 2;
+
+                zoomMinHours = Math.max(0, selectionStartTime - padding);
+                zoomMaxHours = Math.min(profileData.total_time, selectionEndTime + padding);
+
+                // Store zoom state on container for persistence across overlay toggles
+                container.setAttribute('data-zoom-min', zoomMinHours.toFixed(4));
+                container.setAttribute('data-zoom-max', zoomMaxHours.toFixed(4));
+
+                isZoomed = true;
+                refreshZoomedProfile();
+            }
+
+            function zoomOut() {
+                isZoomed = false;
+                zoomMinHours = null;
+                zoomMaxHours = null;
+                selectionStartTime = null;
+                selectionEndTime = null;
+
+                // Clear zoom state from container
+                container.removeAttribute('data-zoom-min');
+                container.removeAttribute('data-zoom-max');
+
+                clearSelection();
+                refreshZoomedProfile();
+            }
+
+            function refreshZoomedProfile() {
+                var baseProfileUrl = container.getAttribute('data-base-profile-url');
+                var loading = document.getElementById('elevationLoading');
+
+                if (!baseProfileUrl) return;
+
+                // Build URL parameters
+                var params = '';
+                var aspect = getContainerAspect();
+                params += '&aspect=' + aspect.toFixed(2);
+
+                // Add overlay parameters
+                var overlayParts = [];
+                var speedCb = document.getElementById('overlay_speed');
+                var gravelCb = document.getElementById('overlay_gravel');
+                if (speedCb && speedCb.checked) overlayParts.push('speed');
+                if (gravelCb && gravelCb.checked) overlayParts.push('gravel');
+                if (overlayParts.length > 0) params += '&overlay=' + overlayParts.join(',');
+
+                // Add imperial
+                if (isImperial()) params += '&imperial=1';
+
+                // Add zoom parameters
+                if (isZoomed && zoomMinHours !== null && zoomMaxHours !== null) {
+                    params += '&min_xlim_hours=' + zoomMinHours.toFixed(4);
+                    params += '&max_xlim_hours=' + zoomMaxHours.toFixed(4);
+                }
+
+                // Show loading spinner
+                if (loading) loading.classList.remove('hidden');
+                img.classList.add('loading');
+
+                // Update image
+                img.src = baseProfileUrl + params;
+
+                img.onload = function() {
+                    if (loading) loading.classList.add('hidden');
+                    img.classList.remove('loading');
+                    updatePlotMargins();
+
+                    // Show/hide zoom out link
+                    if (zoomOutLink) {
+                        zoomOutLink.style.display = isZoomed ? 'block' : 'none';
+                        if (isZoomed) {
+                            zoomOutLink.querySelector('a').onclick = function(e) {
+                                e.preventDefault();
+                                zoomOut();
+                            };
+                        }
+                    }
+
+                    // Reposition selection if zoomed
+                    if (isZoomed && selectionStartTime !== null && selectionEndTime !== null) {
+                        repositionSelectionAfterZoom();
+                    }
+                };
+            }
+
+            function repositionSelectionAfterZoom() {
+                if (!selection || !isZoomed || selectionStartTime === null || selectionEndTime === null) return;
+
+                // Calculate the new position of selection in zoomed view
+                const zoomRange = zoomMaxHours - zoomMinHours;
+                const leftPct = getPlotLeftPct(), rightPct = getPlotRightPct();
+                const plotRange = rightPct - leftPct;
+
+                // Convert time to plot percentage
+                const startPct = leftPct + ((selectionStartTime - zoomMinHours) / zoomRange) * plotRange;
+                const endPct = leftPct + ((selectionEndTime - zoomMinHours) / zoomRange) * plotRange;
+
+                // Clamp to plot boundaries
+                const clampedStart = Math.max(leftPct, Math.min(rightPct, startPct));
+                const clampedEnd = Math.max(leftPct, Math.min(rightPct, endPct));
+
+                selection.style.left = (Math.min(clampedStart, clampedEnd) * 100) + '%';
+                selection.style.width = (Math.abs(clampedEnd - clampedStart) * 100) + '%';
+                selection.classList.add('visible');
+
+                // Re-show popup with Zoom Out button
+                const centerXPct = (clampedStart + clampedEnd) / 2;
+                const startIdx = getIndexAtTime(selectionStartTime);
+                const endIdx = getIndexAtTime(selectionEndTime);
+                const stats = computeSelectionStats(startIdx, endIdx);
+                if (stats) {
+                    showSelectionPopup(stats, centerXPct);
+                }
             }
 
             function onMouseMove(e) {
@@ -7745,7 +8231,23 @@ RIDE_TEMPLATE = """
 
             function onMouseDown(e) {
                 if (!profileData) return;
-                if (selectionActive) { clearSelection(); return; }
+                // If popup is showing and click is outside popup, dismiss popup but keep selection if zoomed
+                if (selectionActive) {
+                    // Don't dismiss if clicking inside the popup
+                    if (selectionPopup && selectionPopup.contains(e.target)) {
+                        return;
+                    }
+                    if (selectionPopup) {
+                        selectionPopup.style.display = 'none';
+                        selectionPopup.innerHTML = '';
+                    }
+                    selectionActive = false;
+                    // Keep selection visible if zoomed
+                    if (!isZoomed && selection) {
+                        selection.classList.remove('visible');
+                    }
+                    return;
+                }
                 const rect = img.getBoundingClientRect();
                 selectionStart = (e.clientX - rect.left) / rect.width;
                 isSelecting = true;
@@ -7816,7 +8318,23 @@ RIDE_TEMPLATE = """
 
             function onTouchStart(e) {
                 if (!profileData) return;
-                if (selectionActive) { clearSelection(); return; }
+                // If popup is showing, check if tap is inside popup
+                if (selectionActive) {
+                    // Don't dismiss if tapping inside the popup
+                    if (selectionPopup && e.touches[0] && selectionPopup.contains(document.elementFromPoint(e.touches[0].clientX, e.touches[0].clientY))) {
+                        return;
+                    }
+                    if (selectionPopup) {
+                        selectionPopup.style.display = 'none';
+                        selectionPopup.innerHTML = '';
+                    }
+                    selectionActive = false;
+                    // Keep selection visible if zoomed
+                    if (!isZoomed && selection) {
+                        selection.classList.remove('visible');
+                    }
+                    return;
+                }
 
                 const touch = e.touches[0];
                 longPressStartX = touch.clientX;
