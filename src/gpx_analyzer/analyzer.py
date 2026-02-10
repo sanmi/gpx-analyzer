@@ -201,6 +201,8 @@ class HillinessAnalysis:
     max_grade: float  # maximum grade encountered (%)
     steep_distance: float  # meters at >= 10% grade
     very_steep_distance: float  # meters at >= 15% grade
+    steep_time: float  # seconds at >= 10% grade
+    very_steep_time: float  # seconds at >= 15% grade
     steep_time_histogram: dict[str, float]  # steep grade bucket -> seconds
     steep_distance_histogram: dict[str, float]  # steep grade bucket -> meters
 
@@ -235,6 +237,8 @@ def calculate_hilliness(
             max_grade=0.0,
             steep_distance=0.0,
             very_steep_distance=0.0,
+            steep_time=0.0,
+            very_steep_time=0.0,
             steep_time_histogram={label: 0.0 for label in STEEP_GRADE_LABELS},
             steep_distance_histogram={label: 0.0 for label in STEEP_GRADE_LABELS},
         )
@@ -248,6 +252,8 @@ def calculate_hilliness(
     total_time = 0.0
     steep_distance = 0.0
     very_steep_distance = 0.0
+    steep_time = 0.0
+    very_steep_time = 0.0
 
     # Calculate rolling grades for histogram binning from unscaled points (already smoothed by user setting)
     # No additional smoothing - use the same grades that the elevation profile tooltip shows
@@ -307,11 +313,13 @@ def calculate_hilliness(
                 grade_distances[GRADE_LABELS[j]] += dist
                 break
 
-        # Track steep distances using rolling grade
+        # Track steep distances and times using rolling grade
         if rolling_grade >= 10:
             steep_distance += dist
+            steep_time += elapsed
         if rolling_grade >= 15:
             very_steep_distance += dist
+            very_steep_time += elapsed
 
         # Bin steep grades (>= 10%) using rolling grade
         if rolling_grade >= 10:
@@ -337,6 +345,8 @@ def calculate_hilliness(
         max_grade=max_grade,
         steep_distance=steep_distance,
         very_steep_distance=very_steep_distance,
+        steep_time=steep_time,
+        very_steep_time=very_steep_time,
         steep_time_histogram=steep_times,
         steep_distance_histogram=steep_distances,
     )

@@ -1551,6 +1551,9 @@ HTML_TEMPLATE = """
             font-weight: 500;
             overflow: hidden;
             text-overflow: ellipsis;
+            min-width: 0;
+            flex: 1;
+            max-width: none;
         }
         .url-name-overlay .route-type {
             color: #888;
@@ -3972,14 +3975,24 @@ HTML_TEMPLATE = """
                         <td>{{ "%.1f"|format(result2.max_grade) }}%</td>
                     </tr>
                     <tr>
-                        <td>Distance ≥10%</td>
+                        <td>Distance &gt;10%</td>
                         <td id="steepDist10" data-m="{{ result.steep_distance }}">{{ "%.2f"|format(result.steep_distance / 1000) }} km</td>
                         <td id="steepDist10_2" data-m="{{ result2.steep_distance }}">{{ "%.2f"|format(result2.steep_distance / 1000) }} km</td>
                     </tr>
                     <tr>
-                        <td>Distance ≥15%</td>
+                        <td>Distance &gt;15%</td>
                         <td id="steepDist15" data-m="{{ result.very_steep_distance }}">{{ "%.2f"|format(result.very_steep_distance / 1000) }} km</td>
                         <td id="steepDist15_2" data-m="{{ result2.very_steep_distance }}">{{ "%.2f"|format(result2.very_steep_distance / 1000) }} km</td>
+                    </tr>
+                    <tr>
+                        <td>Time &gt;10%</td>
+                        <td>{% if result.steep_time_seconds and result.steep_time_seconds >= 60 %}{% set mins = (result.steep_time_seconds / 60)|round|int %}{% if mins < 60 %}{{ mins }}m{% else %}{{ mins // 60 }}h {{ "%02d"|format(mins % 60) }}m{% endif %}{% else %}-{% endif %}</td>
+                        <td>{% if result2.steep_time_seconds and result2.steep_time_seconds >= 60 %}{% set mins2 = (result2.steep_time_seconds / 60)|round|int %}{% if mins2 < 60 %}{{ mins2 }}m{% else %}{{ mins2 // 60 }}h {{ "%02d"|format(mins2 % 60) }}m{% endif %}{% else %}-{% endif %}</td>
+                    </tr>
+                    <tr>
+                        <td>Time &gt;15%</td>
+                        <td>{% if result.very_steep_time_seconds and result.very_steep_time_seconds >= 60 %}{% set mins = (result.very_steep_time_seconds / 60)|round|int %}{% if mins < 60 %}{{ mins }}m{% else %}{{ mins // 60 }}h {{ "%02d"|format(mins % 60) }}m{% endif %}{% else %}-{% endif %}</td>
+                        <td>{% if result2.very_steep_time_seconds and result2.very_steep_time_seconds >= 60 %}{% set mins2 = (result2.very_steep_time_seconds / 60)|round|int %}{% if mins2 < 60 %}{{ mins2 }}m{% else %}{{ mins2 // 60 }}h {{ "%02d"|format(mins2 % 60) }}m{% endif %}{% else %}-{% endif %}</td>
                     </tr>
                 </tbody>
             </table>
@@ -3990,12 +4003,20 @@ HTML_TEMPLATE = """
                     <span class="steep-value">{{ "%.1f"|format(result.max_grade) }}%</span>
                 </div>
                 <div class="steep-stat">
-                    <span class="steep-label">Distance ≥10%</span>
+                    <span class="steep-label">Distance &gt;10%</span>
                     <span class="steep-value" id="steepDist10" data-m="{{ result.steep_distance }}">{{ "%.2f"|format(result.steep_distance / 1000) }} km</span>
                 </div>
                 <div class="steep-stat">
-                    <span class="steep-label">Distance ≥15%</span>
+                    <span class="steep-label">Distance &gt;15%</span>
                     <span class="steep-value" id="steepDist15" data-m="{{ result.very_steep_distance }}">{{ "%.2f"|format(result.very_steep_distance / 1000) }} km</span>
+                </div>
+                <div class="steep-stat">
+                    <span class="steep-label">Time &gt;10%</span>
+                    <span class="steep-value">{% if result.steep_time_seconds and result.steep_time_seconds >= 60 %}{% set mins = (result.steep_time_seconds / 60)|round|int %}{% if mins < 60 %}{{ mins }}m{% else %}{{ mins // 60 }}h {{ "%02d"|format(mins % 60) }}m{% endif %}{% else %}-{% endif %}</span>
+                </div>
+                <div class="steep-stat">
+                    <span class="steep-label">Time &gt;15%</span>
+                    <span class="steep-value">{% if result.very_steep_time_seconds and result.very_steep_time_seconds >= 60 %}{% set mins = (result.very_steep_time_seconds / 60)|round|int %}{% if mins < 60 %}{{ mins }}m{% else %}{{ mins // 60 }}h {{ "%02d"|format(mins % 60) }}m{% endif %}{% else %}-{% endif %}</span>
                 </div>
             </div>
             {% endif %}
@@ -5349,7 +5370,8 @@ def analyze_single_route(url: str, params: RiderParams, smoothing: float | None 
         "very_steep_distance": hilliness.very_steep_distance,
         "steep_time_histogram": hilliness.steep_time_histogram,
         "steep_distance_histogram": hilliness.steep_distance_histogram,
-        "steep_time_seconds": sum(hilliness.steep_time_histogram.values()),
+        "steep_time_seconds": hilliness.steep_time,
+        "very_steep_time_seconds": hilliness.very_steep_time,
         "hilliness_total_time": hilliness.total_time,
         "hilliness_total_distance": hilliness.total_distance,
         # Anomaly corrections
@@ -5437,6 +5459,8 @@ def analyze_trip(url: str) -> dict:
     elevation_loss = 0.0
     steep_distance = 0.0
     very_steep_distance = 0.0
+    steep_time = 0.0
+    very_steep_time = 0.0
 
     # For steepness calculation (effort-weighted using time instead of work for trips)
     weighted_grade_sum = 0.0
@@ -5487,11 +5511,13 @@ def analyze_trip(url: str) -> dict:
                 grade_distances[GRADE_LABELS[j]] += dist
                 break
 
-        # Track steep distances
+        # Track steep distances and times
         if rolling_grade >= 10:
             steep_distance += dist
+            steep_time += time_delta
         if rolling_grade >= 15:
             very_steep_distance += dist
+            very_steep_time += time_delta
 
         # Bin steep grades (>= 10%)
         if rolling_grade >= 10:
@@ -5571,7 +5597,8 @@ def analyze_trip(url: str) -> dict:
         "very_steep_distance": very_steep_distance,
         "steep_time_histogram": steep_times,
         "steep_distance_histogram": steep_distances,
-        "steep_time_seconds": sum(steep_times.values()),
+        "steep_time_seconds": steep_time,
+        "very_steep_time_seconds": very_steep_time,
         "hilliness_total_time": sum(grade_times.values()),
         "hilliness_total_distance": total_distance,
         # Trip-specific flags
