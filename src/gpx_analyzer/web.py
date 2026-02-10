@@ -1489,6 +1489,39 @@ HTML_TEMPLATE = """
         .url-input-wrapper {
             position: relative;
         }
+        .url-name-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            padding: 12px;
+            background: white;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            font-size: 16px;
+            color: #333;
+            cursor: text;
+            display: none;
+            align-items: center;
+            overflow: hidden;
+            white-space: nowrap;
+            text-overflow: ellipsis;
+        }
+        .url-name-overlay.visible {
+            display: flex;
+        }
+        .url-name-overlay .route-name {
+            font-weight: 500;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .url-name-overlay .route-type {
+            color: #888;
+            font-size: 13px;
+            margin-left: 8px;
+            flex-shrink: 0;
+        }
         .recent-urls-dropdown {
             position: absolute;
             top: 100%;
@@ -1518,7 +1551,8 @@ HTML_TEMPLATE = """
         .recent-url-item:last-child {
             border-bottom: none;
         }
-        .recent-url-item:hover {
+        .recent-url-item:hover,
+        .recent-url-item.highlighted {
             background: #f0f7ff;
         }
         .recent-urls-header {
@@ -1808,6 +1842,10 @@ HTML_TEMPLATE = """
                    placeholder="https://ridewithgps.com/routes/... or .../collections/..."
                    value="{{ url or '' }}" required
                    autocomplete="off">
+            <div class="url-name-overlay" id="urlNameOverlay" onclick="document.getElementById('url').focus(); event.stopPropagation();">
+                <span class="route-name" id="urlNameText"></span>
+                <span class="route-type" id="urlTypeText"></span>
+            </div>
             <div id="recentUrlsDropdown" class="recent-urls-dropdown hidden"></div>
         </div>
         <input type="hidden" id="mode" name="mode" value="route">
@@ -1829,6 +1867,10 @@ HTML_TEMPLATE = """
                        placeholder="https://ridewithgps.com/routes/... or .../trips/..."
                        value="{{ url2 or '' }}"
                        autocomplete="off">
+                <div class="url-name-overlay" id="url2NameOverlay" onclick="document.getElementById('url2').focus(); event.stopPropagation();">
+                    <span class="route-name" id="url2NameText"></span>
+                    <span class="route-type" id="url2TypeText"></span>
+                </div>
                 <div id="recentUrlsDropdown2" class="recent-urls-dropdown hidden"></div>
             </div>
         </div>
@@ -2298,6 +2340,68 @@ HTML_TEMPLATE = """
             urls = urls.slice(0, MAX_RECENT_URLS);
             localStorage.setItem('recentUrls', JSON.stringify(urls));
             populateRecentUrls();
+            // Update name overlays (delayed to avoid interfering with current focus)
+            setTimeout(function() {
+                updateUrlNameOverlay('url', 'urlNameOverlay', 'urlNameText', 'urlTypeText');
+                updateUrlNameOverlay('url2', 'url2NameOverlay', 'url2NameText', 'url2TypeText');
+            }, 100);
+        }
+
+        function getNameForUrl(url) {
+            if (!url) return null;
+            var urls = getRecentUrls();
+            for (var i = 0; i < urls.length; i++) {
+                if (urls[i].url === url) {
+                    return urls[i].name;
+                }
+            }
+            return null;
+        }
+
+        function getUrlType(url) {
+            if (!url) return '';
+            if (url.includes('/collections/')) return 'collection';
+            if (url.includes('/trips/')) return 'trip';
+            if (url.includes('/routes/')) return 'route';
+            return '';
+        }
+
+        function updateUrlNameOverlay(inputId, overlayId, textId, typeId) {
+            var input = document.getElementById(inputId);
+            var overlay = document.getElementById(overlayId);
+            var text = document.getElementById(textId);
+            var typeEl = document.getElementById(typeId);
+            if (!input || !overlay || !text) return;
+
+            var url = input.value.trim();
+            var name = getNameForUrl(url);
+            var type = getUrlType(url);
+
+            // Only show overlay if input is not focused and we have a name
+            if (name && document.activeElement !== input) {
+                text.textContent = name;
+                if (typeEl) typeEl.textContent = type ? '(' + type + ')' : '';
+                overlay.classList.add('visible');
+            } else {
+                overlay.classList.remove('visible');
+            }
+        }
+
+        function hideUrlNameOverlay(overlayId) {
+            var overlay = document.getElementById(overlayId);
+            if (overlay) overlay.classList.remove('visible');
+        }
+
+        function showUrlNameOverlay(inputId, overlayId, textId, typeId, dropdownId) {
+            // Small delay to let dropdown click complete
+            setTimeout(function() {
+                // Don't show overlay if dropdown is still visible (user might be clicking it)
+                var dropdown = document.getElementById(dropdownId);
+                if (dropdown && !dropdown.classList.contains('hidden')) {
+                    return;
+                }
+                updateUrlNameOverlay(inputId, overlayId, textId, typeId);
+            }, 200);
         }
 
         function populateRecentUrls(dropdownId, inputId, excludeCurrentUrl) {
@@ -2338,6 +2442,9 @@ HTML_TEMPLATE = """
                     dropdown.classList.add('hidden');
                     if (inputId === 'url') {
                         updateModeIndicator();
+                        updateUrlNameOverlay('url', 'urlNameOverlay', 'urlNameText', 'urlTypeText');
+                    } else if (inputId === 'url2') {
+                        updateUrlNameOverlay('url2', 'url2NameOverlay', 'url2NameText', 'url2TypeText');
                     }
                 });
             });
@@ -2349,6 +2456,7 @@ HTML_TEMPLATE = """
             var dropdown = document.getElementById('recentUrlsDropdown');
 
             urlInput.addEventListener('focus', function() {
+                hideUrlNameOverlay('urlNameOverlay');
                 if (getRecentUrls().length > 0) {
                     populateRecentUrls('recentUrlsDropdown', 'url', false);
                     dropdown.classList.remove('hidden');
@@ -2357,17 +2465,84 @@ HTML_TEMPLATE = """
 
             urlInput.addEventListener('input', updateModeIndicator);
 
+            // Show name overlay on blur (after paste or manual entry)
+            urlInput.addEventListener('blur', function() {
+                showUrlNameOverlay('url', 'urlNameOverlay', 'urlNameText', 'urlTypeText', 'recentUrlsDropdown');
+            });
+
             // Setup secondary URL input (compare mode)
             var url2Input = document.getElementById('url2');
             var dropdown2 = document.getElementById('recentUrlsDropdown2');
 
             url2Input.addEventListener('focus', function() {
+                hideUrlNameOverlay('url2NameOverlay');
                 var urls = getRecentUrls().filter(function(item) { return item.url.includes('/routes/'); });
                 if (urls.length > 0) {
                     populateRecentUrls('recentUrlsDropdown2', 'url2', true);
                     dropdown2.classList.remove('hidden');
                 }
             });
+
+            // Show name overlay on blur for url2
+            url2Input.addEventListener('blur', function() {
+                showUrlNameOverlay('url2', 'url2NameOverlay', 'url2NameText', 'url2TypeText', 'recentUrlsDropdown2');
+            });
+
+            // Initialize name overlays on page load
+            updateUrlNameOverlay('url', 'urlNameOverlay', 'urlNameText', 'urlTypeText');
+            updateUrlNameOverlay('url2', 'url2NameOverlay', 'url2NameText', 'url2TypeText');
+
+            // Keyboard navigation helper
+            function handleDropdownKeyboard(e, inputId, dropdownId) {
+                var dropdown = document.getElementById(dropdownId);
+
+                // If dropdown is hidden and ArrowDown pressed, show it
+                if (dropdown.classList.contains('hidden')) {
+                    if (e.key === 'ArrowDown' && getRecentUrls().length > 0) {
+                        e.preventDefault();
+                        var excludeCurrent = (inputId === 'url2');
+                        populateRecentUrls(dropdownId, inputId, excludeCurrent);
+                        dropdown.classList.remove('hidden');
+                        return true;
+                    }
+                    return false;
+                }
+
+                var items = dropdown.querySelectorAll('.recent-url-item');
+                if (items.length === 0) return false;
+
+                // Find current highlighted index
+                var currentIndex = -1;
+                for (var i = 0; i < items.length; i++) {
+                    if (items[i].classList.contains('highlighted')) {
+                        currentIndex = i;
+                        break;
+                    }
+                }
+
+                if (e.key === 'ArrowDown') {
+                    e.preventDefault();
+                    // Clear all highlights
+                    items.forEach(function(item) { item.classList.remove('highlighted'); });
+                    var nextIndex = (currentIndex + 1) % items.length;
+                    items[nextIndex].classList.add('highlighted');
+                    items[nextIndex].scrollIntoView({ block: 'nearest' });
+                    return true;
+                } else if (e.key === 'ArrowUp') {
+                    e.preventDefault();
+                    // Clear all highlights
+                    items.forEach(function(item) { item.classList.remove('highlighted'); });
+                    var prevIndex = currentIndex <= 0 ? items.length - 1 : currentIndex - 1;
+                    items[prevIndex].classList.add('highlighted');
+                    items[prevIndex].scrollIntoView({ block: 'nearest' });
+                    return true;
+                } else if (e.key === 'Enter' && currentIndex >= 0) {
+                    e.preventDefault();
+                    items[currentIndex].click();
+                    return true;
+                }
+                return false;
+            }
 
             // Hide dropdowns when clicking outside
             document.addEventListener('click', function(e) {
@@ -2379,12 +2554,20 @@ HTML_TEMPLATE = """
                 }
             });
 
-            // Hide dropdowns on escape
+            // Keyboard navigation for dropdowns
             urlInput.addEventListener('keydown', function(e) {
-                if (e.key === 'Escape') dropdown.classList.add('hidden');
+                if (e.key === 'Escape') {
+                    dropdown.classList.add('hidden');
+                } else {
+                    handleDropdownKeyboard(e, 'url', 'recentUrlsDropdown');
+                }
             });
             url2Input.addEventListener('keydown', function(e) {
-                if (e.key === 'Escape') dropdown2.classList.add('hidden');
+                if (e.key === 'Escape') {
+                    dropdown2.classList.add('hidden');
+                } else {
+                    handleDropdownKeyboard(e, 'url2', 'recentUrlsDropdown2');
+                }
             });
 
             // Initialize mode indicator
