@@ -2900,16 +2900,20 @@ HTML_TEMPLATE = """
                 var overlayParams = _buildOverlayParams();
 
                 // Preserve zoom state from container data attributes
-                var zoomParams = '';
+                var xlimParams = '';
                 var zoomMin = container.getAttribute('data-zoom-min');
                 var zoomMax = container.getAttribute('data-zoom-max');
                 if (zoomMin && zoomMax) {
-                    zoomParams = '&min_xlim_hours=' + zoomMin + '&max_xlim_hours=' + zoomMax;
+                    // Zoomed: use zoom bounds
+                    xlimParams = '&min_xlim_hours=' + zoomMin + '&max_xlim_hours=' + zoomMax;
+                } else if (maxXlim) {
+                    // Not zoomed but in comparison mode: use synchronized max_xlim
+                    xlimParams = '&max_xlim_hours=' + maxXlim.toFixed(4);
                 }
 
                 loading.classList.remove('hidden');
                 img.classList.add('loading');
-                img.src = baseProfileUrl + collapseParam + overlayParams + zoomParams;
+                img.src = baseProfileUrl + collapseParam + overlayParams + xlimParams;
 
                 if (typeof window.setupElevationProfile === 'function' && baseDataUrl) {
                     window.setupElevationProfile(
