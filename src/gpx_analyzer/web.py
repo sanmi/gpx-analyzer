@@ -2720,11 +2720,20 @@ HTML_TEMPLATE = """
             var url = document.getElementById('url').value;
             var mode = detectModeFromUrl(url);
             var modeInput = document.getElementById('mode');
+            var compareToggle = document.querySelector('.compare-toggle');
+            var compareCheckbox = document.getElementById('compareCheckbox');
 
             if (mode === 'collection') {
                 modeInput.value = 'collection';
+                // Hide compare mode for collections
+                if (compareCheckbox.checked) {
+                    compareCheckbox.checked = false;
+                    toggleCompareMode();
+                }
+                compareToggle.classList.add('hidden');
             } else {
                 modeInput.value = 'route';
+                compareToggle.classList.remove('hidden');
             }
         }
 
