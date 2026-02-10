@@ -3768,6 +3768,12 @@ HTML_TEMPLATE = """
                         <td class="route-col">{{ "%.1f"|format(result2.steepness_score) }}%</td>
                         <td class="diff-col">{{ format_pct_diff(result.steepness_score, result2.steepness_score) }}</td>
                     </tr>
+                    <tr>
+                        <td><span class="label-with-info">&gt;10% <button type="button" class="info-btn" onclick="showModal('steepTimeModal')">?</button></span></td>
+                        <td class="route-col">{% if result.steep_time_seconds and result.steep_time_seconds >= 60 %}{% set mins = (result.steep_time_seconds / 60)|round|int %}{% if mins < 60 %}{{ mins }}m{% else %}{{ mins // 60 }}h {{ "%02d"|format(mins % 60) }}m{% endif %}{% else %}-{% endif %}</td>
+                        <td class="route-col">{% if result2.steep_time_seconds and result2.steep_time_seconds >= 60 %}{% set mins2 = (result2.steep_time_seconds / 60)|round|int %}{% if mins2 < 60 %}{{ mins2 }}m{% else %}{{ mins2 // 60 }}h {{ "%02d"|format(mins2 % 60) }}m{% endif %}{% else %}-{% endif %}</td>
+                        <td class="diff-col">{% if result.steep_time_seconds and result2.steep_time_seconds %}{{ format_pct_diff(result.steep_time_seconds, result2.steep_time_seconds) }}{% else %}-{% endif %}</td>
+                    </tr>
                     {% if result.unpaved_pct is not none and result2.unpaved_pct is not none %}
                     <tr>
                         <td>Unpaved</td>
@@ -3842,6 +3848,10 @@ HTML_TEMPLATE = """
         <div class="result-row">
             <span class="result-label label-with-info">Steepness <button type="button" class="info-btn" onclick="showModal('steepModal')">?</button></span>
             <span class="result-value">{{ "%.1f"|format(result.steepness_score) }}%</span>
+        </div>
+        <div class="result-row">
+            <span class="result-label label-with-info">&gt;10% <button type="button" class="info-btn" onclick="showModal('steepTimeModal')">?</button></span>
+            <span class="result-value">{% if result.steep_time_seconds and result.steep_time_seconds >= 60 %}{% set mins = (result.steep_time_seconds / 60)|round|int %}{% if mins < 60 %}{{ mins }}m{% else %}{{ mins // 60 }}h {{ "%02d"|format(mins % 60) }}m{% endif %}{% else %}-{% endif %}</span>
         </div>
         {% endif %}
 
@@ -4105,12 +4115,12 @@ HTML_TEMPLATE = """
                 <div class="elevation-profile-toggles">
                     <div class="collapse-stops-toggle">
                         <input type="checkbox" id="overlay_speed" onchange="toggleOverlay('speed')">
-                        <label for="overlay_speed">Show speed</label>
+                        <label for="overlay_speed">Speed</label>
                     </div>
                     {% if not is_trip or not is_trip2 %}
                     <div class="collapse-stops-toggle">
                         <input type="checkbox" id="overlay_gravel" onchange="toggleOverlay('gravel')">
-                        <label for="overlay_gravel">Show gravel</label>
+                        <label for="overlay_gravel">Unpaved</label>
                     </div>
                     {% endif %}
                 </div>
@@ -4208,12 +4218,12 @@ HTML_TEMPLATE = """
                     {% endif %}
                     <div class="collapse-stops-toggle">
                         <input type="checkbox" id="overlay_speed" onchange="toggleOverlay('speed')">
-                        <label for="overlay_speed">Show speed</label>
+                        <label for="overlay_speed">Speed</label>
                     </div>
                     {% if not is_trip %}
                     <div class="collapse-stops-toggle">
                         <input type="checkbox" id="overlay_gravel" onchange="toggleOverlay('gravel')">
-                        <label for="overlay_gravel">Show gravel</label>
+                        <label for="overlay_gravel">Unpaved</label>
                     </div>
                     {% endif %}
                 </div>
@@ -5332,6 +5342,7 @@ def analyze_single_route(url: str, params: RiderParams, smoothing: float | None 
         "very_steep_distance": hilliness.very_steep_distance,
         "steep_time_histogram": hilliness.steep_time_histogram,
         "steep_distance_histogram": hilliness.steep_distance_histogram,
+        "steep_time_seconds": sum(hilliness.steep_time_histogram.values()),
         "hilliness_total_time": hilliness.total_time,
         "hilliness_total_distance": hilliness.total_distance,
         # Anomaly corrections
@@ -5553,6 +5564,7 @@ def analyze_trip(url: str) -> dict:
         "very_steep_distance": very_steep_distance,
         "steep_time_histogram": steep_times,
         "steep_distance_histogram": steep_distances,
+        "steep_time_seconds": sum(steep_times.values()),
         "hilliness_total_time": sum(grade_times.values()),
         "hilliness_total_distance": total_distance,
         # Trip-specific flags
@@ -7017,6 +7029,7 @@ RIDE_TEMPLATE = """
         .main-profile-container {
             position: relative;
             width: 100%;
+            min-height: 120px;
             background: #fafafa;
             border-radius: 8px;
             overflow: hidden;
@@ -7181,6 +7194,7 @@ RIDE_TEMPLATE = """
         .climb-profile-container {
             position: relative;
             width: 100%;
+            min-height: 120px;
             background: #fafafa;
             border-radius: 8px;
             overflow: hidden;
@@ -7193,6 +7207,9 @@ RIDE_TEMPLATE = """
             -webkit-touch-callout: none;
             -webkit-user-select: none;
             user-select: none;
+        }
+        .climb-profile-container img.loading {
+            display: none;
         }
         .sensitivity-control { margin-top: 16px; }
         .sensitivity-label {
@@ -7461,7 +7478,7 @@ RIDE_TEMPLATE = """
                 </div>
                 <div class="profile-toggle">
                     <input type="checkbox" id="overlay_gravel" onchange="toggleOverlay('gravel')">
-                    <label for="overlay_gravel">Gravel</label>
+                    <label for="overlay_gravel">Unpaved</label>
                 </div>
                 <div class="profile-toggle">
                     <input type="checkbox" id="imperial" {{ 'checked' if imperial else '' }} onchange="toggleImperial()">
@@ -7493,7 +7510,7 @@ RIDE_TEMPLATE = """
             <div class="elevation-loading" id="climbLoading">
                 <div class="elevation-spinner"></div>
             </div>
-            <img id="climbProfileImage" src="" alt="Climb Profile">
+            <img id="climbProfileImage" src="" alt="Climb Profile" class="loading">
         </div>
         <div class="sensitivity-control">
             <div class="sensitivity-label">
@@ -7667,10 +7684,10 @@ RIDE_TEMPLATE = """
                     lastAspectRatio = aspect;
                     const climbLoading = document.getElementById('climbLoading');
                     if (climbLoading) climbLoading.classList.remove('hidden');
-                    climbProfileContainer.classList.add('loading');
+                    climbProfileImage.classList.add('loading');
                     climbProfileImage.src = `/elevation-profile-ride?url=${encodeURIComponent(routeUrl)}&${baseParams}&sensitivity=${sensitivity}&aspect=${aspect.toFixed(2)}`;
                     climbProfileImage.onload = () => {
-                        climbProfileContainer.classList.remove('loading');
+                        climbProfileImage.classList.remove('loading');
                         if (climbLoading) climbLoading.classList.add('hidden');
                     };
                 }
