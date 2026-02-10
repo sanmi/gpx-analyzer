@@ -8144,16 +8144,10 @@ RIDE_TEMPLATE = """
                 var aspect = getContainerAspect();
                 params += '&aspect=' + aspect.toFixed(2);
 
-                // Add overlay parameters
-                var overlayParts = [];
-                var speedCb = document.getElementById('overlay_speed');
-                var gravelCb = document.getElementById('overlay_gravel');
-                if (speedCb && speedCb.checked) overlayParts.push('speed');
-                if (gravelCb && gravelCb.checked) overlayParts.push('gravel');
-                if (overlayParts.length > 0) params += '&overlay=' + overlayParts.join(',');
-
-                // Add imperial
-                if (isImperial()) params += '&imperial=1';
+                // Add overlay parameters (must match _buildOverlayParams format)
+                if (document.getElementById('overlay_speed')?.checked) params += '&overlay=speed';
+                if (document.getElementById('overlay_gravel')?.checked) params += '&show_gravel=true';
+                if (isImperial()) params += '&imperial=true';
 
                 // Add zoom parameters
                 if (isZoomed && zoomMinHours !== null && zoomMaxHours !== null) {
