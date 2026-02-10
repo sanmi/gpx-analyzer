@@ -155,7 +155,7 @@ _analysis_cache = AnalysisCache(max_size=175)
 PROFILE_CACHE_DIR = Path.home() / ".cache" / "gpx-analyzer" / "profiles"
 PROFILE_CACHE_INDEX_PATH = PROFILE_CACHE_DIR / "cache_index.json"
 MAX_CACHED_PROFILES = 525  # ~525 images, each ~37KB = ~19MB max
-_elevation_profile_cache_stats = {"hits": 0, "misses": 0}
+_elevation_profile_cache_stats = {"hits": 0, "misses": 0, "zoomed_skipped": 0}
 
 # In-memory cache for climb detection results (avoids re-processing on sensitivity changes)
 # Key: (url, sensitivity, params_hash) -> Value: (climbs_json, sensitivity_m, timestamp)
@@ -5587,6 +5587,7 @@ def _get_elevation_profile_cache_stats() -> dict:
         "hits": _elevation_profile_cache_stats["hits"],
         "max_size": MAX_CACHED_PROFILES,
         "misses": _elevation_profile_cache_stats["misses"],
+        "zoomed_skipped": _elevation_profile_cache_stats["zoomed_skipped"],
         "size": len(index),
         "disk_kb": round(total_bytes / 1024, 1),
     }
@@ -5604,7 +5605,7 @@ def _clear_elevation_profile_cache() -> int:
             count += 1
     # Clear the index and reset stats
     _save_profile_cache_index({})
-    _elevation_profile_cache_stats = {"hits": 0, "misses": 0}
+    _elevation_profile_cache_stats = {"hits": 0, "misses": 0, "zoomed_skipped": 0}
     return count
 
 
@@ -6457,11 +6458,18 @@ def elevation_profile():
         buf.seek(0)
         return send_file(buf, mimetype='image/png')
 
-    # Check disk cache first (include aspect in cache key)
-    cache_key = _make_profile_cache_key(url, climbing_power, flat_power, mass, headwind, descent_braking_factor, collapse_stops, max_xlim_hours, descending_power, overlay=(overlay or "") + f"|aspect{aspect_ratio:.1f}", imperial=imperial, show_gravel=show_gravel, max_ylim=max_ylim, max_speed_ylim=max_speed_ylim, unpaved_power_factor=unpaved_power_factor, smoothing=smoothing, min_xlim_hours=min_xlim_hours)
-    cached_bytes = _get_cached_profile(cache_key)
-    if cached_bytes:
-        return send_file(io.BytesIO(cached_bytes), mimetype='image/png')
+    # Skip caching for zoomed views (min_xlim_hours indicates user zoomed in)
+    # These are transient interactions with low cache hit rate
+    is_zoomed = min_xlim_hours is not None
+
+    # Check disk cache first for unzoomed views (include aspect in cache key)
+    if is_zoomed:
+        _elevation_profile_cache_stats["zoomed_skipped"] += 1
+    else:
+        cache_key = _make_profile_cache_key(url, climbing_power, flat_power, mass, headwind, descent_braking_factor, collapse_stops, max_xlim_hours, descending_power, overlay=(overlay or "") + f"|aspect{aspect_ratio:.1f}", imperial=imperial, show_gravel=show_gravel, max_ylim=max_ylim, max_speed_ylim=max_speed_ylim, unpaved_power_factor=unpaved_power_factor, smoothing=smoothing, min_xlim_hours=min_xlim_hours)
+        cached_bytes = _get_cached_profile(cache_key)
+        if cached_bytes:
+            return send_file(io.BytesIO(cached_bytes), mimetype='image/png')
 
     try:
         if is_ridewithgps_trip_url(url):
@@ -6475,8 +6483,9 @@ def elevation_profile():
             analysis = analyze_single_route(url, params, smoothing)
             title_time_hours = analysis["time_seconds"] / 3600
             img_bytes = generate_elevation_profile(url, params, title_time_hours, max_xlim_hours=max_xlim_hours, overlay=overlay, imperial=imperial, max_ylim=max_ylim, max_speed_ylim=max_speed_ylim, show_gravel=show_gravel, smoothing=smoothing, aspect_ratio=aspect_ratio, min_xlim_hours=min_xlim_hours)
-        # Save to disk cache
-        _save_profile_to_cache(cache_key, img_bytes)
+        # Only save to disk cache for unzoomed views
+        if not is_zoomed:
+            _save_profile_to_cache(cache_key, img_bytes)
         return send_file(io.BytesIO(img_bytes), mimetype='image/png')
     except Exception as e:
         # Return error image
