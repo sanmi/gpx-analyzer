@@ -724,22 +724,29 @@ HTML_TEMPLATE = """
         }
         .elevation-profile-toggles {
             display: flex;
-            gap: 16px;
+            gap: 12px;
             align-items: center;
+            font-size: 0.85em;
         }
         .collapse-stops-toggle {
-            display: flex;
+            display: inline-flex;
             align-items: center;
-            gap: 6px;
-            font-size: 0.8em;
-            color: #666;
+            gap: 4px;
+            cursor: pointer;
+            vertical-align: middle;
         }
         .collapse-stops-toggle input {
             margin: 0;
             cursor: pointer;
+            vertical-align: middle;
         }
         .collapse-stops-toggle label {
             cursor: pointer;
+            color: #666;
+            font-weight: normal;
+            line-height: 1;
+            vertical-align: middle;
+            margin-top: 0;
         }
         .elevation-profile-container {
             position: relative;
