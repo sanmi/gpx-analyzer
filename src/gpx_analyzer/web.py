@@ -3674,14 +3674,14 @@ HTML_TEMPLATE = """
                 </thead>
                 <tbody>
                     <tr class="primary">
-                        <td>{% if is_trip and is_trip2 %}Moving Time{% else %}Est. Moving Time{% endif %}</td>
+                        <td>{% if is_trip or is_trip2 %}Moving Time{% else %}Est. Moving Time{% endif %}</td>
                         <td class="route-col">{{ result.time_str }}</td>
                         <td class="route-col">{{ result2.time_str }}</td>
                         <td class="diff-col">{{ format_time_diff(result.time_seconds, result2.time_seconds) }}</td>
                     </tr>
                     {% if (not is_trip or result.work_kj is not none) and (not is_trip2 or result2.work_kj is not none) %}
                     <tr class="primary">
-                        <td>{% if is_trip and is_trip2 %}Work{% else %}Est. Work{% endif %}</td>
+                        <td>{% if is_trip or is_trip2 %}Work{% else %}Est. Work{% endif %}</td>
                         <td class="route-col">{% if result.work_kj is not none %}{{ "%.0f"|format(result.work_kj) }} kJ{% else %}-{% endif %}</td>
                         <td class="route-col">{% if result2.work_kj is not none %}{{ "%.0f"|format(result2.work_kj) }} kJ{% else %}-{% endif %}</td>
                         <td class="diff-col">{% if result.work_kj is not none and result2.work_kj is not none %}{{ format_diff(result.work_kj, result2.work_kj, 'kJ') }}{% else %}-{% endif %}</td>
@@ -3689,14 +3689,14 @@ HTML_TEMPLATE = """
                     {% endif %}
                     {% if result.work_kj is not none or result2.work_kj is not none %}
                     <tr class="primary">
-                        <td>{% if is_trip and is_trip2 %}Energy{% else %}Est. Energy{% endif %} <select id="energyUnitSelect" class="unit-select" onchange="updateEnergyUnits()"><option value="kcal">kcal</option><option value="bananas">Bananas</option><option value="baguettes">Baguettes</option></select></td>
+                        <td>{% if is_trip or is_trip2 %}Energy{% else %}Est. Energy{% endif %} <select id="energyUnitSelect" class="unit-select" onchange="updateEnergyUnits()"><option value="kcal">kcal</option><option value="bananas">Bananas</option><option value="baguettes">Baguettes</option></select></td>
                         <td class="route-col"><span id="energy1" data-kj="{{ result.work_kj if result.work_kj is not none else '' }}">{% if result.work_kj is not none %}{{ "%.0f"|format(result.work_kj * 1.075) }} kcal{% else %}-{% endif %}</span></td>
                         <td class="route-col"><span id="energy2" data-kj="{{ result2.work_kj if result2.work_kj is not none else '' }}">{% if result2.work_kj is not none %}{{ "%.0f"|format(result2.work_kj * 1.075) }} kcal{% else %}-{% endif %}</span></td>
                         <td class="diff-col"><span id="energyDiff" data-kj1="{{ result.work_kj if result.work_kj is not none else '' }}" data-kj2="{{ result2.work_kj if result2.work_kj is not none else '' }}">{% if result.work_kj is not none and result2.work_kj is not none %}{{ format_diff(result.work_kj * 1.075, result2.work_kj * 1.075, 'kcal') }}{% else %}-{% endif %}</span></td>
                     </tr>
                     {% endif %}
                     <tr class="primary">
-                        <td>{% if is_trip and is_trip2 %}Avg Power{% else %}Est. Avg Power{% endif %}</td>
+                        <td>{% if is_trip or is_trip2 %}Avg Power{% else %}Est. Avg Power{% endif %}</td>
                         <td class="route-col">{% if result.avg_watts is not none %}{{ result.avg_watts|int }} W{% else %}-{% endif %}</td>
                         <td class="route-col">{% if result2.avg_watts is not none %}{{ result2.avg_watts|int }} W{% else %}-{% endif %}</td>
                         <td class="diff-col">{% if result.avg_watts is not none and result2.avg_watts is not none %}{{ format_diff(result.avg_watts, result2.avg_watts, 'W') }}{% else %}-{% endif %}</td>
