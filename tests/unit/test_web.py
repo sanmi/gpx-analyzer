@@ -1700,3 +1700,50 @@ class TestCollectionRouteComparisonSelection:
         assert "clearRouteSelection()" in html
         # Verify the call is in the start handler context
         assert "if (data.type === 'start')" in html
+
+    def test_collect_all_params_includes_all_share_params(self, client):
+        """collectAllParams should include all parameters used in shareParams.
+
+        This test ensures that when new parameters are added to shareParams
+        (the canonical source for shareable URL parameters), they are also
+        added to collectAllParams (used by buildAnalyzeUrl and buildCompareUrl).
+        """
+        import re
+        response = client.get("/")
+        html = response.data.decode()
+
+        # Extract parameters set in collectAllParams function
+        collect_match = re.search(
+            r'function collectAllParams\(\)\s*\{(.*?)\n        \}',
+            html, re.DOTALL
+        )
+        assert collect_match, "collectAllParams function not found"
+        collect_body = collect_match.group(1)
+
+        # Find all params.set('param_name', ...) calls in collectAllParams
+        collect_params = set(re.findall(r"params\.set\('(\w+)'", collect_body))
+
+        # Extract parameters set in shareParams (the canonical list)
+        # shareParams is defined in the SSE 'start' handler
+        share_match = re.search(
+            r'var shareParams = new URLSearchParams\(\{(.*?)\}\);',
+            html, re.DOTALL
+        )
+        assert share_match, "shareParams not found"
+        share_body = share_match.group(1)
+
+        # Find all parameter names in shareParams object literal
+        share_params = set(re.findall(r"(\w+):", share_body))
+
+        # shareParams includes 'url' which is route-specific, not a rider param
+        share_params.discard('url')
+
+        # Both should have the same parameters
+        missing_from_collect = share_params - collect_params
+        extra_in_collect = collect_params - share_params
+
+        assert not missing_from_collect, (
+            f"collectAllParams is missing parameters that are in shareParams: {missing_from_collect}. "
+            f"Add these to collectAllParams() to propagate them when opening routes from collections."
+        )
+        # Extra params in collectAllParams is fine (like 'imperial' which is handled separately in shareParams)

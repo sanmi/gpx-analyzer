@@ -3139,17 +3139,29 @@ HTML_TEMPLATE = """
             return Math.round(m) + ' m';
         }
 
-        function buildAnalyzeUrl(routeUrl) {
-            var params = new URLSearchParams({
-                url: routeUrl,
-                climbing_power: document.getElementById('climbing_power').value,
-                flat_power: document.getElementById('flat_power').value,
-                mass: document.getElementById('mass').value,
-                headwind: document.getElementById('headwind').value
-            });
+        // Collect all rider/analysis parameters for URL building
+        function collectAllParams() {
+            var params = new URLSearchParams();
+            // Basic params
+            params.set('climbing_power', document.getElementById('climbing_power').value);
+            params.set('flat_power', document.getElementById('flat_power').value);
+            params.set('mass', document.getElementById('mass').value);
+            params.set('headwind', document.getElementById('headwind').value);
+            // Advanced params
+            params.set('descending_power', document.getElementById('descending_power').value);
+            params.set('descent_braking_factor', document.getElementById('descent_braking_factor').value);
+            params.set('unpaved_power_factor', document.getElementById('unpaved_power_factor').value);
+            params.set('smoothing', document.getElementById('smoothing').value);
+            // Imperial setting
             if (document.getElementById('imperial').checked) {
                 params.set('imperial', '1');
             }
+            return params;
+        }
+
+        function buildAnalyzeUrl(routeUrl) {
+            var params = collectAllParams();
+            params.set('url', routeUrl);
             return window.location.origin + window.location.pathname + '?' + params.toString();
         }
 
@@ -3366,26 +3378,10 @@ HTML_TEMPLATE = """
         function buildCompareUrl() {
             if (selectedRouteIds.length !== 2) return '#';
 
-            // Build comparison URL with both routes
-            var params = new URLSearchParams();
+            // Build comparison URL with both routes and all params
+            var params = collectAllParams();
             params.set('url', selectedRouteIds[0].url);
             params.set('url2', selectedRouteIds[1].url);
-
-            // Preserve rider params from current page
-            var climbingPower = document.getElementById('climbing_power');
-            var flatPower = document.getElementById('flat_power');
-            var mass = document.getElementById('mass');
-            var headwind = document.getElementById('headwind');
-
-            if (climbingPower) params.set('climbing_power', climbingPower.value);
-            if (flatPower) params.set('flat_power', flatPower.value);
-            if (mass) params.set('mass', mass.value);
-            if (headwind) params.set('headwind', headwind.value);
-
-            // Preserve imperial setting
-            if (document.getElementById('imperial').checked) {
-                params.set('imperial', '1');
-            }
 
             return '/?' + params.toString();
         }
