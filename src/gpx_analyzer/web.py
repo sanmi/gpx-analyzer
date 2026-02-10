@@ -3355,11 +3355,22 @@ HTML_TEMPLATE = """
                 var el = document.getElementById(id);
                 if (el && el.dataset.m) {
                     var m = parseFloat(el.dataset.m);
-                    if (imperial) {
-                        el.textContent = (m * 0.000621371).toFixed(2) + ' mi';
-                    } else {
-                        el.textContent = (m / 1000).toFixed(2) + ' km';
+                    var secs = parseFloat(el.dataset.secs || 0);
+                    var distStr = imperial ? (m * 0.000621371).toFixed(1) + ' mi' : (m / 1000).toFixed(1) + ' km';
+                    var timeStr = '-';
+                    if (secs >= 60) {
+                        var mins = Math.round(secs / 60);
+                        if (mins < 60) {
+                            timeStr = mins + 'm';
+                        } else {
+                            var h = Math.floor(mins / 60);
+                            var mm = mins % 60;
+                            timeStr = h + 'h ' + (mm < 10 ? '0' : '') + mm + 'm';
+                        }
+                    } else if (secs > 0) {
+                        timeStr = Math.round(secs) + 's';
                     }
+                    el.textContent = distStr + ' / ' + timeStr;
                 }
             });
         }
@@ -3975,24 +3986,14 @@ HTML_TEMPLATE = """
                         <td>{{ "%.1f"|format(result2.max_grade) }}%</td>
                     </tr>
                     <tr>
-                        <td>Distance &gt;10%</td>
-                        <td id="steepDist10" data-m="{{ result.steep_distance }}">{{ "%.2f"|format(result.steep_distance / 1000) }} km</td>
-                        <td id="steepDist10_2" data-m="{{ result2.steep_distance }}">{{ "%.2f"|format(result2.steep_distance / 1000) }} km</td>
+                        <td>&gt;10%</td>
+                        <td id="steepDist10" data-m="{{ result.steep_distance }}" data-secs="{{ result.steep_time_seconds|default(0) }}">{{ "%.1f"|format(result.steep_distance / 1000) }} km / {% set secs = result.steep_time_seconds|default(0) %}{% if secs >= 60 %}{% set mins = (secs / 60)|round|int %}{% if mins < 60 %}{{ mins }}m{% else %}{{ mins // 60 }}h {{ "%02d"|format(mins % 60) }}m{% endif %}{% elif secs > 0 %}{{ secs|int }}s{% else %}-{% endif %}</td>
+                        <td id="steepDist10_2" data-m="{{ result2.steep_distance }}" data-secs="{{ result2.steep_time_seconds|default(0) }}">{{ "%.1f"|format(result2.steep_distance / 1000) }} km / {% set secs2 = result2.steep_time_seconds|default(0) %}{% if secs2 >= 60 %}{% set mins2 = (secs2 / 60)|round|int %}{% if mins2 < 60 %}{{ mins2 }}m{% else %}{{ mins2 // 60 }}h {{ "%02d"|format(mins2 % 60) }}m{% endif %}{% elif secs2 > 0 %}{{ secs2|int }}s{% else %}-{% endif %}</td>
                     </tr>
                     <tr>
-                        <td>Distance &gt;15%</td>
-                        <td id="steepDist15" data-m="{{ result.very_steep_distance }}">{{ "%.2f"|format(result.very_steep_distance / 1000) }} km</td>
-                        <td id="steepDist15_2" data-m="{{ result2.very_steep_distance }}">{{ "%.2f"|format(result2.very_steep_distance / 1000) }} km</td>
-                    </tr>
-                    <tr>
-                        <td>Time &gt;10%</td>
-                        <td>{% if result.steep_time_seconds and result.steep_time_seconds >= 60 %}{% set mins = (result.steep_time_seconds / 60)|round|int %}{% if mins < 60 %}{{ mins }}m{% else %}{{ mins // 60 }}h {{ "%02d"|format(mins % 60) }}m{% endif %}{% else %}-{% endif %}</td>
-                        <td>{% if result2.steep_time_seconds and result2.steep_time_seconds >= 60 %}{% set mins2 = (result2.steep_time_seconds / 60)|round|int %}{% if mins2 < 60 %}{{ mins2 }}m{% else %}{{ mins2 // 60 }}h {{ "%02d"|format(mins2 % 60) }}m{% endif %}{% else %}-{% endif %}</td>
-                    </tr>
-                    <tr>
-                        <td>Time &gt;15%</td>
-                        <td>{% if result.very_steep_time_seconds and result.very_steep_time_seconds >= 60 %}{% set mins = (result.very_steep_time_seconds / 60)|round|int %}{% if mins < 60 %}{{ mins }}m{% else %}{{ mins // 60 }}h {{ "%02d"|format(mins % 60) }}m{% endif %}{% else %}-{% endif %}</td>
-                        <td>{% if result2.very_steep_time_seconds and result2.very_steep_time_seconds >= 60 %}{% set mins2 = (result2.very_steep_time_seconds / 60)|round|int %}{% if mins2 < 60 %}{{ mins2 }}m{% else %}{{ mins2 // 60 }}h {{ "%02d"|format(mins2 % 60) }}m{% endif %}{% else %}-{% endif %}</td>
+                        <td>&gt;15%</td>
+                        <td id="steepDist15" data-m="{{ result.very_steep_distance }}" data-secs="{{ result.very_steep_time_seconds|default(0) }}">{{ "%.1f"|format(result.very_steep_distance / 1000) }} km / {% set secs = result.very_steep_time_seconds|default(0) %}{% if secs >= 60 %}{% set mins = (secs / 60)|round|int %}{% if mins < 60 %}{{ mins }}m{% else %}{{ mins // 60 }}h {{ "%02d"|format(mins % 60) }}m{% endif %}{% elif secs > 0 %}{{ secs|int }}s{% else %}-{% endif %}</td>
+                        <td id="steepDist15_2" data-m="{{ result2.very_steep_distance }}" data-secs="{{ result2.very_steep_time_seconds|default(0) }}">{{ "%.1f"|format(result2.very_steep_distance / 1000) }} km / {% set secs2 = result2.very_steep_time_seconds|default(0) %}{% if secs2 >= 60 %}{% set mins2 = (secs2 / 60)|round|int %}{% if mins2 < 60 %}{{ mins2 }}m{% else %}{{ mins2 // 60 }}h {{ "%02d"|format(mins2 % 60) }}m{% endif %}{% elif secs2 > 0 %}{{ secs2|int }}s{% else %}-{% endif %}</td>
                     </tr>
                 </tbody>
             </table>
@@ -4003,20 +4004,12 @@ HTML_TEMPLATE = """
                     <span class="steep-value">{{ "%.1f"|format(result.max_grade) }}%</span>
                 </div>
                 <div class="steep-stat">
-                    <span class="steep-label">Distance &gt;10%</span>
-                    <span class="steep-value" id="steepDist10" data-m="{{ result.steep_distance }}">{{ "%.2f"|format(result.steep_distance / 1000) }} km</span>
+                    <span class="steep-label">&gt;10%</span>
+                    <span class="steep-value" id="steepDist10" data-m="{{ result.steep_distance }}" data-secs="{{ result.steep_time_seconds|default(0) }}">{{ "%.1f"|format(result.steep_distance / 1000) }} km / {% set secs = result.steep_time_seconds|default(0) %}{% if secs >= 60 %}{% set mins = (secs / 60)|round|int %}{% if mins < 60 %}{{ mins }}m{% else %}{{ mins // 60 }}h {{ "%02d"|format(mins % 60) }}m{% endif %}{% elif secs > 0 %}{{ secs|int }}s{% else %}-{% endif %}</span>
                 </div>
                 <div class="steep-stat">
-                    <span class="steep-label">Distance &gt;15%</span>
-                    <span class="steep-value" id="steepDist15" data-m="{{ result.very_steep_distance }}">{{ "%.2f"|format(result.very_steep_distance / 1000) }} km</span>
-                </div>
-                <div class="steep-stat">
-                    <span class="steep-label">Time &gt;10%</span>
-                    <span class="steep-value">{% if result.steep_time_seconds and result.steep_time_seconds >= 60 %}{% set mins = (result.steep_time_seconds / 60)|round|int %}{% if mins < 60 %}{{ mins }}m{% else %}{{ mins // 60 }}h {{ "%02d"|format(mins % 60) }}m{% endif %}{% else %}-{% endif %}</span>
-                </div>
-                <div class="steep-stat">
-                    <span class="steep-label">Time &gt;15%</span>
-                    <span class="steep-value">{% if result.very_steep_time_seconds and result.very_steep_time_seconds >= 60 %}{% set mins = (result.very_steep_time_seconds / 60)|round|int %}{% if mins < 60 %}{{ mins }}m{% else %}{{ mins // 60 }}h {{ "%02d"|format(mins % 60) }}m{% endif %}{% else %}-{% endif %}</span>
+                    <span class="steep-label">&gt;15%</span>
+                    <span class="steep-value" id="steepDist15" data-m="{{ result.very_steep_distance }}" data-secs="{{ result.very_steep_time_seconds|default(0) }}">{{ "%.1f"|format(result.very_steep_distance / 1000) }} km / {% set secs = result.very_steep_time_seconds|default(0) %}{% if secs >= 60 %}{% set mins = (secs / 60)|round|int %}{% if mins < 60 %}{{ mins }}m{% else %}{{ mins // 60 }}h {{ "%02d"|format(mins % 60) }}m{% endif %}{% elif secs > 0 %}{{ secs|int }}s{% else %}-{% endif %}</span>
                 </div>
             </div>
             {% endif %}
