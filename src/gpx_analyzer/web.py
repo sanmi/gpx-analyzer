@@ -6187,6 +6187,7 @@ def _calculate_elevation_profile_data(url: str, params: RiderParams, smoothing: 
         "noise_ratio": elev_result.noise_ratio,
         "effective_smoothing": elev_result.effective_smoothing,
         "smoothing_auto_adjusted": elev_result.smoothing_auto_adjusted,
+        "scaled_points": scaled_points,  # For climb detection consistency
     }
 
 
@@ -6749,25 +6750,18 @@ def elevation_profile_data():
             step = len(times) // max_points
             times = times[::step]
             elevations = elevations[::step]
-            # Use weighted average of rolling grades to match histogram methodology
-            # The grades array already contains rolling grades calculated the same way as the histogram
-            # Don't recalculate from raw elevation data as that bypasses the rolling window
-            if distances and grades:
+            # Use MAX of grades in each chunk to preserve peak grades
+            # This ensures hover tooltip shows the same max grade that climbs report
+            if grades:
                 new_grades = []
                 for i in range(0, len(grades), step):
                     chunk_grades = grades[i:i+step]
-                    chunk_dists = distances[i:i+step]
                     # Filter out None grades (stopped segments in trips)
-                    valid_pairs = [(g, d) for g, d in zip(chunk_grades, chunk_dists) if g is not None]
-                    if valid_pairs:
-                        total_valid_dist = sum(d for _, d in valid_pairs)
-                        if total_valid_dist > 0:
-                            weighted_grade = sum(g * d for g, d in valid_pairs) / total_valid_dist
-                            new_grades.append(weighted_grade)
-                        else:
-                            new_grades.append(valid_pairs[0][0])
+                    valid_grades = [g for g in chunk_grades if g is not None]
+                    if valid_grades:
+                        # Use max to preserve peak grades (consistent with climb detection)
+                        new_grades.append(max(valid_grades))
                     else:
-                        # All grades in chunk are None (stopped)
                         new_grades.append(None)
                 grades = new_grades
             else:
@@ -8776,18 +8770,13 @@ def api_detect_climbs():
         config = _load_config() or {}
 
         # Get profile data (uses cached route data)
+        # This includes scaled_points for consistent climb detection
         profile_data = _calculate_elevation_profile_data(url, params, smoothing)
         times_hours = profile_data["times_hours"]
         powers = profile_data.get("powers", [])
-
-        # Get route data for climb detection
-        points, route_metadata = get_route_with_surface(url, params.crr)
-        points, _ = detect_and_correct_tunnels(points)
-
-        # Process elevation
-        smoothing_radius = smoothing if smoothing is not None else config.get("smoothing", DEFAULTS["smoothing"])
-        elev_result = process_elevation_data(points, route_metadata, smoothing_radius)
-        scaled_points = elev_result.scaled_points
+        works = profile_data.get("works", [])
+        rolling_grades = profile_data.get("grades", [])
+        scaled_points = profile_data.get("scaled_points", [])
 
         # Convert slider to sensitivity
         sensitivity_m = slider_to_sensitivity(sensitivity_slider)
@@ -8807,6 +8796,8 @@ def api_detect_climbs():
             grade_threshold=grade_threshold,
             params=params,
             segment_powers=powers,
+            segment_works=works,
+            rolling_grades=rolling_grades,
         )
 
         # Convert to JSON-serializable format
@@ -8905,19 +8896,14 @@ def elevation_profile_ride():
         params = build_params(climbing_power, flat_power, mass, headwind, descent_braking_factor, descending_power, unpaved_power_factor)
         config = _load_config() or {}
 
-        # Get profile data
+        # Get profile data (includes scaled_points for consistent climb detection)
         data = _calculate_elevation_profile_data(url, params, smoothing)
         times_hours = data["times_hours"]
         elevations = data["elevations"]
         grades = data["grades"]
         powers = data.get("powers", [])
-
-        # Get climb data
-        points, route_metadata = get_route_with_surface(url, params.crr)
-        points, _ = detect_and_correct_tunnels(points)
-        smoothing_radius = smoothing if smoothing is not None else config.get("smoothing", DEFAULTS["smoothing"])
-        elev_result = process_elevation_data(points, route_metadata, smoothing_radius)
-        scaled_points = elev_result.scaled_points
+        works = data.get("works", [])
+        scaled_points = data.get("scaled_points", [])
 
         sensitivity_m = slider_to_sensitivity(sensitivity_slider)
         min_gain = config.get("climb_min_gain", DEFAULTS.get("climb_min_gain", 50.0))
@@ -8933,6 +8919,8 @@ def elevation_profile_ride():
             grade_threshold=grade_threshold,
             params=params,
             segment_powers=powers,
+            segment_works=works,
+            rolling_grades=grades,
         )
 
         # Generate profile with requested aspect ratio
@@ -9078,17 +9066,13 @@ def ride_page():
             distance_km = result.get("distance_km", 0)
             elevation_m = result.get("elevation_m", 0)
 
-            # Get profile data for climb detection
+            # Get profile data for climb detection (includes scaled_points for consistency)
             profile_data = _calculate_elevation_profile_data(url, params, smoothing)
             times_hours = profile_data["times_hours"]
             powers = profile_data.get("powers", [])
-
-            # Get route data for climb detection
-            points, route_metadata = get_route_with_surface(url, params.crr)
-            points, _ = detect_and_correct_tunnels(points)
-            smoothing_radius = smoothing if smoothing is not None else config.get("smoothing", DEFAULTS["smoothing"])
-            elev_result = process_elevation_data(points, route_metadata, smoothing_radius)
-            scaled_points = elev_result.scaled_points
+            works = profile_data.get("works", [])
+            rolling_grades = profile_data.get("grades", [])
+            scaled_points = profile_data.get("scaled_points", [])
 
             sensitivity_m = slider_to_sensitivity(sensitivity)
             min_gain = config.get("climb_min_gain", DEFAULTS.get("climb_min_gain", 50.0))
@@ -9104,6 +9088,8 @@ def ride_page():
                 grade_threshold=grade_threshold,
                 params=params,
                 segment_powers=powers,
+                segment_works=works,
+                rolling_grades=rolling_grades,
             )
             climbs = climb_result.climbs
 

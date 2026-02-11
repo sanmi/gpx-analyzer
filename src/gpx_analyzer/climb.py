@@ -67,6 +67,7 @@ def detect_climbs(
     params: RiderParams | None = None,
     segment_works: list[float] | None = None,
     segment_powers: list[float] | None = None,
+    rolling_grades: list[float] | None = None,
 ) -> ClimbDetectionResult:
     """Detect significant climbs along a route.
 
@@ -88,6 +89,7 @@ def detect_climbs(
         params: Optional rider parameters for work/power calculations
         segment_works: Optional pre-calculated work values per segment (joules)
         segment_powers: Optional pre-calculated power values per segment (watts)
+        rolling_grades: Optional pre-calculated rolling grades (for consistent max_grade)
 
     Returns:
         ClimbDetectionResult with list of detected climbs and metadata
@@ -104,7 +106,7 @@ def detect_climbs(
         )
         cum_dist.append(cum_dist[-1] + d)
 
-    # Calculate segment grades
+    # Calculate segment grades (point-to-point for climb detection)
     grades = []
     for i in range(len(points) - 1):
         dist = cum_dist[i + 1] - cum_dist[i]
@@ -113,6 +115,10 @@ def detect_climbs(
         else:
             grade = 0.0
         grades.append(grade)
+
+    # Use rolling_grades for max_grade display if provided (consistent with elevation profile)
+    # Otherwise fall back to point-to-point grades
+    display_grades = rolling_grades if rolling_grades is not None else grades
 
     # Use provided times or generate placeholder times based on distance
     if times_hours is None:
@@ -176,9 +182,10 @@ def detect_climbs(
         max_grade = 0.0
 
         for k in range(start_idx, end_idx):
-            if k < len(grades):
-                if grades[k] > max_grade:
-                    max_grade = grades[k]
+            # Use display_grades for max_grade (rolling grades if available, for consistency with elevation profile)
+            if k < len(display_grades):
+                if display_grades[k] > max_grade:
+                    max_grade = display_grades[k]
 
                 if points[k].elevation is not None and points[k + 1].elevation is not None:
                     delta = points[k + 1].elevation - points[k].elevation
@@ -202,20 +209,27 @@ def detect_climbs(
             work_kj = 0.0
             avg_power = 0.0
 
-            # Prefer segment_powers if available (actual physics-calculated power)
+            # Prefer segment_works for work calculation (sum of actual segment work values)
+            # This matches what the elevation profile shows when selecting the same region
+            if segment_works is not None:
+                for k in range(start_idx, min(end_idx, len(segment_works))):
+                    if segment_works[k] is not None:
+                        work_kj += segment_works[k] / 1000  # Convert J to kJ
+
+            # Use segment_powers for avg_power if available
             if segment_powers is not None:
                 powers = [segment_powers[k] for k in range(start_idx, min(end_idx, len(segment_powers)))
                          if segment_powers[k] is not None and segment_powers[k] > 0]
                 if powers:
                     avg_power = sum(powers) / len(powers)
-                    work_kj = avg_power * duration_seconds / 1000  # Calculate work from power
 
-            # Fall back to segment_works if available
-            if work_kj == 0 and segment_works is not None:
-                for k in range(start_idx, min(end_idx, len(segment_works))):
-                    work_kj += segment_works[k] / 1000  # Convert J to kJ
-                if duration_seconds > 0 and work_kj > 0:
-                    avg_power = work_kj * 1000 / duration_seconds
+            # If no segment_works but have avg_power, calculate work from power * duration
+            if work_kj == 0 and avg_power > 0 and duration_seconds > 0:
+                work_kj = avg_power * duration_seconds / 1000
+
+            # If no segment_powers but have work, calculate avg_power from work / duration
+            if avg_power == 0 and work_kj > 0 and duration_seconds > 0:
+                avg_power = work_kj * 1000 / duration_seconds
 
             # Last resort: estimate from elevation gain
             if work_kj == 0 and params is not None:

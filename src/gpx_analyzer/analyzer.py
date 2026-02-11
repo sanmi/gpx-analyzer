@@ -224,7 +224,7 @@ def calculate_hilliness(
     (to match RWGPS methodology which uses raw GPS elevation for max grade).
 
     max_grade_window controls the rolling average window size for max grade calculation.
-    max_grade_smoothing controls additional smoothing applied before max grade calculation.
+    max_grade_smoothing is deprecated and no longer used (kept for API compatibility).
     """
     if len(points) < 2:
         return HillinessAnalysis(
@@ -260,14 +260,9 @@ def calculate_hilliness(
     histogram_points = unscaled_points if unscaled_points is not None else points
     rolling_grades = _calculate_rolling_grades(histogram_points, max_grade_window)
 
-    # Calculate max grade with additional smoothing to filter extreme GPS spikes
-    # This extra smoothing only affects the max_grade value, not histogram bins
-    if max_grade_smoothing > 0:
-        max_grade_points = smooth_elevations(histogram_points, max_grade_smoothing, 1.0)
-        max_grade_rolling = _calculate_rolling_grades(max_grade_points, max_grade_window)
-        max_grade = max(max_grade_rolling) if max_grade_rolling else 0.0
-    else:
-        max_grade = max(rolling_grades) if rolling_grades else 0.0
+    # Max grade uses the same rolling_grades as the elevation profile for consistency
+    # The rolling window (max_grade_window) already smooths out GPS noise
+    max_grade = max(rolling_grades) if rolling_grades else 0.0
 
     # For steepness calculation (effort-weighted average grade)
     weighted_grade_sum = 0.0

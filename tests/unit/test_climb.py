@@ -144,6 +144,83 @@ class TestDetectClimbs:
         assert climb.avg_grade > 6.0, f"Avg grade {climb.avg_grade} should be high (steep climb)"
 
 
+class TestClimbConsistencyWithProfile:
+    """Tests for climb detection consistency with elevation profile data."""
+
+    def test_max_grade_uses_rolling_grades_when_provided(self):
+        """Max grade should use rolling_grades when provided, not point-to-point grades."""
+        # Create a climb with spiky point-to-point grades but smooth rolling grades
+        elevations = [100.0 + i * 5 for i in range(21)]  # 100m gain over 2km
+        points = make_track_points(elevations, spacing_m=100.0)
+
+        # Point-to-point grades would be ~5%, but we provide lower rolling grades
+        rolling_grades = [3.0] * 20  # Smooth 3% everywhere
+
+        result = detect_climbs(
+            points,
+            sensitivity_m=30.0,
+            min_climb_gain=40.0,
+            rolling_grades=rolling_grades,
+        )
+        assert len(result.climbs) == 1
+        # Max grade should use rolling_grades (3%), not point-to-point (~5%)
+        assert result.climbs[0].max_grade == pytest.approx(3.0, abs=0.1)
+
+    def test_max_grade_falls_back_to_point_grades_without_rolling(self):
+        """Without rolling_grades, max grade should use point-to-point grades."""
+        elevations = [100.0 + i * 5 for i in range(21)]  # 100m gain over 2km
+        points = make_track_points(elevations, spacing_m=100.0)
+
+        result = detect_climbs(
+            points,
+            sensitivity_m=30.0,
+            min_climb_gain=40.0,
+            rolling_grades=None,
+        )
+        assert len(result.climbs) == 1
+        # Should use point-to-point grade (~5%)
+        assert result.climbs[0].max_grade >= 4.5
+
+    def test_work_sums_segment_works_when_provided(self):
+        """Work should be sum of segment_works when provided."""
+        elevations = [100.0 + i * 5 for i in range(11)]  # 50m gain over 1km
+        points = make_track_points(elevations, spacing_m=100.0)
+
+        # Provide known segment_works (in joules)
+        # 10 segments, each 1000J = 10000J = 10kJ total
+        segment_works = [1000.0] * 10
+
+        result = detect_climbs(
+            points,
+            sensitivity_m=30.0,
+            min_climb_gain=40.0,
+            segment_works=segment_works,
+        )
+        assert len(result.climbs) == 1
+        # Work should be sum of segment_works converted to kJ
+        assert result.climbs[0].work_kj == pytest.approx(10.0, abs=0.5)
+
+    def test_avg_power_from_segment_powers(self):
+        """Avg power should be calculated from segment_powers when provided."""
+        elevations = [100.0 + i * 5 for i in range(11)]  # 50m gain over 1km
+        points = make_track_points(elevations, spacing_m=100.0)
+        times_hours = [i * 0.01 for i in range(11)]  # 0.1 hours total
+
+        # Provide known segment_powers (in watts)
+        segment_powers = [200.0] * 10  # 200W for each segment
+
+        result = detect_climbs(
+            points,
+            times_hours=times_hours,
+            sensitivity_m=30.0,
+            min_climb_gain=40.0,
+            segment_powers=segment_powers,
+        )
+        assert len(result.climbs) == 1
+        # Avg power should be average of segment_powers
+        assert result.climbs[0].avg_power == pytest.approx(200.0, abs=5.0)
+
+
 class TestSliderToSensitivity:
     """Tests for slider value to sensitivity conversion."""
 
