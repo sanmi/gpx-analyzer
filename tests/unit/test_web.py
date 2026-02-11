@@ -1498,8 +1498,7 @@ class TestDynamicPlotMargins:
         # Verify it calculates aspect from the container
         assert "getContainerAspect()" in html
         # Verify the formula uses division by aspect (margins shrink as aspect increases)
-        assert "0.1925 / aspect" in html
-        assert "0.045 / aspect" in html
+        assert "0.175 / aspect" in html
 
     @patch.object(web, "get_route_with_surface")
     def test_ride_page_margin_values_calibrated_correctly(self, mock_get_route, client, no_config, mock_route_points):
@@ -1517,31 +1516,29 @@ class TestDynamicPlotMargins:
         response = client.get("/ride?url=https://ridewithgps.com/routes/12345")
         html = response.data.decode()
 
-        # The formula is: left = 0.1925/aspect, right = 1 - 0.045/aspect
-        # These come from: 0.77 inch / (4 inch * aspect) and 0.18 inch / (4 inch * aspect)
-        # At aspect=1.0 (mobile/square): left=0.1925, right=0.955
-        # At aspect=3.5 (desktop/wide): left=0.055, right=0.987
+        # The formula is: left = 0.175/aspect, right = 1 - 0.175/aspect
+        # These come from: 0.7 inch / (4 inch * aspect) for both margins
+        # At aspect=1.0 (mobile/square): left=0.175, right=0.825
+        # At aspect=3.5 (desktop/wide): left=0.05, right=0.95
 
-        left_constant = 0.1925
-        right_constant = 0.045
+        margin_constant = 0.175
 
         # Verify formula produces correct margins for mobile (aspect=1.0)
         mobile_aspect = 1.0
-        mobile_left = left_constant / mobile_aspect
-        mobile_right = 1 - right_constant / mobile_aspect
-        assert abs(mobile_left - 0.1925) < 0.001, f"Mobile left margin should be ~0.1925, got {mobile_left}"
-        assert abs(mobile_right - 0.955) < 0.001, f"Mobile right margin should be ~0.955, got {mobile_right}"
+        mobile_left = margin_constant / mobile_aspect
+        mobile_right = 1 - margin_constant / mobile_aspect
+        assert abs(mobile_left - 0.175) < 0.001, f"Mobile left margin should be ~0.175, got {mobile_left}"
+        assert abs(mobile_right - 0.825) < 0.001, f"Mobile right margin should be ~0.825, got {mobile_right}"
 
         # Verify formula produces correct margins for desktop (aspect=3.5)
         desktop_aspect = 3.5
-        desktop_left = left_constant / desktop_aspect
-        desktop_right = 1 - right_constant / desktop_aspect
-        assert abs(desktop_left - 0.055) < 0.001, f"Desktop left margin should be ~0.055, got {desktop_left}"
-        assert abs(desktop_right - 0.987) < 0.001, f"Desktop right margin should be ~0.987, got {desktop_right}"
+        desktop_left = margin_constant / desktop_aspect
+        desktop_right = 1 - margin_constant / desktop_aspect
+        assert abs(desktop_left - 0.05) < 0.001, f"Desktop left margin should be ~0.05, got {desktop_left}"
+        assert abs(desktop_right - 0.95) < 0.001, f"Desktop right margin should be ~0.95, got {desktop_right}"
 
         # Verify the page uses these exact constants
-        assert "0.1925" in html, "Left margin constant 0.1925 should be in HTML"
-        assert "0.045" in html, "Right margin constant 0.045 should be in HTML"
+        assert "0.175" in html, "Margin constant 0.175 should be in HTML"
 
     @patch.object(web, "get_route_with_surface")
     def test_ride_page_margins_update_on_resize(self, mock_get_route, client, no_config, mock_route_points):

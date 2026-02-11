@@ -231,12 +231,13 @@ def _make_profile_cache_key(url: str, climbing_power: float, flat_power: float, 
                             show_gravel: bool = False,
                             max_ylim: float | None = None,
                             max_speed_ylim: float | None = None,
+                            max_grade_ylim: float | None = None,
                             unpaved_power_factor: float = 0.0,
                             smoothing: float = 50.0,
                             min_xlim_hours: float | None = None) -> str:
     """Create a unique cache key for elevation profile parameters."""
     config_hash = _get_config_hash()
-    key_str = f"{url}|{climbing_power}|{flat_power}|{descending_power}|{mass}|{headwind}|{descent_braking_factor}|{collapse_stops}|{min_xlim_hours}|{max_xlim_hours}|{overlay}|{imperial}|{show_gravel}|{max_ylim}|{max_speed_ylim}|{unpaved_power_factor}|{smoothing}|{config_hash}"
+    key_str = f"{url}|{climbing_power}|{flat_power}|{descending_power}|{mass}|{headwind}|{descent_braking_factor}|{collapse_stops}|{min_xlim_hours}|{max_xlim_hours}|{overlay}|{imperial}|{show_gravel}|{max_ylim}|{max_speed_ylim}|{max_grade_ylim}|{unpaved_power_factor}|{smoothing}|{config_hash}"
     return hashlib.md5(key_str.encode()).hexdigest()
 
 
@@ -337,21 +338,21 @@ HTML_TEMPLATE = """
         * { box-sizing: border-box; }
         body {
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-            max-width: 960px;
+            max-width: 1100px;
             margin: 0 auto;
-            padding: 20px;
+            padding: 10px;
             background: #f5f5f7;
         }
         body.collection-mode {
-            padding: 12px;
+            padding: 6px;
         }
         @media (min-width: 1200px) {
-            body { max-width: 1100px; }
-            body.collection-mode { max-width: 95%; padding: 10px; }
+            body { max-width: 1300px; }
+            body.collection-mode { max-width: 98%; padding: 6px; }
         }
         @media (max-width: 480px) {
-            body { padding: 10px; }
-            body.collection-mode { padding: 6px; }
+            body { padding: 6px; }
+            body.collection-mode { padding: 4px; }
         }
         h1 { color: var(--accent); font-size: 1.5em; }
         form {
@@ -2789,6 +2790,8 @@ HTML_TEMPLATE = """
             var params = '';
             var speedCheckbox = document.getElementById('overlay_speed');
             if (speedCheckbox && speedCheckbox.checked) params += '&overlay=speed';
+            var gradeCheckbox = document.getElementById('overlay_grade');
+            if (gradeCheckbox && gradeCheckbox.checked) params += '&overlay=grade';
             var gravelCheckbox = document.getElementById('overlay_gravel');
             if (gravelCheckbox && gravelCheckbox.checked) params += '&show_gravel=true';
             if (isImperial()) params += '&imperial=true';
@@ -2938,6 +2941,7 @@ HTML_TEMPLATE = """
             // Save current overlay states to localStorage for ride page to read
             try {
                 localStorage.setItem('ride_show_speed', document.getElementById('overlay_speed')?.checked || false);
+                localStorage.setItem('ride_show_grade', document.getElementById('overlay_grade')?.checked || false);
                 localStorage.setItem('ride_show_gravel', document.getElementById('overlay_gravel')?.checked || false);
                 localStorage.setItem('ride_imperial', document.getElementById('imperial')?.checked || false);
             } catch (e) {}
@@ -2947,6 +2951,16 @@ HTML_TEMPLATE = """
         function toggleOverlay(type) {
             var checkbox = document.getElementById('overlay_' + type);
             if (!checkbox) return;
+
+            // Speed and grade are mutually exclusive (only one secondary Y-axis)
+            if (checkbox.checked && (type === 'speed' || type === 'grade')) {
+                var otherType = type === 'speed' ? 'grade' : 'speed';
+                var otherCheckbox = document.getElementById('overlay_' + otherType);
+                if (otherCheckbox && otherCheckbox.checked) {
+                    otherCheckbox.checked = false;
+                    localStorage.setItem('overlay_' + otherType, 'false');
+                }
+            }
 
             // Refresh all visible elevation profiles
             ['', '1', '2'].forEach(function(suffix) {
@@ -2998,7 +3012,7 @@ HTML_TEMPLATE = """
         }
 
         function initOverlays() {
-            ['speed', 'gravel'].forEach(function(type) {
+            ['speed', 'grade', 'gravel'].forEach(function(type) {
                 var checkbox = document.getElementById('overlay_' + type);
                 if (checkbox) {
                     var saved = localStorage.getItem('overlay_' + type) === 'true';
@@ -4304,6 +4318,10 @@ HTML_TEMPLATE = """
                         <input type="checkbox" id="overlay_speed" onchange="toggleOverlay('speed')">
                         <label for="overlay_speed">Speed</label>
                     </div>
+                    <div class="collapse-stops-toggle">
+                        <input type="checkbox" id="overlay_grade" onchange="toggleOverlay('grade')">
+                        <label for="overlay_grade">Grade</label>
+                    </div>
                     {% if not is_trip or not is_trip2 %}
                     <div class="collapse-stops-toggle">
                         <input type="checkbox" id="overlay_gravel" onchange="toggleOverlay('gravel')">
@@ -4329,12 +4347,13 @@ HTML_TEMPLATE = """
                      data-max-xlim-hours="{{ '%.4f'|format(max_time_hours) }}"
                      {% if compare_ylim %}data-max-ylim="{{ '%.2f'|format(compare_ylim) }}"{% endif %}
                      {% if compare_speed_ylim %}data-max-speed-ylim="{{ '%.2f'|format(compare_speed_ylim) }}"{% endif %}
-                     data-base-profile-url="/elevation-profile?url={{ url|urlencode }}&climbing_power={{ climbing_power }}&flat_power={{ flat_power }}&mass={{ mass }}&headwind={{ headwind }}&descending_power={{ descending_power }}&descent_braking_factor={{ descent_braking_factor }}&unpaved_power_factor={{ unpaved_power_factor }}&smoothing={{ smoothing|int }}{% if compare_ylim %}&max_ylim={{ '%.2f'|format(compare_ylim) }}{% endif %}{% if compare_speed_ylim %}&max_speed_ylim={{ '%.2f'|format(compare_speed_ylim) }}{% endif %}"
+                     {% if compare_grade_ylim %}data-max-grade-ylim="{{ '%.2f'|format(compare_grade_ylim) }}"{% endif %}
+                     data-base-profile-url="/elevation-profile?url={{ url|urlencode }}&climbing_power={{ climbing_power }}&flat_power={{ flat_power }}&mass={{ mass }}&headwind={{ headwind }}&descending_power={{ descending_power }}&descent_braking_factor={{ descent_braking_factor }}&unpaved_power_factor={{ unpaved_power_factor }}&smoothing={{ smoothing|int }}{% if compare_ylim %}&max_ylim={{ '%.2f'|format(compare_ylim) }}{% endif %}{% if compare_speed_ylim %}&max_speed_ylim={{ '%.2f'|format(compare_speed_ylim) }}{% endif %}{% if compare_grade_ylim %}&max_grade_ylim={{ '%.2f'|format(compare_grade_ylim) }}{% endif %}"
                      data-base-data-url="/elevation-profile-data?url={{ url|urlencode }}&climbing_power={{ climbing_power }}&flat_power={{ flat_power }}&mass={{ mass }}&headwind={{ headwind }}&descending_power={{ descending_power }}&descent_braking_factor={{ descent_braking_factor }}&unpaved_power_factor={{ unpaved_power_factor }}&smoothing={{ smoothing|int }}">
                     <div class="elevation-loading" id="elevationLoading1">
                         <div class="elevation-spinner"></div>
                     </div>
-                    <img src="/elevation-profile?url={{ url|urlencode }}&climbing_power={{ climbing_power }}&flat_power={{ flat_power }}&mass={{ mass }}&headwind={{ headwind }}&descending_power={{ descending_power }}&descent_braking_factor={{ descent_braking_factor }}&unpaved_power_factor={{ unpaved_power_factor }}&smoothing={{ smoothing|int }}&max_xlim_hours={{ '%.4f'|format(max_time_hours) }}{% if compare_ylim %}&max_ylim={{ '%.2f'|format(compare_ylim) }}{% endif %}{% if compare_speed_ylim %}&max_speed_ylim={{ '%.2f'|format(compare_speed_ylim) }}{% endif %}"
+                    <img src="/elevation-profile?url={{ url|urlencode }}&climbing_power={{ climbing_power }}&flat_power={{ flat_power }}&mass={{ mass }}&headwind={{ headwind }}&descending_power={{ descending_power }}&descent_braking_factor={{ descent_braking_factor }}&unpaved_power_factor={{ unpaved_power_factor }}&smoothing={{ smoothing|int }}&max_xlim_hours={{ '%.4f'|format(max_time_hours) }}{% if compare_ylim %}&max_ylim={{ '%.2f'|format(compare_ylim) }}{% endif %}{% if compare_speed_ylim %}&max_speed_ylim={{ '%.2f'|format(compare_speed_ylim) }}{% endif %}{% if compare_grade_ylim %}&max_grade_ylim={{ '%.2f'|format(compare_grade_ylim) }}{% endif %}"
                          alt="Elevation profile - Route 1" id="elevationImg1" class="loading"
                          onload="document.getElementById('elevationLoading1').classList.add('hidden'); this.classList.remove('loading');">
                     <div class="elevation-cursor" id="elevationCursor1"></div>
@@ -4372,12 +4391,13 @@ HTML_TEMPLATE = """
                      data-max-xlim-hours="{{ '%.4f'|format(max_time_hours) }}"
                      {% if compare_ylim %}data-max-ylim="{{ '%.2f'|format(compare_ylim) }}"{% endif %}
                      {% if compare_speed_ylim %}data-max-speed-ylim="{{ '%.2f'|format(compare_speed_ylim) }}"{% endif %}
-                     data-base-profile-url="/elevation-profile?url={{ url2|urlencode }}&climbing_power={{ climbing_power }}&flat_power={{ flat_power }}&mass={{ mass }}&headwind={{ headwind }}&descending_power={{ descending_power }}&descent_braking_factor={{ descent_braking_factor }}&unpaved_power_factor={{ unpaved_power_factor }}&smoothing={{ smoothing|int }}{% if compare_ylim %}&max_ylim={{ '%.2f'|format(compare_ylim) }}{% endif %}{% if compare_speed_ylim %}&max_speed_ylim={{ '%.2f'|format(compare_speed_ylim) }}{% endif %}"
+                     {% if compare_grade_ylim %}data-max-grade-ylim="{{ '%.2f'|format(compare_grade_ylim) }}"{% endif %}
+                     data-base-profile-url="/elevation-profile?url={{ url2|urlencode }}&climbing_power={{ climbing_power }}&flat_power={{ flat_power }}&mass={{ mass }}&headwind={{ headwind }}&descending_power={{ descending_power }}&descent_braking_factor={{ descent_braking_factor }}&unpaved_power_factor={{ unpaved_power_factor }}&smoothing={{ smoothing|int }}{% if compare_ylim %}&max_ylim={{ '%.2f'|format(compare_ylim) }}{% endif %}{% if compare_speed_ylim %}&max_speed_ylim={{ '%.2f'|format(compare_speed_ylim) }}{% endif %}{% if compare_grade_ylim %}&max_grade_ylim={{ '%.2f'|format(compare_grade_ylim) }}{% endif %}"
                      data-base-data-url="/elevation-profile-data?url={{ url2|urlencode }}&climbing_power={{ climbing_power }}&flat_power={{ flat_power }}&mass={{ mass }}&headwind={{ headwind }}&descending_power={{ descending_power }}&descent_braking_factor={{ descent_braking_factor }}&unpaved_power_factor={{ unpaved_power_factor }}&smoothing={{ smoothing|int }}">
                     <div class="elevation-loading" id="elevationLoading2">
                         <div class="elevation-spinner"></div>
                     </div>
-                    <img src="/elevation-profile?url={{ url2|urlencode }}&climbing_power={{ climbing_power }}&flat_power={{ flat_power }}&mass={{ mass }}&headwind={{ headwind }}&descending_power={{ descending_power }}&descent_braking_factor={{ descent_braking_factor }}&unpaved_power_factor={{ unpaved_power_factor }}&smoothing={{ smoothing|int }}&max_xlim_hours={{ '%.4f'|format(max_time_hours) }}{% if compare_ylim %}&max_ylim={{ '%.2f'|format(compare_ylim) }}{% endif %}{% if compare_speed_ylim %}&max_speed_ylim={{ '%.2f'|format(compare_speed_ylim) }}{% endif %}"
+                    <img src="/elevation-profile?url={{ url2|urlencode }}&climbing_power={{ climbing_power }}&flat_power={{ flat_power }}&mass={{ mass }}&headwind={{ headwind }}&descending_power={{ descending_power }}&descent_braking_factor={{ descent_braking_factor }}&unpaved_power_factor={{ unpaved_power_factor }}&smoothing={{ smoothing|int }}&max_xlim_hours={{ '%.4f'|format(max_time_hours) }}{% if compare_ylim %}&max_ylim={{ '%.2f'|format(compare_ylim) }}{% endif %}{% if compare_speed_ylim %}&max_speed_ylim={{ '%.2f'|format(compare_speed_ylim) }}{% endif %}{% if compare_grade_ylim %}&max_grade_ylim={{ '%.2f'|format(compare_grade_ylim) }}{% endif %}"
                          alt="Elevation profile - Route 2" id="elevationImg2" class="loading"
                          onload="document.getElementById('elevationLoading2').classList.add('hidden'); this.classList.remove('loading');">
                     <div class="elevation-cursor" id="elevationCursor2"></div>
@@ -4406,6 +4426,10 @@ HTML_TEMPLATE = """
                     <div class="collapse-stops-toggle">
                         <input type="checkbox" id="overlay_speed" onchange="toggleOverlay('speed')">
                         <label for="overlay_speed">Speed</label>
+                    </div>
+                    <div class="collapse-stops-toggle">
+                        <input type="checkbox" id="overlay_grade" onchange="toggleOverlay('grade')">
+                        <label for="overlay_grade">Grade</label>
                     </div>
                     {% if not is_trip %}
                     <div class="collapse-stops-toggle">
@@ -4558,10 +4582,10 @@ HTML_TEMPLATE = """
                 .catch(err => console.error('Profile data fetch exception:', err, dataUrl));
 
             // The plot area margins match _set_fixed_margins() for figsize=(14,4)
-            // Left: 0.77in/14in = 0.055, Right: 1 - 0.18in/14in = 0.987
+            // Left: 0.7in/14in = 0.05, Right: 1 - 0.7in/14in = 0.95
             // These are constant regardless of speed overlay (overlay shares same plot area)
-            const plotLeftPct = 0.055;
-            const plotRightPct = 0.987;
+            const plotLeftPct = 0.05;
+            const plotRightPct = 0.95;
 
             function getDataAtPosition(xPct) {
                 if (!profileData || !profileData.times || profileData.times.length < 2) return null;
@@ -6079,6 +6103,53 @@ def _add_speed_overlay(ax, times_hours: list, speeds_kmh: list, imperial: bool =
     ax2.spines['top'].set_visible(False)
 
 
+def _add_grade_overlay(ax, times_hours: list, grades: list, max_grade_ylim: float | None = None):
+    """Add grade line overlay with right Y-axis to an elevation profile plot.
+
+    Args:
+        ax: Primary matplotlib axis
+        times_hours: X-axis time values
+        grades: Grade values in percent
+        max_grade_ylim: Optional max grade for synchronized Y-axis in comparison mode
+    """
+    # Filter out None grades (stopped segments in trips)
+    grade_times = []
+    grade_values = []
+    for i, g in enumerate(grades):
+        if g is not None and i < len(times_hours) - 1:
+            # Use segment midpoint time
+            grade_times.append((times_hours[i] + times_hours[i + 1]) / 2)
+            grade_values.append(g)
+
+    if not grade_values:
+        ax.spines['right'].set_visible(False)
+        return
+
+    ax2 = ax.twinx()
+    ax2.plot(grade_times, grade_values, color='#333333', linewidth=1.2, alpha=0.7)  # Dark gray/black
+    ax2.set_ylabel('Grade (%)', fontsize=10, color='#333333')
+    ax2.tick_params(axis='y', labelcolor='#333333')
+
+    # Calculate Y-axis limits with tick intervals matching speed overlay style
+    max_grade = max_grade_ylim if max_grade_ylim is not None else max(abs(g) for g in grade_values)
+    min_grade = min(grade_values)
+    tick_interval = 5  # 5% intervals
+
+    if min_grade >= 0:
+        max_tick = int(max(max_grade, 15) / tick_interval + 1) * tick_interval
+        ax2.set_yticks(range(0, max_tick + 1, tick_interval))
+        ax2.set_ylim(0, max_tick)
+    else:
+        limit = max(abs(max_grade), abs(min_grade), 15)
+        max_tick = int(limit / tick_interval + 1) * tick_interval
+        ax2.set_yticks(range(-max_tick, max_tick + 1, tick_interval))
+        ax2.set_ylim(-max_tick, max_tick)
+        # Add zero line for reference
+        ax2.axhline(y=0, color='#333333', linewidth=0.5, alpha=0.3, linestyle='--')
+
+    ax2.spines['top'].set_visible(False)
+
+
 def _calculate_elevation_profile_data(url: str, params: RiderParams, smoothing: float | None = None, smoothing_override: bool = False) -> dict:
     """Calculate elevation profile data for a route.
 
@@ -6350,13 +6421,13 @@ def _set_fixed_margins(fig, fig_width: float, fig_height: float) -> None:
 
     Uses fixed inch-based margins so that the plot area is predictable
     regardless of content. The JavaScript uses the formula:
-        left_pct = 0.77 / fig_width
-        right_pct = 1 - 0.18 / fig_width
-    which corresponds to 0.77 inch left margin and 0.18 inch right margin.
+        left_pct = 0.7 / fig_width
+        right_pct = 1 - 0.7 / fig_width
+    which corresponds to 0.7 inch left margin and 0.7 inch right margin.
     """
     # Fixed margins in inches - these match the JavaScript formula
-    left_margin_in = 0.77
-    right_margin_in = 0.18
+    left_margin_in = 0.7
+    right_margin_in = 0.7
     bottom_margin_in = 0.55
     top_margin_in = 0.35
 
@@ -6374,6 +6445,7 @@ def generate_elevation_profile(url: str, params: RiderParams, title_time_hours: 
                                overlay: str | None = None, imperial: bool = False,
                                max_ylim: float | None = None,
                                max_speed_ylim: float | None = None,
+                               max_grade_ylim: float | None = None,
                                show_gravel: bool = False,
                                smoothing: float | None = None,
                                aspect_ratio: float = 3.5,
@@ -6391,6 +6463,7 @@ def generate_elevation_profile(url: str, params: RiderParams, title_time_hours: 
         imperial: If True, use imperial units for overlay axis.
         max_ylim: Optional max y-axis limit in meters (for synchronized comparison).
         max_speed_ylim: Optional max speed y-axis limit in km/h (for synchronized comparison).
+        max_grade_ylim: Optional max grade y-axis limit in % (for synchronized comparison).
         show_gravel: If True, highlight unpaved/gravel sections with a brown strip.
         smoothing: Optional override for elevation smoothing radius.
         aspect_ratio: Width/height ratio (1.0 = square, 3.5 = wide default).
@@ -6489,6 +6562,8 @@ def generate_elevation_profile(url: str, params: RiderParams, title_time_hours: 
 
     if overlay == "speed" and data.get("speeds_kmh"):
         _add_speed_overlay(ax, times_hours, data["speeds_kmh"], imperial, max_speed_ylim=max_speed_ylim)
+    elif overlay == "grade" and data.get("grades"):
+        _add_grade_overlay(ax, times_hours, data["grades"], max_grade_ylim=max_grade_ylim)
     else:
         ax.spines['right'].set_visible(False)
 
@@ -6509,6 +6584,7 @@ def generate_trip_elevation_profile(url: str, title_time_hours: float | None = N
                                     overlay: str | None = None, imperial: bool = False,
                                     max_ylim: float | None = None,
                                     max_speed_ylim: float | None = None,
+                                    max_grade_ylim: float | None = None,
                                     min_xlim_hours: float | None = None) -> bytes:
     """Generate elevation profile image for a trip with grade-based coloring.
 
@@ -6522,6 +6598,7 @@ def generate_trip_elevation_profile(url: str, title_time_hours: float | None = N
         imperial: If True, use imperial units for overlay axis.
         max_ylim: Optional max y-axis limit in meters (for synchronized comparison).
         max_speed_ylim: Optional max speed y-axis limit in km/h (for synchronized comparison).
+        max_grade_ylim: Optional max grade y-axis limit in % (for synchronized comparison).
         min_xlim_hours: Optional min x-axis limit in hours (for zooming).
 
     Returns PNG image as bytes.
@@ -6599,6 +6676,8 @@ def generate_trip_elevation_profile(url: str, title_time_hours: float | None = N
 
     if overlay == "speed" and data.get("speeds_kmh"):
         _add_speed_overlay(ax, times_hours, data["speeds_kmh"], imperial, max_speed_ylim=max_speed_ylim)
+    elif overlay == "grade" and data.get("grades"):
+        _add_grade_overlay(ax, times_hours, data["grades"], max_grade_ylim=max_grade_ylim)
     else:
         ax.spines['right'].set_visible(False)
 
@@ -6638,6 +6717,8 @@ def elevation_profile():
     max_ylim = float(max_ylim_str) if max_ylim_str else None
     max_speed_ylim_str = request.args.get("max_speed_ylim", "")
     max_speed_ylim = float(max_speed_ylim_str) if max_speed_ylim_str else None
+    max_grade_ylim_str = request.args.get("max_grade_ylim", "")
+    max_grade_ylim = float(max_grade_ylim_str) if max_grade_ylim_str else None
     show_gravel = request.args.get("show_gravel", "false").lower() == "true"
     square = request.args.get("square", "false").lower() == "true"
     # Dynamic aspect ratio support (overrides square if provided)
@@ -6672,7 +6753,7 @@ def elevation_profile():
     if is_zoomed:
         _elevation_profile_cache_stats["zoomed_skipped"] += 1
     else:
-        cache_key = _make_profile_cache_key(url, climbing_power, flat_power, mass, headwind, descent_braking_factor, collapse_stops, max_xlim_hours, descending_power, overlay=(overlay or "") + f"|aspect{aspect_ratio:.1f}", imperial=imperial, show_gravel=show_gravel, max_ylim=max_ylim, max_speed_ylim=max_speed_ylim, unpaved_power_factor=unpaved_power_factor, smoothing=smoothing, min_xlim_hours=min_xlim_hours)
+        cache_key = _make_profile_cache_key(url, climbing_power, flat_power, mass, headwind, descent_braking_factor, collapse_stops, max_xlim_hours, descending_power, overlay=(overlay or "") + f"|aspect{aspect_ratio:.1f}", imperial=imperial, show_gravel=show_gravel, max_ylim=max_ylim, max_speed_ylim=max_speed_ylim, max_grade_ylim=max_grade_ylim, unpaved_power_factor=unpaved_power_factor, smoothing=smoothing, min_xlim_hours=min_xlim_hours)
         cached_bytes = _get_cached_profile(cache_key)
         if cached_bytes:
             return send_file(io.BytesIO(cached_bytes), mimetype='image/png')
@@ -6682,13 +6763,13 @@ def elevation_profile():
             # Trip: use actual timestamps, no physics params needed
             trip_result = analyze_trip(url)
             title_time_hours = trip_result["time_seconds"] / 3600
-            img_bytes = generate_trip_elevation_profile(url, title_time_hours, collapse_stops=collapse_stops, max_xlim_hours=max_xlim_hours, overlay=overlay, imperial=imperial, max_ylim=max_ylim, max_speed_ylim=max_speed_ylim, min_xlim_hours=min_xlim_hours)
+            img_bytes = generate_trip_elevation_profile(url, title_time_hours, collapse_stops=collapse_stops, max_xlim_hours=max_xlim_hours, overlay=overlay, imperial=imperial, max_ylim=max_ylim, max_speed_ylim=max_speed_ylim, max_grade_ylim=max_grade_ylim, min_xlim_hours=min_xlim_hours)
         else:
             # Route: use physics estimation
             params = build_params(climbing_power, flat_power, mass, headwind, descent_braking_factor, descending_power, unpaved_power_factor)
             analysis = analyze_single_route(url, params, smoothing)
             title_time_hours = analysis["time_seconds"] / 3600
-            img_bytes = generate_elevation_profile(url, params, title_time_hours, max_xlim_hours=max_xlim_hours, overlay=overlay, imperial=imperial, max_ylim=max_ylim, max_speed_ylim=max_speed_ylim, show_gravel=show_gravel, smoothing=smoothing, aspect_ratio=aspect_ratio, min_xlim_hours=min_xlim_hours)
+            img_bytes = generate_elevation_profile(url, params, title_time_hours, max_xlim_hours=max_xlim_hours, overlay=overlay, imperial=imperial, max_ylim=max_ylim, max_speed_ylim=max_speed_ylim, max_grade_ylim=max_grade_ylim, show_gravel=show_gravel, smoothing=smoothing, aspect_ratio=aspect_ratio, min_xlim_hours=min_xlim_hours)
         # Only save to disk cache for unzoomed views
         if not is_zoomed:
             _save_profile_to_cache(cache_key, img_bytes)
@@ -6876,6 +6957,7 @@ def index():
     compare_mode = False  # Flag for comparison mode
     compare_ylim = None  # Synchronized elevation Y-axis limit for comparison
     compare_speed_ylim = None  # Synchronized speed Y-axis limit for comparison
+    compare_grade_ylim = None  # Synchronized grade Y-axis limit for comparison
     is_trip = False  # Flag for trip vs route
     is_trip2 = False  # Flag for second URL trip vs route
 
@@ -7015,6 +7097,14 @@ def index():
                 max_speed1 = max(speeds1) if speeds1 else 0
                 max_speed2 = max(speeds2) if speeds2 else 0
                 compare_speed_ylim = max(max_speed1, max_speed2)
+
+            # Calculate synchronized grade Y-axis limit
+            grades1 = [abs(g) for g in (data1.get("grades") or []) if g is not None]
+            grades2 = [abs(g) for g in (data2.get("grades") or []) if g is not None]
+            if grades1 or grades2:
+                max_grade1 = max(grades1) if grades1 else 0
+                max_grade2 = max(grades2) if grades2 else 0
+                compare_grade_ylim = max(max_grade1, max_grade2)
         except Exception:
             pass  # Fall back to independent Y-axes if computation fails
 
@@ -7067,6 +7157,7 @@ def index():
         share_url=share_url,
         compare_ylim=compare_ylim,
         compare_speed_ylim=compare_speed_ylim,
+        compare_grade_ylim=compare_grade_ylim,
         version_date=__version_date__,
         git_hash=get_git_hash(),
         # Helper functions for comparison formatting
@@ -7096,15 +7187,15 @@ RIDE_TEMPLATE = """
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body {
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-            max-width: 1200px;
+            max-width: 1400px;
             margin: 0 auto;
-            padding: 12px;
+            padding: 8px;
             background: var(--bg-light);
             color: var(--text-dark);
         }
         /* Responsive container for main content */
         @media (min-width: 768px) {
-            body { padding: 24px 32px; }
+            body { padding: 12px 16px; }
         }
         .back-link {
             display: inline-block;
@@ -7664,6 +7755,10 @@ RIDE_TEMPLATE = """
                     <label for="overlay_speed">Speed</label>
                 </div>
                 <div class="profile-toggle">
+                    <input type="checkbox" id="overlay_grade" onchange="toggleOverlay('grade')">
+                    <label for="overlay_grade">Grade</label>
+                </div>
+                <div class="profile-toggle">
                     <input type="checkbox" id="overlay_gravel" onchange="toggleOverlay('gravel')">
                     <label for="overlay_gravel">Unpaved</label>
                 </div>
@@ -7827,6 +7922,7 @@ RIDE_TEMPLATE = """
         function _buildOverlayParams() {
             let params = '';
             if (document.getElementById('overlay_speed')?.checked) params += '&overlay=speed';
+            if (document.getElementById('overlay_grade')?.checked) params += '&overlay=grade';
             if (document.getElementById('overlay_gravel')?.checked) params += '&show_gravel=true';
             if (isImperial()) params += '&imperial=true';
             return params;
@@ -7945,6 +8041,18 @@ RIDE_TEMPLATE = """
 
         // Overlay toggles
         function toggleOverlay(type) {
+            // Speed and grade are mutually exclusive (only one secondary Y-axis)
+            if (type === 'speed' || type === 'grade') {
+                const checkbox = document.getElementById('overlay_' + type);
+                if (checkbox && checkbox.checked) {
+                    const otherType = type === 'speed' ? 'grade' : 'speed';
+                    const otherCheckbox = document.getElementById('overlay_' + otherType);
+                    if (otherCheckbox && otherCheckbox.checked) {
+                        otherCheckbox.checked = false;
+                    }
+                }
+            }
+
             const container = document.getElementById('elevationContainer');
             const img = document.getElementById('elevationImg');
             const loading = document.getElementById('elevationLoading');
@@ -7976,6 +8084,7 @@ RIDE_TEMPLATE = """
             // Save toggle states to localStorage
             try {
                 localStorage.setItem('ride_show_speed', document.getElementById('overlay_speed')?.checked || false);
+                localStorage.setItem('ride_show_grade', document.getElementById('overlay_grade')?.checked || false);
                 localStorage.setItem('ride_show_gravel', document.getElementById('overlay_gravel')?.checked || false);
             } catch (e) {}
         }
@@ -8030,6 +8139,7 @@ RIDE_TEMPLATE = """
             // Add settings from localStorage
             try {
                 if (localStorage.getItem('overlay_speed') === 'true') url += '&overlay=speed';
+                if (localStorage.getItem('overlay_grade') === 'true') url += '&overlay=grade';
                 if (localStorage.getItem('overlay_gravel') === 'true') url += '&show_gravel=true';
                 if (localStorage.getItem('ride_imperial') === 'true') url += '&imperial=1';
             } catch (e) {}
@@ -8087,7 +8197,7 @@ RIDE_TEMPLATE = """
 
             // Calculate plot margins based on aspect ratio
             // Margins in inches are roughly constant, so as percentage they scale with 1/aspectRatio
-            // Calibrated from figsize=(14,4) where leftMargin=0.77in, rightMargin=0.18in
+            // Calibrated from figsize=(14,4) where leftMargin=0.7in, rightMargin=0.7in
             function getContainerAspect() {
                 // Use THIS container's width, not the global getAspectRatio which uses climbProfileContainer
                 const width = container.offsetWidth;
@@ -8098,8 +8208,8 @@ RIDE_TEMPLATE = """
             function getPlotMargins() {
                 const aspect = getContainerAspect();
                 return {
-                    left: 0.1925 / aspect,   // 0.77in / (4in * aspect) = 0.1925/aspect
-                    right: 1 - 0.045 / aspect  // 1 - 0.18in / (4in * aspect) = 1 - 0.045/aspect
+                    left: 0.175 / aspect,   // 0.7in / (4in * aspect) = 0.175/aspect
+                    right: 1 - 0.175 / aspect  // 1 - 0.7in / (4in * aspect) = 1 - 0.175/aspect
                 };
             }
             let plotMargins = getPlotMargins();
@@ -8359,6 +8469,7 @@ RIDE_TEMPLATE = """
 
                 // Add overlay parameters (must match _buildOverlayParams format)
                 if (document.getElementById('overlay_speed')?.checked) params += '&overlay=speed';
+                if (document.getElementById('overlay_grade')?.checked) params += '&overlay=grade';
                 if (document.getElementById('overlay_gravel')?.checked) params += '&show_gravel=true';
                 if (isImperial()) params += '&imperial=true';
 
