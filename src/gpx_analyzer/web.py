@@ -1141,6 +1141,22 @@ HTML_TEMPLATE = """
         .route-name .rwgps-link:hover {
             background: #e55a00;
         }
+        /* Sortable table headers */
+        .collection-table th.sortable {
+            cursor: pointer;
+            user-select: none;
+        }
+        .collection-table th.sortable:hover {
+            background: rgba(0,0,0,0.05);
+        }
+        .collection-table th .sort-indicator {
+            font-size: 0.7em;
+            margin-left: 2px;
+            opacity: 0.4;
+        }
+        .collection-table th.sorted .sort-indicator {
+            opacity: 1;
+        }
         @media (min-width: 1200px) {
             .route-name { max-width: 400px; }
             .collection-table { font-size: 0.9em; }
@@ -2123,18 +2139,18 @@ HTML_TEMPLATE = """
             <thead>
                 <tr>
                     <th class="cmp-col"><span title="Select routes to compare">Cmp</span></th>
-                    <th>Route</th>
-                    <th class="num primary"><span class="th-with-info">Time <button type="button" class="info-btn" onclick="showModal('timeModal')">?</button></span></th>
-                    <th class="num primary"><span class="th-with-info">Work <button type="button" class="info-btn" onclick="showModal('workModal')">?</button></span></th>
-                    <th class="num primary separator"><span class="th-with-info">Energy <button type="button" class="info-btn" onclick="showModal('energyModal')">?</button></span></th>
-                    <th class="num">Dist</th>
-                    <th class="num">Elev</th>
-                    <th class="num"><span class="th-with-info">Hilly <button type="button" class="info-btn" onclick="showModal('hillyModal')">?</button></span></th>
-                    <th class="num"><span class="th-with-info">&gt;10% <button type="button" class="info-btn" onclick="showModal('steepTimeModal')">?</button></span></th>
-                    <th class="num"><span class="th-with-info">Steep <button type="button" class="info-btn" onclick="showModal('steepModal')">?</button></span></th>
-                    <th class="num">Speed</th>
-                    <th class="num">Unpvd</th>
-                    <th class="num"><span class="th-with-info">EScl <button type="button" class="info-btn" onclick="showModal('esclModal')">?</button></span></th>
+                    <th class="sortable" data-sort="name" onclick="sortTable('name')">Route<span class="sort-indicator"></span></th>
+                    <th class="num primary sortable" data-sort="time_seconds" onclick="sortTable('time_seconds')"><span class="th-with-info">Time <button type="button" class="info-btn" onclick="event.stopPropagation(); showModal('timeModal')">?</button></span><span class="sort-indicator"></span></th>
+                    <th class="num primary sortable" data-sort="work_kj" onclick="sortTable('work_kj')"><span class="th-with-info">Work <button type="button" class="info-btn" onclick="event.stopPropagation(); showModal('workModal')">?</button></span><span class="sort-indicator"></span></th>
+                    <th class="num primary separator sortable" data-sort="energy" onclick="sortTable('energy')"><span class="th-with-info">Energy <button type="button" class="info-btn" onclick="event.stopPropagation(); showModal('energyModal')">?</button></span><span class="sort-indicator"></span></th>
+                    <th class="num sortable" data-sort="distance_km" onclick="sortTable('distance_km')">Dist<span class="sort-indicator"></span></th>
+                    <th class="num sortable" data-sort="elevation_m" onclick="sortTable('elevation_m')">Elev<span class="sort-indicator"></span></th>
+                    <th class="num sortable" data-sort="hilliness_score" onclick="sortTable('hilliness_score')"><span class="th-with-info">Hilly <button type="button" class="info-btn" onclick="event.stopPropagation(); showModal('hillyModal')">?</button></span><span class="sort-indicator"></span></th>
+                    <th class="num sortable" data-sort="steep_time_seconds" onclick="sortTable('steep_time_seconds')"><span class="th-with-info">&gt;10% <button type="button" class="info-btn" onclick="event.stopPropagation(); showModal('steepTimeModal')">?</button></span><span class="sort-indicator"></span></th>
+                    <th class="num sortable" data-sort="steepness_score" onclick="sortTable('steepness_score')"><span class="th-with-info">Steep <button type="button" class="info-btn" onclick="event.stopPropagation(); showModal('steepModal')">?</button></span><span class="sort-indicator"></span></th>
+                    <th class="num sortable" data-sort="avg_speed_kmh" onclick="sortTable('avg_speed_kmh')">Speed<span class="sort-indicator"></span></th>
+                    <th class="num sortable" data-sort="unpaved_pct" onclick="sortTable('unpaved_pct')">Unpvd<span class="sort-indicator"></span></th>
+                    <th class="num sortable" data-sort="elevation_scale" onclick="sortTable('elevation_scale')"><span class="th-with-info">EScl <button type="button" class="info-btn" onclick="event.stopPropagation(); showModal('esclModal')">?</button></span><span class="sort-indicator"></span></th>
                 </tr>
             </thead>
             <tbody id="routesTableBody">
@@ -3264,6 +3280,10 @@ HTML_TEMPLATE = """
             // Clear previous results
             document.getElementById('routesTableBody').innerHTML = '';
             collectionRoutes = [];
+            originalRouteOrder = [];
+            currentSortColumn = null;
+            currentSortDirection = null;
+            clearSortIndicators();
 
             var params = new URLSearchParams({
                 url: url,
@@ -3327,6 +3347,7 @@ HTML_TEMPLATE = """
                     document.getElementById('progressRoute').textContent = '';
                 } else if (data.type === 'route') {
                     collectionRoutes.push(data.route);
+                    originalRouteOrder.push(data.route.route_id);
                     var r = data.route;
 
                     // Update progress bar to show completed route
@@ -3379,6 +3400,7 @@ HTML_TEMPLATE = """
 
         // Store routes globally so we can re-render when units change
         var collectionRoutes = [];
+        var originalRouteOrder = [];  // Stores route_ids in original load order
 
         // Route selection state for comparison (max 2 routes)
         var selectedRouteIds = [];  // Array of {url, routeId} objects
@@ -3479,6 +3501,83 @@ HTML_TEMPLATE = """
             });
 
             updateTotals(collectionRoutes);
+        }
+
+        // Table sorting state
+        var currentSortColumn = null;
+        var currentSortDirection = null;  // null = default, 'asc', 'desc'
+
+        function clearSortIndicators() {
+            document.querySelectorAll('.collection-table th.sortable').forEach(function(th) {
+                th.classList.remove('sorted');
+                var indicator = th.querySelector('.sort-indicator');
+                if (indicator) indicator.textContent = '';
+            });
+        }
+
+        function sortTable(column) {
+            // Three-state cycle: asc -> desc -> default (null)
+            if (currentSortColumn === column) {
+                if (currentSortDirection === 'asc') {
+                    currentSortDirection = 'desc';
+                } else if (currentSortDirection === 'desc') {
+                    currentSortDirection = null;
+                    currentSortColumn = null;
+                } else {
+                    currentSortDirection = 'asc';
+                }
+            } else {
+                currentSortColumn = column;
+                currentSortDirection = 'asc';
+            }
+
+            // Sort or restore original order
+            if (currentSortDirection === null) {
+                // Restore original order using originalRouteOrder
+                collectionRoutes.sort(function(a, b) {
+                    return originalRouteOrder.indexOf(a.route_id) - originalRouteOrder.indexOf(b.route_id);
+                });
+            } else {
+                // Sort the routes array
+                collectionRoutes.sort(function(a, b) {
+                    var valA, valB;
+
+                    if (column === 'name') {
+                        valA = (a.name || '').toLowerCase();
+                        valB = (b.name || '').toLowerCase();
+                    } else if (column === 'energy') {
+                        valA = (a.work_kj || 0) * 1.075;
+                        valB = (b.work_kj || 0) * 1.075;
+                    } else {
+                        valA = a[column] || 0;
+                        valB = b[column] || 0;
+                    }
+
+                    if (column === 'name') {
+                        if (valA < valB) return currentSortDirection === 'asc' ? -1 : 1;
+                        if (valA > valB) return currentSortDirection === 'asc' ? 1 : -1;
+                        return 0;
+                    } else {
+                        return currentSortDirection === 'asc' ? valA - valB : valB - valA;
+                    }
+                });
+            }
+
+            // Update sort indicators
+            clearSortIndicators();
+            if (currentSortColumn) {
+                var th = document.querySelector('.collection-table th[data-sort="' + currentSortColumn + '"]');
+                if (th) {
+                    th.classList.add('sorted');
+                    var indicator = th.querySelector('.sort-indicator');
+                    if (indicator) {
+                        indicator.textContent = currentSortDirection === 'asc' ? ' \u25B2' : ' \u25BC';
+                    }
+                }
+            }
+
+            // Re-render the table
+            rerenderCollectionTable();
         }
 
         function updateSingleRouteUnits() {
