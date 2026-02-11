@@ -342,12 +342,16 @@ HTML_TEMPLATE = """
             padding: 20px;
             background: #f5f5f7;
         }
+        body.collection-mode {
+            padding: 12px;
+        }
         @media (min-width: 1200px) {
             body { max-width: 1100px; }
-            body.collection-mode { max-width: 90%; }
+            body.collection-mode { max-width: 95%; padding: 10px; }
         }
         @media (max-width: 480px) {
-            body { padding: 12px; }
+            body { padding: 10px; }
+            body.collection-mode { padding: 6px; }
         }
         h1 { color: var(--accent); font-size: 1.5em; }
         form {
@@ -1006,21 +1010,22 @@ HTML_TEMPLATE = """
         /* Collection table styles */
         .collection-table {
             width: 100%;
-            min-width: 700px;  /* Prevent excessive squishing on mobile */
+            min-width: 600px;  /* Prevent excessive squishing on mobile */
             border-collapse: collapse;
-            margin-top: 15px;
-            font-size: 0.9em;
+            margin-top: 8px;
+            font-size: 0.85em;
         }
         .collection-table th {
             background: #f5f5f5;
-            padding: 10px 8px;
+            padding: 6px 3px;
             text-align: left;
             font-weight: 600;
             color: #555;
             border-bottom: 2px solid #ddd;
+            white-space: nowrap;
         }
         .collection-table td {
-            padding: 10px 8px;
+            padding: 5px 3px;
             border-bottom: 1px solid #eee;
         }
         .collection-table tr:last-child td {
@@ -1029,6 +1034,7 @@ HTML_TEMPLATE = """
         .collection-table .num {
             text-align: right;
             font-variant-numeric: tabular-nums;
+            white-space: nowrap;
         }
         .totals-row {
             font-weight: 600;
@@ -1049,10 +1055,16 @@ HTML_TEMPLATE = """
         }
         /* Route selection in collections table */
         .route-select-checkbox {
-            width: 16px;
-            height: 16px;
+            width: 14px;
+            height: 14px;
             cursor: pointer;
             accent-color: #3b82f6;
+            margin: 0;
+        }
+        .collection-table .cmp-col {
+            width: 24px;
+            padding: 4px 2px;
+            text-align: center;
         }
         .collection-table tr.selected-route {
             background-color: #dbeafe !important;
@@ -1126,14 +1138,14 @@ HTML_TEMPLATE = """
         }
         @media (min-width: 1200px) {
             .route-name { max-width: 400px; }
-            .collection-table { font-size: 0.95em; }
+            .collection-table { font-size: 0.9em; }
         }
         @media (max-width: 768px) {
             .route-name { max-width: 200px; }
         }
         @media (max-width: 600px) {
-            .collection-table { font-size: 0.8em; }
-            .collection-table th, .collection-table td { padding: 8px 4px; }
+            .collection-table { font-size: 0.75em; }
+            .collection-table th, .collection-table td { padding: 4px 2px; }
             .route-name { max-width: 140px; }
             /* Compact mobile form layout */
             form { padding: 12px; }
@@ -2105,11 +2117,11 @@ HTML_TEMPLATE = """
         <table class="collection-table">
             <thead>
                 <tr>
-                    <th style="width: 40px; text-align: center;"><span title="Select routes to compare">Cmp</span></th>
+                    <th class="cmp-col"><span title="Select routes to compare">Cmp</span></th>
                     <th>Route</th>
                     <th class="num primary"><span class="th-with-info">Time <button type="button" class="info-btn" onclick="showModal('timeModal')">?</button></span></th>
                     <th class="num primary"><span class="th-with-info">Work <button type="button" class="info-btn" onclick="showModal('workModal')">?</button></span></th>
-                    <th class="num primary separator"><span class="th-with-info">kcal <button type="button" class="info-btn" onclick="showModal('energyModal')">?</button></span></th>
+                    <th class="num primary separator"><span class="th-with-info">Energy <button type="button" class="info-btn" onclick="showModal('energyModal')">?</button></span></th>
                     <th class="num">Dist</th>
                     <th class="num">Elev</th>
                     <th class="num"><span class="th-with-info">Hilly <button type="button" class="info-btn" onclick="showModal('hillyModal')">?</button></span></th>
@@ -3103,26 +3115,26 @@ HTML_TEMPLATE = """
 
         function formatSpeed(kmh) {
             if (isImperial()) {
-                return (kmh * 0.621371).toFixed(1);
+                return (kmh * 0.621371).toFixed(1) + 'mph';
             }
-            return kmh.toFixed(1);
+            return kmh.toFixed(1) + 'km/h';
         }
 
         function formatHilliness(mkm) {
             if (isImperial()) {
                 // m/km to ft/mi: (3.28084 ft/m) / (0.621371 mi/km) ≈ 5.28
-                return Math.round(mkm * 5.28);
+                return Math.round(mkm * 5.28) + 'ft/mi';
             }
-            return Math.round(mkm);
+            return Math.round(mkm) + 'm/km';
         }
 
         function formatSteepTime(seconds) {
             if (!seconds || seconds < 60) return '-';
             var mins = Math.round(seconds / 60);
-            if (mins < 60) return mins + ' min';
+            if (mins < 60) return mins + 'min';
             var hours = Math.floor(mins / 60);
             var remainMins = mins % 60;
-            return hours + 'h ' + (remainMins < 10 ? '0' : '') + remainMins + 'm';
+            return hours + 'h' + (remainMins < 10 ? '0' : '') + remainMins + 'm';
         }
 
         function formatDistFull(km) {
@@ -3300,11 +3312,11 @@ HTML_TEMPLATE = """
                     var row = document.createElement('tr');
                     var rwgpsUrl = 'https://ridewithgps.com/routes/' + r.route_id;
                     var analyzeUrl = buildAnalyzeUrl(rwgpsUrl);
-                    row.innerHTML = '<td style="text-align: center;"><input type="checkbox" class="route-select-checkbox" data-route-url="' + rwgpsUrl + '" data-route-id="' + r.route_id + '" onchange="toggleRouteSelection(this)"></td>' +
+                    row.innerHTML = '<td class="cmp-col"><input type="checkbox" class="route-select-checkbox" data-route-url="' + rwgpsUrl + '" data-route-id="' + r.route_id + '" onchange="toggleRouteSelection(this)"></td>' +
                         '<td class="route-name" title="' + r.name + '"><a href="' + analyzeUrl + '">' + r.name + '</a><a href="' + rwgpsUrl + '" target="_blank" class="rwgps-link" title="View on RideWithGPS">↗</a></td>' +
                         '<td class="num primary">' + r.time_str + '</td>' +
                         '<td class="num primary">' + Math.round(r.work_kj) + 'kJ</td>' +
-                        '<td class="num primary separator">' + Math.round(r.work_kj * 1.075) + '</td>' +
+                        '<td class="num primary separator">' + Math.round(r.work_kj * 1.075) + 'kcal</td>' +
                         '<td class="num">' + formatDist(r.distance_km) + '</td>' +
                         '<td class="num">' + formatElev(r.elevation_m) + '</td>' +
                         '<td class="num">' + formatHilliness(r.hilliness_score || 0) + '</td>' +
@@ -3425,11 +3437,11 @@ HTML_TEMPLATE = """
                 // Check if this route was selected (preserve selection across rerender)
                 var isSelected = selectedRouteIds.some(function(item) { return item.routeId === String(r.route_id); });
                 if (isSelected) row.classList.add('selected-route');
-                row.innerHTML = '<td style="text-align: center;"><input type="checkbox" class="route-select-checkbox" data-route-url="' + rwgpsUrl + '" data-route-id="' + r.route_id + '" onchange="toggleRouteSelection(this)"' + (isSelected ? ' checked' : '') + '></td>' +
+                row.innerHTML = '<td class="cmp-col"><input type="checkbox" class="route-select-checkbox" data-route-url="' + rwgpsUrl + '" data-route-id="' + r.route_id + '" onchange="toggleRouteSelection(this)"' + (isSelected ? ' checked' : '') + '></td>' +
                     '<td class="route-name" title="' + r.name + '"><a href="' + analyzeUrl + '">' + r.name + '</a><a href="' + rwgpsUrl + '" target="_blank" class="rwgps-link" title="View on RideWithGPS">↗</a></td>' +
                     '<td class="num primary">' + r.time_str + '</td>' +
                     '<td class="num primary">' + Math.round(r.work_kj) + 'kJ</td>' +
-                    '<td class="num primary separator">' + Math.round(r.work_kj * 1.075) + '</td>' +
+                    '<td class="num primary separator">' + Math.round(r.work_kj * 1.075) + 'kcal</td>' +
                     '<td class="num">' + formatDist(r.distance_km) + '</td>' +
                     '<td class="num">' + formatElev(r.elevation_m) + '</td>' +
                     '<td class="num">' + formatHilliness(r.hilliness_score || 0) + '</td>' +

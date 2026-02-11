@@ -1641,7 +1641,7 @@ class TestCollectionRouteComparisonSelection:
         html = response.data.decode()
         # Check for the compare column header with tooltip
         assert 'Select routes to compare' in html
-        assert '<th style="width: 40px; text-align: center;">' in html
+        assert '<th class="cmp-col">' in html
 
     def test_compare_action_bar_exists(self, client):
         """Compare action bar should exist in collections page."""
