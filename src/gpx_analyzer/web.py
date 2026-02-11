@@ -1036,6 +1036,10 @@ HTML_TEMPLATE = """
             font-variant-numeric: tabular-nums;
             white-space: nowrap;
         }
+        .collection-table .u {
+            font-size: 0.8em;
+            color: #888;
+        }
         .totals-row {
             font-weight: 600;
             background: #f9f9f9;
@@ -3101,40 +3105,47 @@ HTML_TEMPLATE = """
 
         function formatDist(km) {
             if (isImperial()) {
-                return Math.round(km * 0.621371) + 'mi';
+                return Math.round(km * 0.621371) + '<span class="u">mi</span>';
             }
-            return Math.round(km) + 'km';
+            return Math.round(km) + '<span class="u">km</span>';
         }
 
         function formatElev(m) {
             if (isImperial()) {
-                return Math.round(m * 3.28084) + "'";
+                return Math.round(m * 3.28084) + '<span class="u">ft</span>';
             }
-            return Math.round(m) + 'm';
+            return Math.round(m) + '<span class="u">m</span>';
         }
 
         function formatSpeed(kmh) {
             if (isImperial()) {
-                return (kmh * 0.621371).toFixed(1) + 'mph';
+                return (kmh * 0.621371).toFixed(1) + '<span class="u">mph</span>';
             }
-            return kmh.toFixed(1) + 'km/h';
+            return kmh.toFixed(1) + '<span class="u">km/h</span>';
         }
 
         function formatHilliness(mkm) {
             if (isImperial()) {
                 // m/km to ft/mi: (3.28084 ft/m) / (0.621371 mi/km) ≈ 5.28
-                return Math.round(mkm * 5.28) + 'ft/mi';
+                return Math.round(mkm * 5.28) + '<span class="u">ft/mi</span>';
             }
-            return Math.round(mkm) + 'm/km';
+            return Math.round(mkm) + '<span class="u">m/km</span>';
         }
 
         function formatSteepTime(seconds) {
             if (!seconds || seconds < 60) return '-';
             var mins = Math.round(seconds / 60);
-            if (mins < 60) return mins + 'min';
+            if (mins < 60) return mins + '<span class="u">min</span>';
             var hours = Math.floor(mins / 60);
             var remainMins = mins % 60;
-            return hours + 'h' + (remainMins < 10 ? '0' : '') + remainMins + 'm';
+            return hours + '<span class="u">h</span>' + (remainMins < 10 ? '0' : '') + remainMins + '<span class="u">m</span>';
+        }
+
+        function formatTimeStr(timeStr) {
+            // Convert "2h 30m" or "45m" to have styled units
+            if (!timeStr) return '-';
+            return timeStr.replace(/(\d+)(h)\s*/g, '$1<span class="u">$2</span> ')
+                          .replace(/(\d+)(m)$/g, '$1<span class="u">$2</span>');
         }
 
         function formatDistFull(km) {
@@ -3314,16 +3325,16 @@ HTML_TEMPLATE = """
                     var analyzeUrl = buildAnalyzeUrl(rwgpsUrl);
                     row.innerHTML = '<td class="cmp-col"><input type="checkbox" class="route-select-checkbox" data-route-url="' + rwgpsUrl + '" data-route-id="' + r.route_id + '" onchange="toggleRouteSelection(this)"></td>' +
                         '<td class="route-name" title="' + r.name + '"><a href="' + analyzeUrl + '">' + r.name + '</a><a href="' + rwgpsUrl + '" target="_blank" class="rwgps-link" title="View on RideWithGPS">↗</a></td>' +
-                        '<td class="num primary">' + r.time_str + '</td>' +
-                        '<td class="num primary">' + Math.round(r.work_kj) + 'kJ</td>' +
-                        '<td class="num primary separator">' + Math.round(r.work_kj * 1.075) + 'kcal</td>' +
+                        '<td class="num primary">' + formatTimeStr(r.time_str) + '</td>' +
+                        '<td class="num primary">' + Math.round(r.work_kj) + '<span class="u">kJ</span></td>' +
+                        '<td class="num primary separator">' + Math.round(r.work_kj * 1.075) + '<span class="u">kcal</span></td>' +
                         '<td class="num">' + formatDist(r.distance_km) + '</td>' +
                         '<td class="num">' + formatElev(r.elevation_m) + '</td>' +
                         '<td class="num">' + formatHilliness(r.hilliness_score || 0) + '</td>' +
                         '<td class="num">' + formatSteepTime(r.steep_time_seconds) + '</td>' +
-                        '<td class="num">' + (r.steepness_score || 0).toFixed(1) + '%</td>' +
+                        '<td class="num">' + (r.steepness_score || 0).toFixed(1) + '<span class="u">%</span></td>' +
                         '<td class="num">' + formatSpeed(r.avg_speed_kmh) + '</td>' +
-                        '<td class="num">' + Math.round(r.unpaved_pct || 0) + '%</td>' +
+                        '<td class="num">' + Math.round(r.unpaved_pct || 0) + '<span class="u">%</span></td>' +
                         '<td class="num">' + r.elevation_scale.toFixed(2) + '</td>';
                     document.getElementById('routesTableBody').appendChild(row);
 
@@ -3439,16 +3450,16 @@ HTML_TEMPLATE = """
                 if (isSelected) row.classList.add('selected-route');
                 row.innerHTML = '<td class="cmp-col"><input type="checkbox" class="route-select-checkbox" data-route-url="' + rwgpsUrl + '" data-route-id="' + r.route_id + '" onchange="toggleRouteSelection(this)"' + (isSelected ? ' checked' : '') + '></td>' +
                     '<td class="route-name" title="' + r.name + '"><a href="' + analyzeUrl + '">' + r.name + '</a><a href="' + rwgpsUrl + '" target="_blank" class="rwgps-link" title="View on RideWithGPS">↗</a></td>' +
-                    '<td class="num primary">' + r.time_str + '</td>' +
-                    '<td class="num primary">' + Math.round(r.work_kj) + 'kJ</td>' +
-                    '<td class="num primary separator">' + Math.round(r.work_kj * 1.075) + 'kcal</td>' +
+                    '<td class="num primary">' + formatTimeStr(r.time_str) + '</td>' +
+                    '<td class="num primary">' + Math.round(r.work_kj) + '<span class="u">kJ</span></td>' +
+                    '<td class="num primary separator">' + Math.round(r.work_kj * 1.075) + '<span class="u">kcal</span></td>' +
                     '<td class="num">' + formatDist(r.distance_km) + '</td>' +
                     '<td class="num">' + formatElev(r.elevation_m) + '</td>' +
                     '<td class="num">' + formatHilliness(r.hilliness_score || 0) + '</td>' +
                     '<td class="num">' + formatSteepTime(r.steep_time_seconds) + '</td>' +
-                    '<td class="num">' + (r.steepness_score || 0).toFixed(1) + '%</td>' +
+                    '<td class="num">' + (r.steepness_score || 0).toFixed(1) + '<span class="u">%</span></td>' +
                     '<td class="num">' + formatSpeed(r.avg_speed_kmh) + '</td>' +
-                    '<td class="num">' + Math.round(r.unpaved_pct || 0) + '%</td>' +
+                    '<td class="num">' + Math.round(r.unpaved_pct || 0) + '<span class="u">%</span></td>' +
                     '<td class="num">' + r.elevation_scale.toFixed(2) + '</td>';
                 tbody.appendChild(row);
             });
