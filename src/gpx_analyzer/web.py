@@ -2308,8 +2308,7 @@ HTML_TEMPLATE = """
         <div class="modal" onclick="event.stopPropagation()">
             <h3>Smoothing Radius</h3>
             <p>Window size (in meters) for elevation smoothing. Reduces GPS noise in elevation data before calculating grades.</p>
-            <p><strong>20m</strong> = default, preserves detail for clean GPS data<br>
-            <strong>50-100m</strong> = moderate smoothing for typical routes<br>
+            <p><strong>50-100m</strong> = moderate smoothing for typical routes<br>
             <strong>200m+</strong> = aggressive smoothing for very noisy data</p>
             <p>Higher values reduce noise but may underestimate short steep sections.</p>
             <button class="modal-close" onclick="hideModal('smoothingModal')">Got it</button>
@@ -2413,8 +2412,7 @@ HTML_TEMPLATE = """
             <h3>Steep Climbs Methodology</h3>
             <p><strong>Max Grade</strong> is calculated using a 150m rolling average to filter GPS noise. This gives the maximum <em>sustained</em> grade over a meaningful distance.</p>
             <p><strong>Grade Histogram</strong> uses the same 150m rolling average, so grades shown will never exceed the max grade. This ensures consistency between the reported maximum and the histogram distribution.</p>
-            <p><strong>Why 150m?</strong> Point-to-point GPS measurements can show unrealistic spikes (50%+ grades) due to elevation noise. Averaging over 150m filters these artifacts while still capturing steep sections that riders actually experience.</p>
-            <p>Elevation data is smoothed (150m Gaussian) before grade calculation to reduce GPS noise.</p>
+            <p><strong>Smoothing</strong> Elevation data is smoothed with a Gaussian filter before grade calculation to reduce GPS noise. Point-to-point GPS measurements can show unrealistic spikes (50%+ grades) due to elevation errors. Smoothing filters these artifacts while still capturing steep sections that riders actually experience.</p>
             <button class="modal-close" onclick="hideModal('steepClimbsModal')">Got it</button>
         </div>
     </div>
