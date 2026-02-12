@@ -3514,19 +3514,19 @@ HTML_TEMPLATE = """
         }
 
         function sortTable(column) {
-            // Three-state cycle: asc -> desc -> default (null)
+            // Three-state cycle: desc -> asc -> default (null)
             if (currentSortColumn === column) {
-                if (currentSortDirection === 'asc') {
-                    currentSortDirection = 'desc';
-                } else if (currentSortDirection === 'desc') {
+                if (currentSortDirection === 'desc') {
+                    currentSortDirection = 'asc';
+                } else if (currentSortDirection === 'asc') {
                     currentSortDirection = null;
                     currentSortColumn = null;
                 } else {
-                    currentSortDirection = 'asc';
+                    currentSortDirection = 'desc';
                 }
             } else {
                 currentSortColumn = column;
-                currentSortDirection = 'asc';
+                currentSortDirection = 'desc';
             }
 
             // Sort or restore original order
