@@ -19,7 +19,7 @@ from gpx_analyzer import __version_date__, get_git_hash
 from gpx_analyzer.analyzer import analyze, calculate_hilliness, DEFAULT_MAX_GRADE_WINDOW, DEFAULT_MAX_GRADE_SMOOTHING, GRADE_BINS, GRADE_LABELS, STEEP_GRADE_BINS, STEEP_GRADE_LABELS, _calculate_rolling_grades
 from gpx_analyzer.distance import haversine_distance
 from gpx_analyzer.physics import calculate_segment_work
-from gpx_analyzer.cli import calculate_elevation_gain, calculate_surface_breakdown, DEFAULTS
+from gpx_analyzer.cli import calculate_elevation_gain, calculate_surface_breakdown, DEFAULTS, get_gravel_grade_params
 from gpx_analyzer.models import RiderParams, TrackPoint
 from gpx_analyzer.ridewithgps import (
     _load_config,
@@ -48,7 +48,7 @@ def _get_config_hash() -> str:
         "crr", "cda", "coasting_grade", "max_coast_speed", "max_coast_speed_unpaved",
         "climb_threshold_grade", "steep_descent_speed", "steep_descent_grade",
         "straight_descent_speed", "hairpin_speed", "straight_curvature", "hairpin_curvature",
-        "drivetrain_efficiency", "unpaved_power_factor", "elevation_scale",
+        "drivetrain_efficiency", "gravel_grade", "elevation_scale",
     ]
     config_str = "|".join(f"{k}={config.get(k, '')}" for k in relevant_keys)
     return hashlib.md5(config_str.encode()).hexdigest()[:8]
@@ -88,19 +88,19 @@ class AnalysisCache:
 
     def _make_key(self, url: str, climbing_power: float, flat_power: float, mass: float, headwind: float,
                   descent_braking_factor: float = 1.0, descending_power: float = 20.0,
-                  unpaved_power_factor: float = 0.90, smoothing: float = 50.0,
+                  gravel_power_factor: float = 0.90, smoothing: float = 50.0,
                   smoothing_override: bool = False) -> str:
         """Create a cache key from analysis parameters."""
         config_hash = _get_config_hash()
-        key_str = f"{url}|{climbing_power}|{flat_power}|{descending_power}|{mass}|{headwind}|{descent_braking_factor}|{unpaved_power_factor}|{smoothing}|{smoothing_override}|{config_hash}"
+        key_str = f"{url}|{climbing_power}|{flat_power}|{descending_power}|{mass}|{headwind}|{descent_braking_factor}|{gravel_power_factor}|{smoothing}|{smoothing_override}|{config_hash}"
         return hashlib.md5(key_str.encode()).hexdigest()
 
     def get(self, url: str, climbing_power: float, flat_power: float, mass: float, headwind: float,
             descent_braking_factor: float = 1.0, descending_power: float = 20.0,
-            unpaved_power_factor: float = 0.90, smoothing: float = 50.0,
+            gravel_power_factor: float = 0.90, smoothing: float = 50.0,
             smoothing_override: bool = False) -> dict | None:
         """Get cached result, returns None if not found."""
-        key = self._make_key(url, climbing_power, flat_power, mass, headwind, descent_braking_factor, descending_power, unpaved_power_factor, smoothing, smoothing_override)
+        key = self._make_key(url, climbing_power, flat_power, mass, headwind, descent_braking_factor, descending_power, gravel_power_factor, smoothing, smoothing_override)
         with self.lock:
             if key in self.cache:
                 # Move to end (most recently used)
@@ -111,10 +111,10 @@ class AnalysisCache:
             return None
 
     def set(self, url: str, climbing_power: float, flat_power: float, mass: float, headwind: float,
-            descent_braking_factor: float, descending_power: float, unpaved_power_factor: float, smoothing: float,
+            descent_braking_factor: float, descending_power: float, gravel_power_factor: float, smoothing: float,
             smoothing_override: bool, result: dict) -> None:
         """Store result in cache."""
-        key = self._make_key(url, climbing_power, flat_power, mass, headwind, descent_braking_factor, descending_power, unpaved_power_factor, smoothing, smoothing_override)
+        key = self._make_key(url, climbing_power, flat_power, mass, headwind, descent_braking_factor, descending_power, gravel_power_factor, smoothing, smoothing_override)
         with self.lock:
             if key in self.cache:
                 self.cache.move_to_end(key)
@@ -163,6 +163,64 @@ _climb_cache: dict[str, tuple[list, float, float]] = {}
 MAX_CLIMB_CACHE_ENTRIES = 175
 CLIMB_CACHE_TTL = 3600  # 1 hour
 _climb_cache_stats = {"hits": 0, "misses": 0}
+
+# In-memory cache for elevation profile data (avoids recalculating on each request)
+_profile_data_cache: dict[str, tuple[dict, float]] = {}
+MAX_PROFILE_DATA_CACHE_ENTRIES = 100
+_profile_data_cache_stats = {"hits": 0, "misses": 0}
+
+
+def _get_profile_data_cache_key(url: str, params: "RiderParams", smoothing: float, smoothing_override: bool) -> str:
+    """Create a cache key for profile data."""
+    key_str = f"{url}|{params.climbing_power}|{params.flat_power}|{params.descending_power}|{params.total_mass}|{params.headwind}|{params.unpaved_power_factor}|{params.gravel_work_multiplier}|{smoothing}|{smoothing_override}"
+    return hashlib.md5(key_str.encode()).hexdigest()
+
+
+def _get_cached_profile_data(cache_key: str) -> dict | None:
+    """Get cached profile data if available."""
+    global _profile_data_cache_stats
+    if cache_key in _profile_data_cache:
+        _profile_data_cache_stats["hits"] += 1
+        return _profile_data_cache[cache_key][0]
+    _profile_data_cache_stats["misses"] += 1
+    return None
+
+
+def _cache_profile_data(cache_key: str, data: dict) -> None:
+    """Cache profile data with LRU eviction."""
+    global _profile_data_cache
+    _profile_data_cache[cache_key] = (data, time.time())
+    # Evict oldest entries if over limit
+    if len(_profile_data_cache) > MAX_PROFILE_DATA_CACHE_ENTRIES:
+        # Sort by timestamp and remove oldest
+        sorted_keys = sorted(_profile_data_cache.keys(), key=lambda k: _profile_data_cache[k][1])
+        for key in sorted_keys[:len(_profile_data_cache) - MAX_PROFILE_DATA_CACHE_ENTRIES]:
+            del _profile_data_cache[key]
+
+
+def _get_profile_data_cache_stats() -> dict:
+    """Return profile data cache statistics."""
+    total = _profile_data_cache_stats["hits"] + _profile_data_cache_stats["misses"]
+    hit_rate = (_profile_data_cache_stats["hits"] / total * 100) if total > 0 else 0
+    # Estimate ~10 KB per entry (profile data includes lists of floats)
+    memory_kb = round(len(_profile_data_cache) * 10, 1)
+    return {
+        "hit_rate": f"{hit_rate:.1f}%",
+        "hits": _profile_data_cache_stats["hits"],
+        "max_size": MAX_PROFILE_DATA_CACHE_ENTRIES,
+        "misses": _profile_data_cache_stats["misses"],
+        "size": len(_profile_data_cache),
+        "memory_kb": memory_kb,
+    }
+
+
+def _clear_profile_data_cache() -> int:
+    """Clear the profile data cache. Returns number of entries cleared."""
+    global _profile_data_cache, _profile_data_cache_stats
+    count = len(_profile_data_cache)
+    _profile_data_cache.clear()
+    _profile_data_cache_stats = {"hits": 0, "misses": 0}
+    return count
 
 
 def _make_climb_cache_key(url: str, sensitivity: int, params_hash: str) -> str:
@@ -232,12 +290,12 @@ def _make_profile_cache_key(url: str, climbing_power: float, flat_power: float, 
                             max_ylim: float | None = None,
                             max_speed_ylim: float | None = None,
                             max_grade_ylim: float | None = None,
-                            unpaved_power_factor: float = 0.0,
+                            gravel_grade: float = 0.0,
                             smoothing: float = 50.0,
                             min_xlim_hours: float | None = None) -> str:
     """Create a unique cache key for elevation profile parameters."""
     config_hash = _get_config_hash()
-    key_str = f"{url}|{climbing_power}|{flat_power}|{descending_power}|{mass}|{headwind}|{descent_braking_factor}|{collapse_stops}|{min_xlim_hours}|{max_xlim_hours}|{overlay}|{imperial}|{show_gravel}|{max_ylim}|{max_speed_ylim}|{max_grade_ylim}|{unpaved_power_factor}|{smoothing}|{config_hash}"
+    key_str = f"{url}|{climbing_power}|{flat_power}|{descending_power}|{mass}|{headwind}|{descent_braking_factor}|{collapse_stops}|{min_xlim_hours}|{max_xlim_hours}|{overlay}|{imperial}|{show_gravel}|{max_ylim}|{max_speed_ylim}|{max_grade_ylim}|{gravel_grade}|{smoothing}|{config_hash}"
     return hashlib.md5(key_str.encode()).hexdigest()
 
 
@@ -1232,8 +1290,8 @@ HTML_TEMPLATE = """
             .advanced-options .param-row label[for="descending_power"]::before { content: "Desc (W)"; font-size: 11px; }
             .advanced-options .param-row label[for="descent_braking_factor"] { font-size: 0; }
             .advanced-options .param-row label[for="descent_braking_factor"]::before { content: "Braking"; font-size: 11px; }
-            .advanced-options .param-row label[for="unpaved_power_factor"] { font-size: 0; }
-            .advanced-options .param-row label[for="unpaved_power_factor"]::before { content: "Gravel"; font-size: 11px; }
+            .advanced-options .param-row label[for="gravel_grade"] { font-size: 0; }
+            .advanced-options .param-row label[for="gravel_grade"]::before { content: "Gravel"; font-size: 11px; }
             .advanced-options .param-row label[for="smoothing"] { font-size: 0; }
             .advanced-options .param-row label[for="smoothing"]::before { content: "Smooth (m)"; font-size: 11px; }
         }
@@ -1511,6 +1569,10 @@ HTML_TEMPLATE = """
             margin-top: 0;
         }
         .advanced-options input[type="number"] {
+            padding: 8px 10px;
+            font-size: 14px;
+        }
+        .advanced-options select {
             padding: 8px 10px;
             font-size: 14px;
         }
@@ -2039,7 +2101,7 @@ HTML_TEMPLATE = """
             <span class="custom-settings" title="Advanced physics model settings">
                 <span class="setting" id="summaryDescPwr"><span class="setting-label">Desc Pwr:</span> <span class="setting-value">{{ descending_power|int }}W</span></span>
                 <span class="setting" id="summaryBraking"><span class="setting-label">Braking:</span> <span class="setting-value">{{ "%.2f"|format(descent_braking_factor) }}</span></span>
-                <span class="setting" id="summaryGravelPwr"><span class="setting-label">Gravel Pwr:</span> <span class="setting-value">{{ "%.2f"|format(unpaved_power_factor) }}</span></span>
+                <span class="setting" id="summaryGravelGrade"><span class="setting-label">Gravel:</span> <span class="setting-value">Grade {{ gravel_grade }}</span></span>
                 <span class="setting" id="summarySmoothing"><span class="setting-label">Smoothing:</span> <span class="setting-value">{% if result and result.effective_smoothing %}{{ result.effective_smoothing|int }}{% else %}{{ smoothing|int }}{% endif %}m</span></span>
             </span>
         </div>
@@ -2062,10 +2124,15 @@ HTML_TEMPLATE = """
                 </div>
                 <div>
                     <div class="label-row">
-                        <label for="unpaved_power_factor">Gravel Power Factor</label>
-                        <button type="button" class="info-btn" onclick="showModal('gravelPowerModal')">?</button>
+                        <label for="gravel_grade">Gravel Grade</label>
+                        <button type="button" class="info-btn" onclick="showModal('gravelGradeModal')">?</button>
                     </div>
-                    <input type="number" id="unpaved_power_factor" name="unpaved_power_factor" value="{{ unpaved_power_factor }}" step="0.01" min="0.5" max="1.0">
+                    <select id="gravel_grade" name="gravel_grade">
+                        <option value="1" {% if gravel_grade == 1 %}selected{% endif %}>Grade 1 - Smooth</option>
+                        <option value="2" {% if gravel_grade == 2 %}selected{% endif %}>Grade 2 - Moderate</option>
+                        <option value="3" {% if gravel_grade == 3 %}selected{% endif %}>Grade 3 - Chunky</option>
+                        <option value="4" {% if gravel_grade == 4 %}selected{% endif %}>Grade 4 - Severe</option>
+                    </select>
                 </div>
                 <div>
                     <div class="label-row">
@@ -2292,15 +2359,15 @@ HTML_TEMPLATE = """
         </div>
     </div>
 
-    <div id="gravelPowerModal" class="modal-overlay" onclick="hideModal('gravelPowerModal')">
+    <div id="gravelGradeModal" class="modal-overlay" onclick="hideModal('gravelGradeModal')">
         <div class="modal" onclick="event.stopPropagation()">
-            <h3>Gravel Power Factor</h3>
-            <p>Multiplier for power output on unpaved/gravel surfaces. Models reduced power due to traction limits, vibration fatigue, and seated climbing.</p>
-            <p><strong>1.0</strong> = same power as paved<br>
-            <strong>0.90</strong> = 10% power reduction (default)<br>
-            <strong>0.80</strong> = 20% power reduction (rough gravel)</p>
-            <p>Works alongside rolling resistance (crr) increase. Lower values produce slower gravel speed estimates.</p>
-            <button class="modal-close" onclick="hideModal('gravelPowerModal')">Got it</button>
+            <h3>Gravel Grade</h3>
+            <p>Surface quality grade based on the Industry Standard Guide to Gravel (ISGG). Higher grades increase both estimated time and energy.</p>
+            <p><strong>Grade 1 - Smooth:</strong> Well-maintained dirt roads, minimal loose stone. Nearly road-like.</p>
+            <p><strong>Grade 2 - Moderate:</strong> Some potholes and washboard, loose corners. Typical maintained gravel.</p>
+            <p><strong>Grade 3 - Chunky:</strong> Poorly maintained, exposed rocks, ruts, sand. Requires wider tires.</p>
+            <p><strong>Grade 4 - Severe:</strong> Unmaintained tracks, rock gardens, deep ruts. Technical terrain.</p>
+            <button class="modal-close" onclick="hideModal('gravelGradeModal')">Got it</button>
         </div>
     </div>
 
@@ -2744,16 +2811,17 @@ HTML_TEMPLATE = """
             // Sync summary with actual input values
             updateAdvancedSummary();
             // Add listeners to keep summary in sync
-            ['descending_power', 'descent_braking_factor', 'unpaved_power_factor', 'smoothing'].forEach(function(id) {
+            ['descending_power', 'descent_braking_factor', 'gravel_grade', 'smoothing'].forEach(function(id) {
                 var el = document.getElementById(id);
                 if (el) el.addEventListener('input', updateAdvancedSummary);
+                if (el) el.addEventListener('change', updateAdvancedSummary);
             });
         }
 
         function resetAdvancedOptions() {
             document.getElementById('descent_braking_factor').value = {{ defaults.descent_braking_factor }};
             document.getElementById('descending_power').value = {{ defaults.descending_power|int }};
-            document.getElementById('unpaved_power_factor').value = {{ defaults.unpaved_power_factor }};
+            document.getElementById('gravel_grade').value = {{ defaults.gravel_grade }};
             var smoothingInput = document.getElementById('smoothing');
             var minSmoothing = parseInt(smoothingInput.min) || 10;
             smoothingInput.value = Math.max({{ defaults.smoothing|int }}, minSmoothing);
@@ -2764,20 +2832,20 @@ HTML_TEMPLATE = """
             var defaults = {
                 descending_power: {{ defaults.descending_power|int }},
                 descent_braking_factor: {{ defaults.descent_braking_factor }},
-                unpaved_power_factor: {{ defaults.unpaved_power_factor }},
+                gravel_grade: {{ defaults.gravel_grade }},
                 smoothing: {{ defaults.smoothing|int }}
             };
 
             var descPwr = parseInt(document.getElementById('descending_power').value) || 0;
             var braking = parseFloat(document.getElementById('descent_braking_factor').value) || 0;
-            var gravelPwr = parseFloat(document.getElementById('unpaved_power_factor').value) || 0;
+            var gravelGrade = parseInt(document.getElementById('gravel_grade').value) || 2;
             var smoothingInput = document.getElementById('smoothing');
             var smoothing = parseInt(smoothingInput.value) || 0;
             var minSmoothing = parseInt(smoothingInput.min) || 10;
 
             var summaryDescPwr = document.getElementById('summaryDescPwr');
             var summaryBraking = document.getElementById('summaryBraking');
-            var summaryGravelPwr = document.getElementById('summaryGravelPwr');
+            var summaryGravelGrade = document.getElementById('summaryGravelGrade');
             var summarySmoothing = document.getElementById('summarySmoothing');
 
             if (summaryDescPwr) {
@@ -2788,9 +2856,9 @@ HTML_TEMPLATE = """
                 summaryBraking.querySelector('.setting-value').textContent = braking.toFixed(2);
                 summaryBraking.classList.toggle('modified', Math.abs(braking - defaults.descent_braking_factor) > 0.001);
             }
-            if (summaryGravelPwr) {
-                summaryGravelPwr.querySelector('.setting-value').textContent = gravelPwr.toFixed(2);
-                summaryGravelPwr.classList.toggle('modified', Math.abs(gravelPwr - defaults.unpaved_power_factor) > 0.001);
+            if (summaryGravelGrade) {
+                summaryGravelGrade.querySelector('.setting-value').textContent = 'Grade ' + gravelGrade;
+                summaryGravelGrade.classList.toggle('modified', gravelGrade !== defaults.gravel_grade);
             }
             if (summarySmoothing) {
                 summarySmoothing.querySelector('.setting-value').textContent = smoothing + 'm';
@@ -3201,7 +3269,7 @@ HTML_TEMPLATE = """
             // Advanced params
             params.set('descending_power', document.getElementById('descending_power').value);
             params.set('descent_braking_factor', document.getElementById('descent_braking_factor').value);
-            params.set('unpaved_power_factor', document.getElementById('unpaved_power_factor').value);
+            params.set('gravel_grade', document.getElementById('gravel_grade').value);
             params.set('smoothing', document.getElementById('smoothing').value);
             // Imperial setting
             if (document.getElementById('imperial').checked) {
@@ -3291,7 +3359,7 @@ HTML_TEMPLATE = """
                 mass: mass,
                 headwind: headwind,
                 descent_braking_factor: document.getElementById('descent_braking_factor').value,
-                unpaved_power_factor: document.getElementById('unpaved_power_factor').value,
+                gravel_grade: document.getElementById('gravel_grade').value,
                 smoothing: document.getElementById('smoothing').value
             });
 
@@ -3329,7 +3397,7 @@ HTML_TEMPLATE = """
                         mass: document.getElementById('mass').value,
                         headwind: document.getElementById('headwind').value,
                         descent_braking_factor: document.getElementById('descent_braking_factor').value,
-                        unpaved_power_factor: document.getElementById('unpaved_power_factor').value,
+                        gravel_grade: document.getElementById('gravel_grade').value,
                         smoothing: document.getElementById('smoothing').value
                     });
                     if (document.getElementById('imperial').checked) {
@@ -4445,12 +4513,12 @@ HTML_TEMPLATE = """
                      {% if compare_ylim %}data-max-ylim="{{ '%.2f'|format(compare_ylim) }}"{% endif %}
                      {% if compare_speed_ylim %}data-max-speed-ylim="{{ '%.2f'|format(compare_speed_ylim) }}"{% endif %}
                      {% if compare_grade_ylim %}data-max-grade-ylim="{{ '%.2f'|format(compare_grade_ylim) }}"{% endif %}
-                     data-base-profile-url="/elevation-profile?url={{ url|urlencode }}&climbing_power={{ climbing_power }}&flat_power={{ flat_power }}&mass={{ mass }}&headwind={{ headwind }}&descending_power={{ descending_power }}&descent_braking_factor={{ descent_braking_factor }}&unpaved_power_factor={{ unpaved_power_factor }}&smoothing={{ smoothing|int }}{% if compare_ylim %}&max_ylim={{ '%.2f'|format(compare_ylim) }}{% endif %}{% if compare_speed_ylim %}&max_speed_ylim={{ '%.2f'|format(compare_speed_ylim) }}{% endif %}{% if compare_grade_ylim %}&max_grade_ylim={{ '%.2f'|format(compare_grade_ylim) }}{% endif %}"
-                     data-base-data-url="/elevation-profile-data?url={{ url|urlencode }}&climbing_power={{ climbing_power }}&flat_power={{ flat_power }}&mass={{ mass }}&headwind={{ headwind }}&descending_power={{ descending_power }}&descent_braking_factor={{ descent_braking_factor }}&unpaved_power_factor={{ unpaved_power_factor }}&smoothing={{ smoothing|int }}">
+                     data-base-profile-url="/elevation-profile?url={{ url|urlencode }}&climbing_power={{ climbing_power }}&flat_power={{ flat_power }}&mass={{ mass }}&headwind={{ headwind }}&descending_power={{ descending_power }}&descent_braking_factor={{ descent_braking_factor }}&gravel_grade={{ gravel_grade }}&smoothing={{ smoothing|int }}{% if compare_ylim %}&max_ylim={{ '%.2f'|format(compare_ylim) }}{% endif %}{% if compare_speed_ylim %}&max_speed_ylim={{ '%.2f'|format(compare_speed_ylim) }}{% endif %}{% if compare_grade_ylim %}&max_grade_ylim={{ '%.2f'|format(compare_grade_ylim) }}{% endif %}"
+                     data-base-data-url="/elevation-profile-data?url={{ url|urlencode }}&climbing_power={{ climbing_power }}&flat_power={{ flat_power }}&mass={{ mass }}&headwind={{ headwind }}&descending_power={{ descending_power }}&descent_braking_factor={{ descent_braking_factor }}&gravel_grade={{ gravel_grade }}&smoothing={{ smoothing|int }}">
                     <div class="elevation-loading" id="elevationLoading1">
                         <div class="elevation-spinner"></div>
                     </div>
-                    <img src="/elevation-profile?url={{ url|urlencode }}&climbing_power={{ climbing_power }}&flat_power={{ flat_power }}&mass={{ mass }}&headwind={{ headwind }}&descending_power={{ descending_power }}&descent_braking_factor={{ descent_braking_factor }}&unpaved_power_factor={{ unpaved_power_factor }}&smoothing={{ smoothing|int }}&max_xlim_hours={{ '%.4f'|format(max_time_hours) }}{% if compare_ylim %}&max_ylim={{ '%.2f'|format(compare_ylim) }}{% endif %}{% if compare_speed_ylim %}&max_speed_ylim={{ '%.2f'|format(compare_speed_ylim) }}{% endif %}{% if compare_grade_ylim %}&max_grade_ylim={{ '%.2f'|format(compare_grade_ylim) }}{% endif %}"
+                    <img src="/elevation-profile?url={{ url|urlencode }}&climbing_power={{ climbing_power }}&flat_power={{ flat_power }}&mass={{ mass }}&headwind={{ headwind }}&descending_power={{ descending_power }}&descent_braking_factor={{ descent_braking_factor }}&gravel_grade={{ gravel_grade }}&smoothing={{ smoothing|int }}&max_xlim_hours={{ '%.4f'|format(max_time_hours) }}{% if compare_ylim %}&max_ylim={{ '%.2f'|format(compare_ylim) }}{% endif %}{% if compare_speed_ylim %}&max_speed_ylim={{ '%.2f'|format(compare_speed_ylim) }}{% endif %}{% if compare_grade_ylim %}&max_grade_ylim={{ '%.2f'|format(compare_grade_ylim) }}{% endif %}"
                          alt="Elevation profile - Route 1" id="elevationImg1" class="loading"
                          onload="document.getElementById('elevationLoading1').classList.add('hidden'); this.classList.remove('loading');">
                     <div class="elevation-cursor" id="elevationCursor1"></div>
@@ -4489,12 +4557,12 @@ HTML_TEMPLATE = """
                      {% if compare_ylim %}data-max-ylim="{{ '%.2f'|format(compare_ylim) }}"{% endif %}
                      {% if compare_speed_ylim %}data-max-speed-ylim="{{ '%.2f'|format(compare_speed_ylim) }}"{% endif %}
                      {% if compare_grade_ylim %}data-max-grade-ylim="{{ '%.2f'|format(compare_grade_ylim) }}"{% endif %}
-                     data-base-profile-url="/elevation-profile?url={{ url2|urlencode }}&climbing_power={{ climbing_power }}&flat_power={{ flat_power }}&mass={{ mass }}&headwind={{ headwind }}&descending_power={{ descending_power }}&descent_braking_factor={{ descent_braking_factor }}&unpaved_power_factor={{ unpaved_power_factor }}&smoothing={{ smoothing|int }}{% if compare_ylim %}&max_ylim={{ '%.2f'|format(compare_ylim) }}{% endif %}{% if compare_speed_ylim %}&max_speed_ylim={{ '%.2f'|format(compare_speed_ylim) }}{% endif %}{% if compare_grade_ylim %}&max_grade_ylim={{ '%.2f'|format(compare_grade_ylim) }}{% endif %}"
-                     data-base-data-url="/elevation-profile-data?url={{ url2|urlencode }}&climbing_power={{ climbing_power }}&flat_power={{ flat_power }}&mass={{ mass }}&headwind={{ headwind }}&descending_power={{ descending_power }}&descent_braking_factor={{ descent_braking_factor }}&unpaved_power_factor={{ unpaved_power_factor }}&smoothing={{ smoothing|int }}">
+                     data-base-profile-url="/elevation-profile?url={{ url2|urlencode }}&climbing_power={{ climbing_power }}&flat_power={{ flat_power }}&mass={{ mass }}&headwind={{ headwind }}&descending_power={{ descending_power }}&descent_braking_factor={{ descent_braking_factor }}&gravel_grade={{ gravel_grade }}&smoothing={{ smoothing|int }}{% if compare_ylim %}&max_ylim={{ '%.2f'|format(compare_ylim) }}{% endif %}{% if compare_speed_ylim %}&max_speed_ylim={{ '%.2f'|format(compare_speed_ylim) }}{% endif %}{% if compare_grade_ylim %}&max_grade_ylim={{ '%.2f'|format(compare_grade_ylim) }}{% endif %}"
+                     data-base-data-url="/elevation-profile-data?url={{ url2|urlencode }}&climbing_power={{ climbing_power }}&flat_power={{ flat_power }}&mass={{ mass }}&headwind={{ headwind }}&descending_power={{ descending_power }}&descent_braking_factor={{ descent_braking_factor }}&gravel_grade={{ gravel_grade }}&smoothing={{ smoothing|int }}">
                     <div class="elevation-loading" id="elevationLoading2">
                         <div class="elevation-spinner"></div>
                     </div>
-                    <img src="/elevation-profile?url={{ url2|urlencode }}&climbing_power={{ climbing_power }}&flat_power={{ flat_power }}&mass={{ mass }}&headwind={{ headwind }}&descending_power={{ descending_power }}&descent_braking_factor={{ descent_braking_factor }}&unpaved_power_factor={{ unpaved_power_factor }}&smoothing={{ smoothing|int }}&max_xlim_hours={{ '%.4f'|format(max_time_hours) }}{% if compare_ylim %}&max_ylim={{ '%.2f'|format(compare_ylim) }}{% endif %}{% if compare_speed_ylim %}&max_speed_ylim={{ '%.2f'|format(compare_speed_ylim) }}{% endif %}{% if compare_grade_ylim %}&max_grade_ylim={{ '%.2f'|format(compare_grade_ylim) }}{% endif %}"
+                    <img src="/elevation-profile?url={{ url2|urlencode }}&climbing_power={{ climbing_power }}&flat_power={{ flat_power }}&mass={{ mass }}&headwind={{ headwind }}&descending_power={{ descending_power }}&descent_braking_factor={{ descent_braking_factor }}&gravel_grade={{ gravel_grade }}&smoothing={{ smoothing|int }}&max_xlim_hours={{ '%.4f'|format(max_time_hours) }}{% if compare_ylim %}&max_ylim={{ '%.2f'|format(compare_ylim) }}{% endif %}{% if compare_speed_ylim %}&max_speed_ylim={{ '%.2f'|format(compare_speed_ylim) }}{% endif %}{% if compare_grade_ylim %}&max_grade_ylim={{ '%.2f'|format(compare_grade_ylim) }}{% endif %}"
                          alt="Elevation profile - Route 2" id="elevationImg2" class="loading"
                          onload="document.getElementById('elevationLoading2').classList.add('hidden'); this.classList.remove('loading');">
                     <div class="elevation-cursor" id="elevationCursor2"></div>
@@ -4541,12 +4609,12 @@ HTML_TEMPLATE = """
             </div>
             <div class="elevation-profile-container" id="elevationContainer"
                  data-url="{{ url|urlencode }}"
-                 data-base-profile-url="/elevation-profile?url={{ url|urlencode }}&climbing_power={{ climbing_power }}&flat_power={{ flat_power }}&mass={{ mass }}&headwind={{ headwind }}&descending_power={{ descending_power }}&descent_braking_factor={{ descent_braking_factor }}&unpaved_power_factor={{ unpaved_power_factor }}&smoothing={{ smoothing|int }}"
-                 data-base-data-url="/elevation-profile-data?url={{ url|urlencode }}&climbing_power={{ climbing_power }}&flat_power={{ flat_power }}&mass={{ mass }}&headwind={{ headwind }}&descending_power={{ descending_power }}&descent_braking_factor={{ descent_braking_factor }}&unpaved_power_factor={{ unpaved_power_factor }}&smoothing={{ smoothing|int }}">
+                 data-base-profile-url="/elevation-profile?url={{ url|urlencode }}&climbing_power={{ climbing_power }}&flat_power={{ flat_power }}&mass={{ mass }}&headwind={{ headwind }}&descending_power={{ descending_power }}&descent_braking_factor={{ descent_braking_factor }}&gravel_grade={{ gravel_grade }}&smoothing={{ smoothing|int }}"
+                 data-base-data-url="/elevation-profile-data?url={{ url|urlencode }}&climbing_power={{ climbing_power }}&flat_power={{ flat_power }}&mass={{ mass }}&headwind={{ headwind }}&descending_power={{ descending_power }}&descent_braking_factor={{ descent_braking_factor }}&gravel_grade={{ gravel_grade }}&smoothing={{ smoothing|int }}">
                 <div class="elevation-loading" id="elevationLoading">
                     <div class="elevation-spinner"></div>
                 </div>
-                <img src="/elevation-profile?url={{ url|urlencode }}&climbing_power={{ climbing_power }}&flat_power={{ flat_power }}&mass={{ mass }}&headwind={{ headwind }}&descending_power={{ descending_power }}&descent_braking_factor={{ descent_braking_factor }}&unpaved_power_factor={{ unpaved_power_factor }}&smoothing={{ smoothing|int }}"
+                <img src="/elevation-profile?url={{ url|urlencode }}&climbing_power={{ climbing_power }}&flat_power={{ flat_power }}&mass={{ mass }}&headwind={{ headwind }}&descending_power={{ descending_power }}&descent_braking_factor={{ descent_braking_factor }}&gravel_grade={{ gravel_grade }}&smoothing={{ smoothing|int }}"
                      alt="Elevation profile" id="elevationImg" class="loading"
                      onload="document.getElementById('elevationLoading').classList.add('hidden'); this.classList.remove('loading');">
                 <div class="elevation-cursor" id="elevationCursor"></div>
@@ -5327,19 +5395,19 @@ HTML_TEMPLATE = """
                 var maxXlimHours = parseFloat(container1.getAttribute('data-max-xlim-hours')) || null;
                 window.setupElevationProfile(
                     'elevationContainer1', 'elevationImg1', 'elevationTooltip1', 'elevationCursor1',
-                    '/elevation-profile-data?url={{ url|urlencode }}&climbing_power={{ climbing_power }}&flat_power={{ flat_power }}&mass={{ mass }}&headwind={{ headwind }}&descending_power={{ descending_power }}&descent_braking_factor={{ descent_braking_factor }}&unpaved_power_factor={{ unpaved_power_factor }}&smoothing={{ smoothing|int }}',
+                    '/elevation-profile-data?url={{ url|urlencode }}&climbing_power={{ climbing_power }}&flat_power={{ flat_power }}&mass={{ mass }}&headwind={{ headwind }}&descending_power={{ descending_power }}&descent_braking_factor={{ descent_braking_factor }}&gravel_grade={{ gravel_grade }}&smoothing={{ smoothing|int }}',
                     maxXlimHours
                 );
                 window.setupElevationProfile(
                     'elevationContainer2', 'elevationImg2', 'elevationTooltip2', 'elevationCursor2',
-                    '/elevation-profile-data?url={{ url2|urlencode if url2 else "" }}&climbing_power={{ climbing_power }}&flat_power={{ flat_power }}&mass={{ mass }}&headwind={{ headwind }}&descending_power={{ descending_power }}&descent_braking_factor={{ descent_braking_factor }}&unpaved_power_factor={{ unpaved_power_factor }}&smoothing={{ smoothing|int }}',
+                    '/elevation-profile-data?url={{ url2|urlencode if url2 else "" }}&climbing_power={{ climbing_power }}&flat_power={{ flat_power }}&mass={{ mass }}&headwind={{ headwind }}&descending_power={{ descending_power }}&descent_braking_factor={{ descent_braking_factor }}&gravel_grade={{ gravel_grade }}&smoothing={{ smoothing|int }}',
                     maxXlimHours
                 );
             } else {
                 // Single route mode
                 window.setupElevationProfile(
                     'elevationContainer', 'elevationImg', 'elevationTooltip', 'elevationCursor',
-                    '/elevation-profile-data?url={{ url|urlencode }}&climbing_power={{ climbing_power }}&flat_power={{ flat_power }}&mass={{ mass }}&headwind={{ headwind }}&descending_power={{ descending_power }}&descent_braking_factor={{ descent_braking_factor }}&unpaved_power_factor={{ unpaved_power_factor }}&smoothing={{ smoothing|int }}'
+                    '/elevation-profile-data?url={{ url|urlencode }}&climbing_power={{ climbing_power }}&flat_power={{ flat_power }}&mass={{ mass }}&headwind={{ headwind }}&descending_power={{ descending_power }}&descent_braking_factor={{ descent_braking_factor }}&gravel_grade={{ gravel_grade }}&smoothing={{ smoothing|int }}'
                 );
             }
 
@@ -5409,7 +5477,7 @@ def get_defaults():
         "mass": config.get("mass", DEFAULTS["mass"]),
         "headwind": config.get("headwind", DEFAULTS["headwind"]),
         "descent_braking_factor": config.get("descent_braking_factor", DEFAULTS["descent_braking_factor"]),
-        "unpaved_power_factor": config.get("unpaved_power_factor", DEFAULTS["unpaved_power_factor"]),
+        "gravel_grade": config.get("gravel_grade", DEFAULTS["gravel_grade"]),
         "smoothing": config.get("smoothing", DEFAULTS["smoothing"]),
     }
 
@@ -5418,10 +5486,15 @@ def build_params(
     climbing_power: float, flat_power: float, mass: float, headwind: float,
     descent_braking_factor: float | None = None,
     descending_power: float | None = None,
-    unpaved_power_factor: float | None = None,
+    gravel_grade: int | None = None,
 ) -> RiderParams:
     """Build RiderParams from user inputs and config defaults."""
     config = _load_config() or {}
+
+    # Get gravel parameters from grade
+    grade = gravel_grade if gravel_grade is not None else config.get("gravel_grade", DEFAULTS["gravel_grade"])
+    gravel_params = get_gravel_grade_params(grade, config)
+
     return RiderParams(
         total_mass=mass,
         cda=config.get("cda", DEFAULTS["cda"]),
@@ -5442,7 +5515,9 @@ def build_params(
         hairpin_curvature=config.get("hairpin_curvature", DEFAULTS["hairpin_curvature"]),
         descent_braking_factor=descent_braking_factor if descent_braking_factor is not None else config.get("descent_braking_factor", DEFAULTS["descent_braking_factor"]),
         drivetrain_efficiency=config.get("drivetrain_efficiency", DEFAULTS["drivetrain_efficiency"]),
-        unpaved_power_factor=unpaved_power_factor if unpaved_power_factor is not None else config.get("unpaved_power_factor", DEFAULTS["unpaved_power_factor"]),
+        unpaved_power_factor=gravel_params["power_factor"],
+        gravel_work_multiplier=gravel_params["work_multiplier"],
+        gravel_coast_speed_pct=gravel_params["coast_speed_pct"],
     )
 
 
@@ -5586,6 +5661,7 @@ def analyze_single_route(url: str, params: RiderParams, smoothing: float | None 
     route_etag = route_metadata.get("etag", "")
 
     # Check analysis cache with ETag in key (invalidates when route changes)
+    # Use unpaved_power_factor in cache key as proxy for gravel grade
     cached = _analysis_cache.get(
         url + route_etag, params.climbing_power, params.flat_power, params.total_mass, params.headwind,
         params.descent_braking_factor, params.descending_power, params.unpaved_power_factor, smoothing_radius,
@@ -5937,19 +6013,21 @@ def _clear_elevation_profile_cache() -> int:
 
 @app.route("/cache-stats")
 def cache_stats():
-    """Return cache statistics as JSON for all four caches."""
+    """Return cache statistics as JSON for all caches."""
     analysis = _analysis_cache.stats()
     elevation_profile = _get_elevation_profile_cache_stats()
+    profile_data = _get_profile_data_cache_stats()
     climb = _get_climb_cache_stats()
     route_json = get_route_cache_stats()
 
     # Calculate totals (memory caches use memory_kb, disk caches use disk_kb)
-    total_memory_kb = analysis["memory_kb"] + climb["memory_kb"]
+    total_memory_kb = analysis["memory_kb"] + climb["memory_kb"] + profile_data["memory_kb"]
     total_disk_kb = elevation_profile["disk_kb"] + route_json["disk_kb"]
 
     return {
         "analysis_cache": analysis,
         "elevation_profile_cache": elevation_profile,
+        "profile_data_cache": profile_data,
         "climb_cache": climb,
         "route_json_cache": route_json,
         "totals": {
@@ -5961,15 +6039,16 @@ def cache_stats():
 
 @app.route("/cache-clear", methods=["GET", "POST"])
 def cache_clear():
-    """Clear all caches: analysis, elevation profiles, climb detection, and route JSON."""
+    """Clear all caches: analysis, elevation profiles, profile data, climb detection, and route JSON."""
     analysis_size = _analysis_cache.stats()["size"]
     _analysis_cache.clear()
     profiles_cleared = _clear_elevation_profile_cache()
+    profile_data_cleared = _clear_profile_data_cache()
     climbs_cleared = _clear_climb_cache()
     routes_cleared = clear_route_json_cache()
     return {
         "status": "ok",
-        "message": f"Caches cleared: analysis ({analysis_size}), elevation_profiles ({profiles_cleared}), climbs ({climbs_cleared}), routes ({routes_cleared})"
+        "message": f"Caches cleared: analysis ({analysis_size}), elevation_profiles ({profiles_cleared}), profile_data ({profile_data_cleared}), climbs ({climbs_cleared}), routes ({routes_cleared})"
     }
 
 
@@ -5985,7 +6064,7 @@ def analyze_collection_stream():
         mass = float(request.args.get("mass", defaults["mass"]))
         headwind = float(request.args.get("headwind", defaults["headwind"]))
         descent_braking_factor = float(request.args.get("descent_braking_factor", defaults["descent_braking_factor"]))
-        unpaved_power_factor = float(request.args.get("unpaved_power_factor", defaults["unpaved_power_factor"]))
+        gravel_grade = int(request.args.get("gravel_grade", defaults["gravel_grade"]))
         smoothing = float(request.args.get("smoothing", defaults["smoothing"]))
     except ValueError:
         def error_gen():
@@ -6007,7 +6086,7 @@ def analyze_collection_stream():
 
             yield f"data: {json.dumps({'type': 'start', 'name': collection_name, 'total': len(route_ids)})}\n\n"
 
-            params = build_params(climbing_power, flat_power, mass, headwind, descending_power=descending_power, descent_braking_factor=descent_braking_factor, unpaved_power_factor=unpaved_power_factor)
+            params = build_params(climbing_power, flat_power, mass, headwind, descending_power=descending_power, descent_braking_factor=descent_braking_factor, gravel_grade=gravel_grade)
 
             for i, route_id in enumerate(route_ids):
                 route_url = f"https://ridewithgps.com/routes/{route_id}"
@@ -6251,9 +6330,16 @@ def _calculate_elevation_profile_data(url: str, params: RiderParams, smoothing: 
     """Calculate elevation profile data for a route.
 
     Returns dict with times_hours, elevations, grades, route_name, and tunnel_corrections.
+    Results are cached in memory for faster repeated access.
     """
     config = _load_config() or {}
     smoothing_radius = smoothing if smoothing is not None else config.get("smoothing", DEFAULTS["smoothing"])
+
+    # Check cache first
+    cache_key = _get_profile_data_cache_key(url, params, smoothing_radius, smoothing_override)
+    cached = _get_cached_profile_data(cache_key)
+    if cached is not None:
+        return cached
 
     points, route_metadata = get_route_with_surface(url, params.crr)
 
@@ -6339,7 +6425,7 @@ def _calculate_elevation_profile_data(url: str, params: RiderParams, smoothing: 
     if in_unpaved:
         unpaved_time_ranges.append((unpaved_start, times_hours[-1]))
 
-    return {
+    result = {
         "times_hours": times_hours,
         "elevations": elevations,
         "grades": grades,
@@ -6357,6 +6443,11 @@ def _calculate_elevation_profile_data(url: str, params: RiderParams, smoothing: 
         "smoothing_auto_adjusted": elev_result.smoothing_auto_adjusted,
         "scaled_points": scaled_points,  # For climb detection consistency
     }
+
+    # Cache result for faster repeated access
+    _cache_profile_data(cache_key, result)
+
+    return result
 
 
 def _calculate_trip_elevation_profile_data(url: str, collapse_stops: bool = False) -> dict:
@@ -6801,7 +6892,7 @@ def elevation_profile():
     mass = float(request.args.get("mass", defaults["mass"]))
     headwind = float(request.args.get("headwind", defaults["headwind"]))
     descent_braking_factor = float(request.args.get("descent_braking_factor", defaults["descent_braking_factor"]))
-    unpaved_power_factor = float(request.args.get("unpaved_power_factor", defaults["unpaved_power_factor"]))
+    gravel_grade = int(request.args.get("gravel_grade", defaults["gravel_grade"]))
     smoothing = float(request.args.get("smoothing", defaults["smoothing"]))
     collapse_stops = request.args.get("collapse_stops", "false").lower() == "true"
     max_xlim_str = request.args.get("max_xlim_hours", "")
@@ -6850,7 +6941,7 @@ def elevation_profile():
     if is_zoomed:
         _elevation_profile_cache_stats["zoomed_skipped"] += 1
     else:
-        cache_key = _make_profile_cache_key(url, climbing_power, flat_power, mass, headwind, descent_braking_factor, collapse_stops, max_xlim_hours, descending_power, overlay=(overlay or "") + f"|aspect{aspect_ratio:.1f}", imperial=imperial, show_gravel=show_gravel, max_ylim=max_ylim, max_speed_ylim=max_speed_ylim, max_grade_ylim=max_grade_ylim, unpaved_power_factor=unpaved_power_factor, smoothing=smoothing, min_xlim_hours=min_xlim_hours)
+        cache_key = _make_profile_cache_key(url, climbing_power, flat_power, mass, headwind, descent_braking_factor, collapse_stops, max_xlim_hours, descending_power, overlay=(overlay or "") + f"|aspect{aspect_ratio:.1f}", imperial=imperial, show_gravel=show_gravel, max_ylim=max_ylim, max_speed_ylim=max_speed_ylim, max_grade_ylim=max_grade_ylim, gravel_grade=gravel_grade, smoothing=smoothing, min_xlim_hours=min_xlim_hours)
         cached_bytes = _get_cached_profile(cache_key)
         if cached_bytes:
             return send_file(io.BytesIO(cached_bytes), mimetype='image/png')
@@ -6863,7 +6954,7 @@ def elevation_profile():
             img_bytes = generate_trip_elevation_profile(url, title_time_hours, collapse_stops=collapse_stops, max_xlim_hours=max_xlim_hours, overlay=overlay, imperial=imperial, max_ylim=max_ylim, max_speed_ylim=max_speed_ylim, max_grade_ylim=max_grade_ylim, min_xlim_hours=min_xlim_hours)
         else:
             # Route: use physics estimation
-            params = build_params(climbing_power, flat_power, mass, headwind, descent_braking_factor, descending_power, unpaved_power_factor)
+            params = build_params(climbing_power, flat_power, mass, headwind, descent_braking_factor, descending_power, gravel_grade)
             analysis = analyze_single_route(url, params, smoothing)
             title_time_hours = analysis["time_seconds"] / 3600
             img_bytes = generate_elevation_profile(url, params, title_time_hours, max_xlim_hours=max_xlim_hours, overlay=overlay, imperial=imperial, max_ylim=max_ylim, max_speed_ylim=max_speed_ylim, max_grade_ylim=max_grade_ylim, show_gravel=show_gravel, smoothing=smoothing, aspect_ratio=aspect_ratio, min_xlim_hours=min_xlim_hours)
@@ -6896,7 +6987,7 @@ def elevation_profile_data():
     mass = float(request.args.get("mass", defaults["mass"]))
     headwind = float(request.args.get("headwind", defaults["headwind"]))
     descent_braking_factor = float(request.args.get("descent_braking_factor", defaults["descent_braking_factor"]))
-    unpaved_power_factor = float(request.args.get("unpaved_power_factor", defaults["unpaved_power_factor"]))
+    gravel_grade = int(request.args.get("gravel_grade", defaults["gravel_grade"]))
     smoothing = float(request.args.get("smoothing", defaults["smoothing"]))
     collapse_stops = request.args.get("collapse_stops", "false").lower() == "true"
 
@@ -6909,7 +7000,7 @@ def elevation_profile_data():
             data = _calculate_trip_elevation_profile_data(url, collapse_stops=collapse_stops)
         else:
             # Route: use physics estimation
-            params = build_params(climbing_power, flat_power, mass, headwind, descent_braking_factor, descending_power, unpaved_power_factor)
+            params = build_params(climbing_power, flat_power, mass, headwind, descent_braking_factor, descending_power, gravel_grade)
             data = _calculate_elevation_profile_data(url, params, smoothing)
 
         # Downsample data if too many points (for performance)
@@ -7064,7 +7155,7 @@ def index():
     mass = defaults["mass"]
     headwind = defaults["headwind"]
     descent_braking_factor = defaults["descent_braking_factor"]
-    unpaved_power_factor = defaults["unpaved_power_factor"]
+    gravel_grade = defaults["gravel_grade"]
     smoothing = defaults["smoothing"]
 
     # Check for GET parameters (shared link)
@@ -7080,7 +7171,7 @@ def index():
             mass = float(request.args.get("mass", defaults["mass"]))
             headwind = float(request.args.get("headwind", defaults["headwind"]))
             descent_braking_factor = float(request.args.get("descent_braking_factor", defaults["descent_braking_factor"]))
-            unpaved_power_factor = float(request.args.get("unpaved_power_factor", defaults["unpaved_power_factor"]))
+            gravel_grade = int(request.args.get("gravel_grade", defaults["gravel_grade"]))
             smoothing = float(request.args.get("smoothing", defaults["smoothing"]))
         except ValueError:
             error = "Invalid number in parameters"
@@ -7095,7 +7186,7 @@ def index():
             elif _is_valid_rwgps_url(url):
                 # Single route or trip - analyze server-side
                 try:
-                    params = build_params(climbing_power, flat_power, mass, headwind, descent_braking_factor, descending_power, unpaved_power_factor)
+                    params = build_params(climbing_power, flat_power, mass, headwind, descent_braking_factor, descending_power, gravel_grade)
                     result, is_trip = _analyze_url(url, params, smoothing, smoothing_override)
                     route_id = _extract_id_from_url(url)
                     privacy_code = extract_privacy_code(url)
@@ -7129,7 +7220,7 @@ def index():
             mass = float(request.form.get("mass", defaults["mass"]))
             headwind = float(request.form.get("headwind", defaults["headwind"]))
             descent_braking_factor = float(request.form.get("descent_braking_factor", defaults["descent_braking_factor"]))
-            unpaved_power_factor = float(request.form.get("unpaved_power_factor", defaults["unpaved_power_factor"]))
+            gravel_grade = int(request.form.get("gravel_grade", defaults["gravel_grade"]))
             smoothing = float(request.form.get("smoothing", defaults["smoothing"]))
         except ValueError:
             error = "Invalid number in parameters"
@@ -7145,7 +7236,7 @@ def index():
                     error = "Invalid RideWithGPS URL. Expected format: https://ridewithgps.com/routes/XXXXX or /trips/XXXXX"
                 else:
                     try:
-                        params = build_params(climbing_power, flat_power, mass, headwind, descent_braking_factor, descending_power, unpaved_power_factor)
+                        params = build_params(climbing_power, flat_power, mass, headwind, descent_braking_factor, descending_power, gravel_grade)
                         result, is_trip = _analyze_url(url, params, smoothing, smoothing_override)
                         route_id = _extract_id_from_url(url)
                         privacy_code = extract_privacy_code(url)
@@ -7172,7 +7263,7 @@ def index():
             if is_trip:
                 data1 = _calculate_trip_elevation_profile_data(url)
             else:
-                params = build_params(climbing_power, flat_power, mass, headwind, descent_braking_factor, descending_power, unpaved_power_factor)
+                params = build_params(climbing_power, flat_power, mass, headwind, descent_braking_factor, descending_power, gravel_grade)
                 data1 = _calculate_elevation_profile_data(url, params, smoothing, smoothing_override)
             if is_trip2:
                 data2 = _calculate_trip_elevation_profile_data(url2)
@@ -7181,7 +7272,7 @@ def index():
                     # params already built above
                     pass
                 else:
-                    params = build_params(climbing_power, flat_power, mass, headwind, descent_braking_factor, descending_power, unpaved_power_factor)
+                    params = build_params(climbing_power, flat_power, mass, headwind, descent_braking_factor, descending_power, gravel_grade)
                 data2 = _calculate_elevation_profile_data(url2, params, smoothing, smoothing_override)
 
             max_elev1 = max(data1["elevations"]) * 1.1
@@ -7216,7 +7307,7 @@ def index():
             "mass": mass,
             "headwind": headwind,
             "descent_braking_factor": descent_braking_factor,
-            "unpaved_power_factor": unpaved_power_factor,
+            "gravel_grade": gravel_grade,
             "smoothing": smoothing,
         }
         if url2 and compare_mode:
@@ -7240,7 +7331,7 @@ def index():
         mass=mass,
         headwind=headwind,
         descent_braking_factor=descent_braking_factor,
-        unpaved_power_factor=unpaved_power_factor,
+        gravel_grade=gravel_grade,
         smoothing=smoothing,
         defaults=defaults,
         imperial=imperial,
@@ -8954,7 +9045,7 @@ def api_detect_climbs():
     mass = float(request.args.get("mass", defaults["mass"]))
     headwind = float(request.args.get("headwind", defaults["headwind"]))
     descent_braking_factor = float(request.args.get("descent_braking_factor", defaults["descent_braking_factor"]))
-    unpaved_power_factor = float(request.args.get("unpaved_power_factor", defaults["unpaved_power_factor"]))
+    gravel_grade = int(request.args.get("gravel_grade", defaults["gravel_grade"]))
     smoothing = float(request.args.get("smoothing", defaults["smoothing"]))
 
     if not url or not is_ridewithgps_url(url):
@@ -8974,7 +9065,7 @@ def api_detect_climbs():
                 "sensitivity_m": sensitivity_m,
             })
 
-        params = build_params(climbing_power, flat_power, mass, headwind, descent_braking_factor, descending_power, unpaved_power_factor)
+        params = build_params(climbing_power, flat_power, mass, headwind, descent_braking_factor, descending_power, gravel_grade)
         config = _load_config() or {}
 
         # Get profile data (uses cached route data)
@@ -9077,7 +9168,7 @@ def elevation_profile_ride():
     mass = float(request.args.get("mass", defaults["mass"]))
     headwind = float(request.args.get("headwind", defaults["headwind"]))
     descent_braking_factor = float(request.args.get("descent_braking_factor", defaults["descent_braking_factor"]))
-    unpaved_power_factor = float(request.args.get("unpaved_power_factor", defaults["unpaved_power_factor"]))
+    gravel_grade = int(request.args.get("gravel_grade", defaults["gravel_grade"]))
     smoothing = float(request.args.get("smoothing", defaults["smoothing"]))
 
     if not url or not is_ridewithgps_url(url):
@@ -9101,7 +9192,7 @@ def elevation_profile_ride():
         return send_file(io.BytesIO(cached_bytes), mimetype='image/png')
 
     try:
-        params = build_params(climbing_power, flat_power, mass, headwind, descent_braking_factor, descending_power, unpaved_power_factor)
+        params = build_params(climbing_power, flat_power, mass, headwind, descent_braking_factor, descending_power, gravel_grade)
         config = _load_config() or {}
 
         # Get profile data (includes scaled_points for consistent climb detection)
@@ -9249,7 +9340,7 @@ def ride_page():
     mass = float(request.args.get("mass", defaults["mass"]))
     headwind = float(request.args.get("headwind", defaults["headwind"]))
     descent_braking_factor = float(request.args.get("descent_braking_factor", defaults["descent_braking_factor"]))
-    unpaved_power_factor = float(request.args.get("unpaved_power_factor", defaults["unpaved_power_factor"]))
+    gravel_grade = int(request.args.get("gravel_grade", defaults["gravel_grade"]))
     smoothing = float(request.args.get("smoothing", defaults["smoothing"]))
     imperial = request.args.get("imperial", "").lower() in ("true", "1", "yes")
 
@@ -9263,7 +9354,7 @@ def ride_page():
 
     if url and is_ridewithgps_url(url):
         try:
-            params = build_params(climbing_power, flat_power, mass, headwind, descent_braking_factor, descending_power, unpaved_power_factor)
+            params = build_params(climbing_power, flat_power, mass, headwind, descent_braking_factor, descending_power, gravel_grade)
             config = _load_config() or {}
 
             # Get analysis data

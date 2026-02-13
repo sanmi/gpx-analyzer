@@ -41,7 +41,10 @@ class RiderParams:
     # Rider descent behavior
     descent_braking_factor: float = 1.0  # multiplier for descent speeds (1.0 = full physics, 0.5 = cautious)
     drivetrain_efficiency: float = 0.97  # fraction of power reaching wheel (1.0 = no loss)
+    # Gravel grade parameters (derived from gravel_grade via config)
     unpaved_power_factor: float = 0.90  # power multiplier on unpaved (traction limits, vibration fatigue)
+    gravel_work_multiplier: float = 1.12  # work multiplier for unpaved segments (suspension losses)
+    gravel_coast_speed_pct: float = 0.75  # max coast speed as percentage of paved
 
 
 @dataclass

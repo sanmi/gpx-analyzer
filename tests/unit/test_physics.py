@@ -257,9 +257,9 @@ class TestEstimateSpeedFromPower:
         # Very steep descent on paved should cap at steep_descent_speed
         speed_paved = estimate_speed_from_power(math.radians(-15), params, unpaved=False)
         assert speed_paved == pytest.approx(6.0)
-        # Unpaved should be proportionally lower (10/15 ratio)
+        # Unpaved should be proportionally lower based on gravel_coast_speed_pct
         speed_unpaved = estimate_speed_from_power(math.radians(-15), params, unpaved=True)
-        expected_unpaved = 6.0 * (10.0 / 15.0)
+        expected_unpaved = 6.0 * params.gravel_coast_speed_pct
         assert speed_unpaved == pytest.approx(expected_unpaved)
 
     def test_unpaved_coasting_speed_slower(self):

@@ -6,7 +6,8 @@
       "route_url": "https://ridewithgps.com/routes/48889111",
       "trip_url": "https://ridewithgps.com/trips/233763291",
       "tags": ["road", "gravel", "hilly", "california"],
-      "notes": "Mixed surface route with significant climbing"
+      "notes": "Mixed surface route with significant climbing",
+      "gravel_grade": 2
     },
     {
       "name": "Col de La Croix de Fer",
@@ -20,35 +21,40 @@
       "route_url": "https://ridewithgps.com/routes/53834800",
       "trip_url": "https://ridewithgps.com/trips/362831000",
       "tags": ["road", "gravel", "hilly", "california"],
-      "notes": "Road with some gravel with significant climbing"
+      "notes": "Road with some gravel with significant climbing",
+      "gravel_grade": 2
     },
     {
       "name": "Reynolds Pheasant",
       "route_url": "https://ridewithgps.com/routes/49041362",
       "trip_url": "https://ridewithgps.com/trips/363067855",
       "tags": ["road", "gravel", "hilly", "california"],
-      "notes": "Road with some gravel with significant climbing"
+      "notes": "Road with some gravel with significant climbing",
+      "gravel_grade": 2
     },
     {
       "name": "Cañada Loop Mt Madonna",
       "route_url": "https://ridewithgps.com/routes/49059599",
       "trip_url": "https://ridewithgps.com/trips/238106693",
       "tags": ["road", "gravel", "hilly", "california"],
-      "notes": "Road with some gravel with significant climbing"
+      "notes": "Road with some gravel with significant climbing",
+      "gravel_grade": 2
     },
     {
-      "name": "Shelter Cove,  yone Bear Harbor",
+      "name": "Shelter Cove, Sinkyone Bear Harbor",
       "route_url": "https://ridewithgps.com/routes/51865658",
       "trip_url": "https://ridewithgps.com/trips/314588305",
       "tags": ["road", "gravel", "hilly", "california"],
-      "notes": "Road with some gravel with significant climbing"
+      "notes": "Road with some gravel with significant climbing",
+      "gravel_grade": 4
     },
     {
       "name": "Roses to Banyuls sur Mer",
       "route_url": "https://ridewithgps.com/routes/50410710",
       "trip_url": "https://ridewithgps.com/trips/284165812",
       "tags": ["road", "gravel", "hilly", "spain"],
-      "notes": "Road with some gravel with significant climbing"
+      "notes": "Road with some gravel with significant climbing",
+      "gravel_grade": 2
     },
     {
       "name": "Lyon to Annonay",
@@ -56,7 +62,8 @@
       "trip_url": "https://ridewithgps.com/trips/276204729",
       "tags": ["road", "gravel", "flat", "france"],
       "notes": "Road with some gravel with little climbing",
-      "mass": 90
+      "mass": 90,
+      "gravel_grade": 3
     },
     {
       "name": "Del Puerto Canyon",
@@ -64,7 +71,8 @@
       "trip_url": "https://ridewithgps.com/trips/50720949",
       "headwind": -5,
       "tags": ["road", "gravel", "hilly", "california"],
-      "notes": "Road with climbing"
+      "notes": "Road with climbing",
+      "gravel_grade": 2
     },
     {
       "name": "Annonay to Yssingeaux",
@@ -73,7 +81,8 @@
       "tags": ["road", "gravel", "hilly", "france"],
       "notes": "Road with climbing",
       "mass": 90,
-      "headwind": -5
+      "headwind": -5,
+      "gravel_grade": 2
     },
     {
       "name": "Le Col d'Ares gravel",
@@ -81,7 +90,8 @@
       "trip_url": "https://ridewithgps.com/trips/281839254",
       "tags": ["road", "gravel", "hilly", "france"],
       "notes": "Road & gravel with climbing",
-      "smoothing": 150
+      "smoothing": 150,
+      "gravel_grade": 3
     },
     {
       "name": "Mt Hamilton, Kincaid",
@@ -104,14 +114,16 @@
       "tags": ["road", "flat", "gravel", "france"],
       "notes": "Road with climbing",
       "mass": 90,
-      "headwind": 7
+      "headwind": 7,
+      "gravel_grade": 1
     },
     {
       "name": "Sacramento River Loop",
       "route_url": "https://ridewithgps.com/routes/53879950",
       "trip_url": "https://ridewithgps.com/trips/108113511",
       "tags": ["road", "flat", "gravel", "california"],
-      "notes": "Road with climbing"
+      "notes": "Road with climbing",
+      "gravel_grade": 1
     }
   ]
 }

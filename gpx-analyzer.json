@@ -21,7 +21,13 @@
     "straight_curvature": 0.3,
     "hairpin_curvature": 2.5,
     "descent_braking_factor": 1.0,
-    "unpaved_power_factor": 0.90,
+    "gravel_grade": 2,
+    "gravel_grades": {
+        "1": {"power_factor": 0.95, "work_multiplier": 1.05, "coast_speed_pct": 0.90},
+        "2": {"power_factor": 0.90, "work_multiplier": 1.12, "coast_speed_pct": 0.75},
+        "3": {"power_factor": 0.82, "work_multiplier": 1.25, "coast_speed_pct": 0.60},
+        "4": {"power_factor": 0.72, "work_multiplier": 1.40, "coast_speed_pct": 0.45}
+    },
     "elevation_scale": 1.0,
     "headwind": 0.0,
     "max_grade_window_route": 106.8617,

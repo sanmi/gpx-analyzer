@@ -67,11 +67,10 @@ def _curvature_limited_speed(curvature: float, params: RiderParams, unpaved: boo
     straight_speed = params.straight_descent_speed
     hairpin_speed = params.hairpin_speed
 
-    # For unpaved, scale down speeds proportionally
+    # For unpaved, scale down speeds based on gravel grade
     if unpaved:
-        unpaved_ratio = params.max_coasting_speed_unpaved / params.max_coasting_speed
-        straight_speed *= unpaved_ratio
-        hairpin_speed *= unpaved_ratio
+        straight_speed *= params.gravel_coast_speed_pct
+        hairpin_speed *= params.gravel_coast_speed_pct
 
     # Straight section: use straight descent speed
     if curvature <= params.straight_curvature:
@@ -102,11 +101,10 @@ def _gradient_limited_speed(slope_angle: float, params: RiderParams, unpaved: bo
     steep_speed = params.steep_descent_speed
     steep_grade_rad = math.radians(params.steep_descent_grade)
 
-    # For unpaved, scale down both speeds proportionally
+    # For unpaved, scale down speeds based on gravel grade
     if unpaved:
-        unpaved_ratio = params.max_coasting_speed_unpaved / params.max_coasting_speed
-        gentle_speed *= unpaved_ratio
-        steep_speed *= unpaved_ratio
+        gentle_speed *= params.gravel_coast_speed_pct
+        steep_speed *= params.gravel_coast_speed_pct
 
     # Calculate gradient-based speed limit
     if slope_angle >= 0:
@@ -160,8 +158,8 @@ def estimate_speed_from_power(
     if slope_angle < 0:
         hard_cap = params.max_descent_speed
         if unpaved:
-            # Scale down for unpaved surfaces
-            hard_cap *= params.max_coasting_speed_unpaved / params.max_coasting_speed
+            # Scale down for unpaved surfaces based on gravel grade
+            hard_cap *= params.gravel_coast_speed_pct
         max_speed = min(max_speed, hard_cap)
 
     w = params.headwind
@@ -259,6 +257,11 @@ def calculate_segment_work(
     work_aero = 0.5 * params.air_density * params.cda * airspeed**2 * distance
 
     total_work = work_gravity + work_rolling + work_aero
+
+    # Apply gravel work multiplier for unpaved segments
+    # This accounts for suspension losses and inefficiencies on rough surfaces
+    if point_b.unpaved and total_work > 0:
+        total_work *= params.gravel_work_multiplier
 
     # Only count positive work (rider pedaling, not braking)
     return max(0.0, total_work), distance, elapsed

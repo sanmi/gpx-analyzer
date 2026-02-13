@@ -49,7 +49,7 @@ DEFAULTS = {
     "hairpin_curvature": 3.0,
     "descent_braking_factor": 1.0,
     "drivetrain_efficiency": 0.97,
-    "unpaved_power_factor": 0.90,
+    "gravel_grade": 2,
     "smoothing": 50.0,
     "elevation_scale": 1.0,
     "headwind": 0.0,
@@ -62,6 +62,32 @@ DEFAULTS = {
     "climb_grade_threshold": 2.0,     # Grade % to start detecting a climb
     "climb_default_sensitivity": 30.0, # Default descent tolerance (m)
 }
+
+# Default gravel grade parameters (used if not in config)
+DEFAULT_GRAVEL_GRADES = {
+    "1": {"power_factor": 0.95, "work_multiplier": 1.05, "coast_speed_pct": 0.90},
+    "2": {"power_factor": 0.90, "work_multiplier": 1.12, "coast_speed_pct": 0.75},
+    "3": {"power_factor": 0.82, "work_multiplier": 1.25, "coast_speed_pct": 0.60},
+    "4": {"power_factor": 0.72, "work_multiplier": 1.40, "coast_speed_pct": 0.45},
+}
+
+
+def get_gravel_grade_params(grade: int, config: dict | None = None) -> dict:
+    """Get gravel parameters for a given grade (1-4).
+
+    Returns dict with: power_factor, work_multiplier, coast_speed_pct
+    """
+    if config is None:
+        config = _load_config() or {}
+
+    gravel_grades = config.get("gravel_grades", DEFAULT_GRAVEL_GRADES)
+    grade_key = str(grade)
+
+    if grade_key in gravel_grades:
+        return gravel_grades[grade_key]
+
+    # Fall back to default for grade 2
+    return DEFAULT_GRAVEL_GRADES.get(grade_key, DEFAULT_GRAVEL_GRADES["2"])
 
 
 def build_parser(config: dict | None = None) -> argparse.ArgumentParser:
@@ -252,10 +278,11 @@ See README.md for detailed parameter descriptions.""",
         help=f"Drivetrain efficiency as fraction 0-1 (default: {DEFAULTS['drivetrain_efficiency']})",
     )
     parser.add_argument(
-        "--unpaved-power-factor",
-        type=float,
-        default=get_default("unpaved_power_factor"),
-        help=f"Power multiplier on unpaved surfaces 0-1 (default: {DEFAULTS['unpaved_power_factor']})",
+        "--gravel-grade",
+        type=int,
+        default=get_default("gravel_grade"),
+        choices=[1, 2, 3, 4],
+        help="Gravel surface grade 1-4: 1=smooth, 2=moderate, 3=chunky, 4=severe (default: 2)",
     )
     parser.add_argument(
         "--smoothing",
@@ -546,6 +573,9 @@ def main(argv: list[str] | None = None) -> None:
     parser = build_parser(config)
     args = parser.parse_args(argv)
 
+    # Get gravel grade parameters from config
+    gravel_params = get_gravel_grade_params(args.gravel_grade)
+
     params = RiderParams(
         total_mass=args.mass,
         cda=args.cda,
@@ -567,7 +597,9 @@ def main(argv: list[str] | None = None) -> None:
         hairpin_curvature=args.hairpin_curvature,
         descent_braking_factor=args.descent_braking_factor,
         drivetrain_efficiency=args.drivetrain_efficiency,
-        unpaved_power_factor=args.unpaved_power_factor,
+        unpaved_power_factor=gravel_params["power_factor"],
+        gravel_work_multiplier=gravel_params["work_multiplier"],
+        gravel_coast_speed_pct=gravel_params["coast_speed_pct"],
     )
 
     # Optimization mode

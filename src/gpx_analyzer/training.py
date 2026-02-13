@@ -18,6 +18,27 @@ from gpx_analyzer.smoothing import smooth_elevations
 from gpx_analyzer.distance import haversine_distance
 
 
+# Default gravel grades - matches cli.py DEFAULT_GRAVEL_GRADES
+DEFAULT_GRAVEL_GRADES = {
+    "1": {"power_factor": 0.95, "work_multiplier": 1.05, "coast_speed_pct": 0.90},
+    "2": {"power_factor": 0.90, "work_multiplier": 1.12, "coast_speed_pct": 0.75},
+    "3": {"power_factor": 0.82, "work_multiplier": 1.25, "coast_speed_pct": 0.60},
+    "4": {"power_factor": 0.72, "work_multiplier": 1.40, "coast_speed_pct": 0.45},
+}
+
+
+def _get_gravel_grade_params(grade: int) -> dict:
+    """Get gravel parameters for a given grade (1-4).
+
+    Returns dict with: power_factor, work_multiplier, coast_speed_pct
+    """
+    grade_key = str(grade)
+    if grade_key in DEFAULT_GRAVEL_GRADES:
+        return DEFAULT_GRAVEL_GRADES[grade_key]
+    # Fall back to default for grade 2
+    return DEFAULT_GRAVEL_GRADES["2"]
+
+
 @dataclass
 class TrainingRoute:
     """A route/trip pair for training."""
@@ -31,6 +52,7 @@ class TrainingRoute:
     headwind: float | None = None  # Override headwind in km/h (negative = tailwind)
     mass: float | None = None  # Override total mass (rider + bike) in kg
     smoothing: float | None = None  # Override smoothing radius in meters
+    gravel_grade: int | None = None  # Override gravel grade (1-4) for unpaved sections
 
 
 @dataclass
@@ -404,6 +426,7 @@ def load_training_data(path: Path) -> list[TrainingRoute]:
                 headwind=entry.get("headwind"),
                 mass=entry.get("mass"),
                 smoothing=entry.get("smoothing"),
+                gravel_grade=entry.get("gravel_grade"),
             )
         )
     return routes
@@ -453,6 +476,17 @@ def analyze_training_route(
         # Use per-route mass if specified, otherwise use default
         mass_used = route.mass if route.mass is not None else params.total_mass
         headwind_used = route.headwind / 3.6 if route.headwind is not None else params.headwind
+
+        # Get gravel parameters - use per-route grade if specified, otherwise use params defaults
+        if route.gravel_grade is not None:
+            gravel_params = _get_gravel_grade_params(route.gravel_grade)
+            unpaved_power_factor = gravel_params["power_factor"]
+            gravel_work_multiplier = gravel_params["work_multiplier"]
+            gravel_coast_speed_pct = gravel_params["coast_speed_pct"]
+        else:
+            unpaved_power_factor = params.unpaved_power_factor
+            gravel_work_multiplier = params.gravel_work_multiplier
+            gravel_coast_speed_pct = params.gravel_coast_speed_pct
 
         # Calculate actual power by terrain type from trip data
         # This gives us climbing_power and flat_power separately
@@ -525,6 +559,9 @@ def analyze_training_route(
             hairpin_curvature=params.hairpin_curvature,
             descent_braking_factor=1.0,  # Raw physics, no adjustment
             drivetrain_efficiency=params.drivetrain_efficiency,
+            unpaved_power_factor=unpaved_power_factor,
+            gravel_work_multiplier=gravel_work_multiplier,
+            gravel_coast_speed_pct=gravel_coast_speed_pct,
         )
 
         # Calculate verbose metrics for reporting (no longer used for descent factor inference)
@@ -560,6 +597,9 @@ def analyze_training_route(
             hairpin_curvature=params.hairpin_curvature,
             descent_braking_factor=1.0,  # Pure physics for braking inference
             drivetrain_efficiency=params.drivetrain_efficiency,
+            unpaved_power_factor=unpaved_power_factor,
+            gravel_work_multiplier=gravel_work_multiplier,
+            gravel_coast_speed_pct=gravel_coast_speed_pct,
         )
 
         # Calculate verbose metrics from trip (actual) and route (estimated with factor=1.0)
@@ -604,6 +644,9 @@ def analyze_training_route(
             hairpin_curvature=params.hairpin_curvature,
             descent_braking_factor=1.0,  # Use physics-based model (inferred factor for reporting only)
             drivetrain_efficiency=params.drivetrain_efficiency,
+            unpaved_power_factor=unpaved_power_factor,
+            gravel_work_multiplier=gravel_work_multiplier,
+            gravel_coast_speed_pct=gravel_coast_speed_pct,
         )
 
         # Step 4: Analyze with inferred braking factor
