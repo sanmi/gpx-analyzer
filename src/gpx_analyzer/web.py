@@ -171,9 +171,49 @@ _profile_data_cache_stats = {"hits": 0, "misses": 0}
 
 
 def _get_profile_data_cache_key(url: str, params: "RiderParams", smoothing: float, smoothing_override: bool) -> str:
-    """Create a cache key for profile data."""
+    """Create a cache key for route profile data."""
     key_str = f"{url}|{params.climbing_power}|{params.flat_power}|{params.descending_power}|{params.total_mass}|{params.headwind}|{params.unpaved_power_factor}|{params.gravel_work_multiplier}|{smoothing}|{smoothing_override}"
     return hashlib.md5(key_str.encode()).hexdigest()
+
+
+def _get_trip_profile_data_cache_key(url: str, collapse_stops: bool) -> str:
+    """Create a cache key for trip profile data."""
+    config_hash = _get_config_hash()
+    key_str = f"trip|{url}|{collapse_stops}|{config_hash}"
+    return hashlib.md5(key_str.encode()).hexdigest()
+
+
+# In-memory cache for trip analysis results
+_trip_analysis_cache: dict[str, tuple[dict, float]] = {}
+MAX_TRIP_ANALYSIS_CACHE_ENTRIES = 50
+_trip_analysis_cache_stats = {"hits": 0, "misses": 0}
+
+
+def _get_trip_analysis_cache_key(url: str) -> str:
+    """Create a cache key for trip analysis."""
+    config_hash = _get_config_hash()
+    key_str = f"trip_analysis|{url}|{config_hash}"
+    return hashlib.md5(key_str.encode()).hexdigest()
+
+
+def _get_cached_trip_analysis(cache_key: str) -> dict | None:
+    """Get cached trip analysis if available."""
+    global _trip_analysis_cache_stats
+    if cache_key in _trip_analysis_cache:
+        _trip_analysis_cache_stats["hits"] += 1
+        return _trip_analysis_cache[cache_key][0]
+    _trip_analysis_cache_stats["misses"] += 1
+    return None
+
+
+def _cache_trip_analysis(cache_key: str, data: dict) -> None:
+    """Cache trip analysis with LRU eviction."""
+    global _trip_analysis_cache
+    _trip_analysis_cache[cache_key] = (data, time.time())
+    if len(_trip_analysis_cache) > MAX_TRIP_ANALYSIS_CACHE_ENTRIES:
+        sorted_keys = sorted(_trip_analysis_cache.keys(), key=lambda k: _trip_analysis_cache[k][1])
+        for key in sorted_keys[:len(_trip_analysis_cache) - MAX_TRIP_ANALYSIS_CACHE_ENTRIES]:
+            del _trip_analysis_cache[key]
 
 
 def _get_cached_profile_data(cache_key: str) -> dict | None:
@@ -220,6 +260,31 @@ def _clear_profile_data_cache() -> int:
     count = len(_profile_data_cache)
     _profile_data_cache.clear()
     _profile_data_cache_stats = {"hits": 0, "misses": 0}
+    return count
+
+
+def _get_trip_analysis_cache_stats() -> dict:
+    """Return trip analysis cache statistics."""
+    total = _trip_analysis_cache_stats["hits"] + _trip_analysis_cache_stats["misses"]
+    hit_rate = (_trip_analysis_cache_stats["hits"] / total * 100) if total > 0 else 0
+    # Estimate ~5 KB per entry
+    memory_kb = round(len(_trip_analysis_cache) * 5, 1)
+    return {
+        "hit_rate": f"{hit_rate:.1f}%",
+        "hits": _trip_analysis_cache_stats["hits"],
+        "max_size": MAX_TRIP_ANALYSIS_CACHE_ENTRIES,
+        "misses": _trip_analysis_cache_stats["misses"],
+        "size": len(_trip_analysis_cache),
+        "memory_kb": memory_kb,
+    }
+
+
+def _clear_trip_analysis_cache() -> int:
+    """Clear the trip analysis cache. Returns number of entries cleared."""
+    global _trip_analysis_cache, _trip_analysis_cache_stats
+    count = len(_trip_analysis_cache)
+    _trip_analysis_cache.clear()
+    _trip_analysis_cache_stats = {"hits": 0, "misses": 0}
     return count
 
 
@@ -2772,12 +2837,10 @@ HTML_TEMPLATE = """
         document.addEventListener('DOMContentLoaded', function() {
             setupUrlDropdown();
             initAdvancedOptions();
-            initCollapseStops();
         });
         if (document.readyState !== 'loading') {
             setupUrlDropdown();
             initAdvancedOptions();
-            initCollapseStops();
         }
 
         function showModal(id) {
@@ -3000,7 +3063,7 @@ HTML_TEMPLATE = """
             }
         }
 
-        function initCollapseStops() {
+        function initCollapseStops(skipRefresh) {
             // Restore collapse stops preferences from localStorage
             ['', '1', '2'].forEach(function(suffix) {
                 var checkbox = document.getElementById('collapseStops' + suffix);
@@ -3008,7 +3071,9 @@ HTML_TEMPLATE = """
                     var saved = localStorage.getItem('collapseStops' + suffix) === 'true';
                     if (saved) {
                         checkbox.checked = true;
-                        toggleCollapseStops(suffix === '' ? null : parseInt(suffix));
+                        if (!skipRefresh) {
+                            toggleCollapseStops(suffix === '' ? null : parseInt(suffix));
+                        }
                     }
                 }
             });
@@ -3093,14 +3158,16 @@ HTML_TEMPLATE = """
             localStorage.setItem('overlay_' + type, checkbox.checked);
         }
 
-        function initOverlays() {
+        function initOverlays(skipRefresh) {
             ['speed', 'grade', 'gravel'].forEach(function(type) {
                 var checkbox = document.getElementById('overlay_' + type);
                 if (checkbox) {
                     var saved = localStorage.getItem('overlay_' + type) === 'true';
                     if (saved) {
                         checkbox.checked = true;
-                        toggleOverlay(type);
+                        if (!skipRefresh) {
+                            toggleOverlay(type);
+                        }
                     }
                 }
             });
@@ -4518,7 +4585,7 @@ HTML_TEMPLATE = """
                     <div class="elevation-loading" id="elevationLoading1">
                         <div class="elevation-spinner"></div>
                     </div>
-                    <img src="/elevation-profile?url={{ url|urlencode }}&climbing_power={{ climbing_power }}&flat_power={{ flat_power }}&mass={{ mass }}&headwind={{ headwind }}&descending_power={{ descending_power }}&descent_braking_factor={{ descent_braking_factor }}&gravel_grade={{ gravel_grade }}&smoothing={{ smoothing|int }}&max_xlim_hours={{ '%.4f'|format(max_time_hours) }}{% if compare_ylim %}&max_ylim={{ '%.2f'|format(compare_ylim) }}{% endif %}{% if compare_speed_ylim %}&max_speed_ylim={{ '%.2f'|format(compare_speed_ylim) }}{% endif %}{% if compare_grade_ylim %}&max_grade_ylim={{ '%.2f'|format(compare_grade_ylim) }}{% endif %}"
+                    <img src=""
                          alt="Elevation profile - Route 1" id="elevationImg1" class="loading"
                          onload="document.getElementById('elevationLoading1').classList.add('hidden'); this.classList.remove('loading');">
                     <div class="elevation-cursor" id="elevationCursor1"></div>
@@ -4562,7 +4629,7 @@ HTML_TEMPLATE = """
                     <div class="elevation-loading" id="elevationLoading2">
                         <div class="elevation-spinner"></div>
                     </div>
-                    <img src="/elevation-profile?url={{ url2|urlencode }}&climbing_power={{ climbing_power }}&flat_power={{ flat_power }}&mass={{ mass }}&headwind={{ headwind }}&descending_power={{ descending_power }}&descent_braking_factor={{ descent_braking_factor }}&gravel_grade={{ gravel_grade }}&smoothing={{ smoothing|int }}&max_xlim_hours={{ '%.4f'|format(max_time_hours) }}{% if compare_ylim %}&max_ylim={{ '%.2f'|format(compare_ylim) }}{% endif %}{% if compare_speed_ylim %}&max_speed_ylim={{ '%.2f'|format(compare_speed_ylim) }}{% endif %}{% if compare_grade_ylim %}&max_grade_ylim={{ '%.2f'|format(compare_grade_ylim) }}{% endif %}"
+                    <img src=""
                          alt="Elevation profile - Route 2" id="elevationImg2" class="loading"
                          onload="document.getElementById('elevationLoading2').classList.add('hidden'); this.classList.remove('loading');">
                     <div class="elevation-cursor" id="elevationCursor2"></div>
@@ -5403,16 +5470,21 @@ HTML_TEMPLATE = """
                     '/elevation-profile-data?url={{ url2|urlencode if url2 else "" }}&climbing_power={{ climbing_power }}&flat_power={{ flat_power }}&mass={{ mass }}&headwind={{ headwind }}&descending_power={{ descending_power }}&descent_braking_factor={{ descent_braking_factor }}&gravel_grade={{ gravel_grade }}&smoothing={{ smoothing|int }}',
                     maxXlimHours
                 );
+                // Initialize settings (skip refresh, we'll load profiles once below)
+                initCollapseStops(true);
+                initOverlays(true);
+                // Load profiles once with correct overlay/collapse params
+                _refreshComparisonProfiles();
             } else {
                 // Single route mode
                 window.setupElevationProfile(
                     'elevationContainer', 'elevationImg', 'elevationTooltip', 'elevationCursor',
                     '/elevation-profile-data?url={{ url|urlencode }}&climbing_power={{ climbing_power }}&flat_power={{ flat_power }}&mass={{ mass }}&headwind={{ headwind }}&descending_power={{ descending_power }}&descent_braking_factor={{ descent_braking_factor }}&gravel_grade={{ gravel_grade }}&smoothing={{ smoothing|int }}'
                 );
+                // Initialize settings from localStorage (may trigger refresh)
+                initCollapseStops();
+                initOverlays();
             }
-
-            // Initialize overlays from localStorage (after profiles are set up)
-            initOverlays();
         })();
     </script>
     {% endif %}
@@ -5760,7 +5832,14 @@ def analyze_trip(url: str) -> dict:
 
     Returns:
         Dict with trip analysis results including actual recorded time and power.
+        Results are cached in memory for faster repeated access.
     """
+    # Check cache first
+    cache_key = _get_trip_analysis_cache_key(url)
+    cached = _get_cached_trip_analysis(cache_key)
+    if cached is not None:
+        return cached
+
     config = _load_config() or {}
     smoothing_radius = config.get("smoothing", DEFAULTS["smoothing"])
     max_grade_window = config.get("max_grade_window_route", DEFAULTS["max_grade_window_route"])
@@ -5971,6 +6050,9 @@ def analyze_trip(url: str) -> dict:
         ],
     }
 
+    # Cache result for faster repeated access
+    _cache_trip_analysis(cache_key, result)
+
     return result
 
 
@@ -6017,17 +6099,19 @@ def cache_stats():
     analysis = _analysis_cache.stats()
     elevation_profile = _get_elevation_profile_cache_stats()
     profile_data = _get_profile_data_cache_stats()
+    trip_analysis = _get_trip_analysis_cache_stats()
     climb = _get_climb_cache_stats()
     route_json = get_route_cache_stats()
 
     # Calculate totals (memory caches use memory_kb, disk caches use disk_kb)
-    total_memory_kb = analysis["memory_kb"] + climb["memory_kb"] + profile_data["memory_kb"]
+    total_memory_kb = analysis["memory_kb"] + climb["memory_kb"] + profile_data["memory_kb"] + trip_analysis["memory_kb"]
     total_disk_kb = elevation_profile["disk_kb"] + route_json["disk_kb"]
 
     return {
         "analysis_cache": analysis,
         "elevation_profile_cache": elevation_profile,
         "profile_data_cache": profile_data,
+        "trip_analysis_cache": trip_analysis,
         "climb_cache": climb,
         "route_json_cache": route_json,
         "totals": {
@@ -6039,16 +6123,17 @@ def cache_stats():
 
 @app.route("/cache-clear", methods=["GET", "POST"])
 def cache_clear():
-    """Clear all caches: analysis, elevation profiles, profile data, climb detection, and route JSON."""
+    """Clear all caches: analysis, elevation profiles, profile data, trip analysis, climb detection, and route JSON."""
     analysis_size = _analysis_cache.stats()["size"]
     _analysis_cache.clear()
     profiles_cleared = _clear_elevation_profile_cache()
     profile_data_cleared = _clear_profile_data_cache()
+    trip_analysis_cleared = _clear_trip_analysis_cache()
     climbs_cleared = _clear_climb_cache()
     routes_cleared = clear_route_json_cache()
     return {
         "status": "ok",
-        "message": f"Caches cleared: analysis ({analysis_size}), elevation_profiles ({profiles_cleared}), profile_data ({profile_data_cleared}), climbs ({climbs_cleared}), routes ({routes_cleared})"
+        "message": f"Caches cleared: analysis ({analysis_size}), elevation_profiles ({profiles_cleared}), profile_data ({profile_data_cleared}), trip_analysis ({trip_analysis_cleared}), climbs ({climbs_cleared}), routes ({routes_cleared})"
     }
 
 
@@ -6467,7 +6552,14 @@ def _calculate_trip_elevation_profile_data(url: str, collapse_stops: bool = Fals
                        This makes the profile comparable to route profiles.
 
     Returns dict with times_hours, elevations, grades, and route_name.
+    Results are cached in memory for faster repeated access.
     """
+    # Check cache first
+    cache_key = _get_trip_profile_data_cache_key(url, collapse_stops)
+    cached = _get_cached_profile_data(cache_key)
+    if cached is not None:
+        return cached
+
     config = _load_config() or {}
     smoothing_radius = config.get("smoothing", DEFAULTS["smoothing"])
     max_grade_window = config.get("max_grade_window_route", DEFAULT_MAX_GRADE_WINDOW)
@@ -6597,7 +6689,7 @@ def _calculate_trip_elevation_profile_data(url: str, collapse_stops: bool = Fals
         end_time = times_hours[tc.end_idx] if tc.end_idx < len(times_hours) else times_hours[-1]
         tunnel_time_ranges.append((start_time, end_time))
 
-    return {
+    result = {
         "times_hours": times_hours,
         "elevations": elevations,
         "grades": grades,
@@ -6610,6 +6702,11 @@ def _calculate_trip_elevation_profile_data(url: str, collapse_stops: bool = Fals
         "tunnel_time_ranges": tunnel_time_ranges,
         "is_collapsed": collapse_stops,
     }
+
+    # Cache result for faster repeated access
+    _cache_profile_data(cache_key, result)
+
+    return result
 
 
 def _set_fixed_margins(fig, fig_width: float, fig_height: float) -> None:

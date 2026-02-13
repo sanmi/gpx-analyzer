@@ -16,6 +16,7 @@ def client():
     # Clear caches before each test to prevent cross-test contamination
     web._analysis_cache.clear()
     web._profile_data_cache.clear()
+    web._trip_analysis_cache.clear()
     with web.app.test_client() as client:
         yield client
 
