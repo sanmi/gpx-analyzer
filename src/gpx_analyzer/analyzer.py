@@ -179,8 +179,8 @@ def _calculate_rolling_grades(points: list[TrackPoint], window: float) -> list[f
         if dist >= window / 2:
             delta_elev = elevations[j] - elevations[i]
             grade = (delta_elev / dist) * 100
-            # Cap at realistic max to filter GPS/elevation errors
-            grade = min(grade, MAX_REALISTIC_GRADE)
+            # Cap at realistic max to filter GPS/elevation errors (both positive and negative)
+            grade = max(-MAX_REALISTIC_GRADE, min(grade, MAX_REALISTIC_GRADE))
             rolling_grades.append(grade)
         else:
             rolling_grades.append(0.0)

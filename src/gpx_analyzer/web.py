@@ -6307,20 +6307,28 @@ def _add_grade_overlay(ax, times_hours: list, grades: list, max_grade_ylim: floa
     ax2.tick_params(axis='y', labelcolor='#333333')
 
     # Calculate Y-axis limits with tick intervals matching speed overlay style
-    max_grade = max_grade_ylim if max_grade_ylim is not None else max(abs(g) for g in grade_values)
-    min_grade = min(grade_values)
+    actual_max = max(grade_values)
+    actual_min = min(grade_values)
     tick_interval = 5  # 5% intervals
 
-    if min_grade >= 0:
-        max_tick = int(max(max_grade, 15) / tick_interval + 1) * tick_interval
-        ax2.set_yticks(range(0, max_tick + 1, tick_interval))
-        ax2.set_ylim(0, max_tick)
+    # Use provided max or calculate from data (ensure at least 15% range for visibility)
+    if max_grade_ylim is not None:
+        max_tick = int(max_grade_ylim / tick_interval + 1) * tick_interval
+        min_tick = -max_tick  # Symmetric for comparison mode
+    elif actual_min >= 0:
+        # All positive grades
+        max_tick = int(max(actual_max, 15) / tick_interval + 1) * tick_interval
+        min_tick = 0
     else:
-        limit = max(abs(max_grade), abs(min_grade), 15)
-        max_tick = int(limit / tick_interval + 1) * tick_interval
-        ax2.set_yticks(range(-max_tick, max_tick + 1, tick_interval))
-        ax2.set_ylim(-max_tick, max_tick)
-        # Add zero line for reference
+        # Has negative grades - use actual range with some padding
+        max_tick = int(max(actual_max, 10) / tick_interval + 1) * tick_interval
+        min_tick = int(min(actual_min, -10) / tick_interval - 1) * tick_interval
+
+    ax2.set_yticks(range(min_tick, max_tick + 1, tick_interval))
+    ax2.set_ylim(min_tick, max_tick)
+
+    # Add zero line for reference when showing negative grades
+    if min_tick < 0:
         ax2.axhline(y=0, color='#333333', linewidth=0.5, alpha=0.3, linestyle='--')
 
     ax2.spines['top'].set_visible(False)
