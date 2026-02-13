@@ -80,15 +80,24 @@ brake harder on steep grades AND through tight turns.
 
 ### Gravel/Unpaved Model
 
-For routes with surface type data from RideWithGPS, the model applies two adjustments on unpaved segments:
+For routes with surface type data from RideWithGPS, the model applies adjustments on unpaved segments based on a
+**Gravel Grade** (1-4), following the [Industry Standard Guide to Gravel](https://theunpavedhub.com/resources/industry-standard-guide-to-gravel/):
 
-- **Surface Crr deltas** — Per-surface-type rolling resistance increases based on RideWithGPS surface codes. Rougher
-  surfaces get higher Crr, increasing the energy cost of rolling.
-- **Unpaved power factor** — Multiplier on effective power for unpaved surfaces (default 0.90 = 10% power reduction).
-  Models reduced output due to traction limits, vibration fatigue, and the need to stay seated on rough terrain. Works
-  alongside the Crr increase — Crr dominates the effect on flat terrain while the power factor has more impact on climbs
-  where gravity dominates.
-- **Max coasting speed unpaved** — Lower descent speed limit on gravel/dirt (see Descent Model above).
+| Grade | Description | Power Factor | Work Multiplier | Coast Speed |
+|-------|-------------|--------------|-----------------|-------------|
+| 1 | Smooth (packed dirt, fine gravel) | 95% | 1.05× | 90% |
+| 2 | Moderate (loose gravel, some ruts) | 90% | 1.12× | 75% |
+| 3 | Chunky (rough, rocky, technical) | 82% | 1.25× | 60% |
+| 4 | Severe (very rough, hike-a-bike) | 72% | 1.40× | 45% |
+
+- **Power factor** — Multiplier on effective power for unpaved surfaces. Models reduced output due to traction limits,
+  vibration fatigue, and the need to stay seated on rough terrain.
+- **Work multiplier** — Additional energy cost for unpaved segments, accounting for suspension losses, micro-accelerations,
+  and inefficiencies on rough surfaces. Applied to estimated work (kJ) calculations.
+- **Coast speed** — Maximum descent speed as a percentage of paved speed. Rougher surfaces require more braking.
+
+Additionally:
+- **Surface Crr deltas** — Per-surface-type rolling resistance increases based on RideWithGPS surface codes.
 
 ### Data Processing
 
@@ -174,7 +183,7 @@ Then open http://localhost:5050 in your browser. The web interface supports:
 - Collection analysis with real-time progress
 - Imperial/metric unit toggle
 - Customizable climbing/flat/descending power, mass, and headwind parameters
-- Advanced options (descent braking factor, gravel power factor)
+- Advanced options (descent braking factor, gravel grade)
 - Interactive elevation profiles with click-drag selection and summary stats
 - Speed overlay and gravel section overlay on elevation profiles
 - Anomaly detection and correction with visual highlighting
@@ -438,7 +447,7 @@ This uses differential evolution to find optimal values for:
 - **max_coast_speed** — Maximum coasting speed
 - **climb_threshold_grade** — Grade where full climbing power kicks in
 - **smoothing** — Elevation smoothing radius
-- **unpaved_power_factor** — Power multiplier on gravel/unpaved surfaces
+- **gravel parameters** — Power factor, work multiplier, and coast speed for unpaved surfaces
 - **descent_braking_factor** — Multiplier for descent speeds
 
 The optimizer minimizes weighted error across estimated work, time, and max grade for all routes in your training set.
@@ -475,10 +484,9 @@ settings:
   "cda": 0.40,
   "crr": 0.005,
   "max_coast_speed": 58.0,
-  "max_coast_speed_unpaved": 24.0,
   "climb_threshold_grade": 3.8,
   "descent_braking_factor": 1.0,
-  "unpaved_power_factor": 0.90,
+  "gravel_grade": 2,
   "steep_descent_speed": 18.0,
   "steep_descent_grade": -10.0
 }
