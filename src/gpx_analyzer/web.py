@@ -3964,6 +3964,7 @@ HTML_TEMPLATE = """
                 }
 
                 var name = bar.dataset.name || 'Route';
+                var grade = bar.dataset.grade || '';
                 var pct = parseFloat(bar.dataset.pct) || 0;
                 var type = bar.dataset.type;
                 var absValue = '';
@@ -3977,8 +3978,8 @@ HTML_TEMPLATE = """
                 }
 
                 tooltip.innerHTML = '<div class="tooltip-title">' + name + '</div>' +
-                    '<div class="tooltip-row"><span class="tooltip-label">Percent:</span><span>' + pct.toFixed(1) + '%</span></div>' +
-                    '<div class="tooltip-row"><span class="tooltip-label">' + (type === 'time' ? 'Time:' : 'Distance:') + '</span><span>' + absValue + '</span></div>';
+                    '<div class="tooltip-row"><span class="tooltip-label">Grade:</span><span>' + grade + '</span></div>' +
+                    '<div class="tooltip-row"><span class="tooltip-label">' + (type === 'time' ? 'Time:' : 'Distance:') + '</span><span>' + pct.toFixed(1) + '%, ' + absValue + '</span></div>';
 
                 tooltip.style.display = 'block';
 
@@ -4312,12 +4313,12 @@ HTML_TEMPLATE = """
                     {% endif %}
                     <div class="histogram-bar">
                         <div class="bar-container">
-                            <div class="bar bar-hover" style="height: {{ bar_height }}%; background: {{ bar_colors[loop.index0] }};" data-name="{{ (result.name or 'Route 1')|truncate(25) }}" data-pct="{{ '%.1f'|format(pct) }}" data-seconds="{{ seconds }}" data-type="time"></div>
+                            <div class="bar bar-hover" style="height: {{ bar_height }}%; background: {{ bar_colors[loop.index0] }};" data-name="{{ (result.name or 'Route 1')|truncate(25) }}" data-grade="{{ labels[loop.index0] }}%" data-pct="{{ '%.1f'|format(pct) }}" data-seconds="{{ seconds }}" data-type="time"></div>
                             {% if compare_mode and result2 %}
                             {% set seconds_2 = result2.grade_histogram[label] %}
                             {% set pct_2 = (seconds_2 / total_time_2 * 100) if total_time_2 > 0 else 0 %}
                             {% set bar_height_2 = (seconds_2 / max_seconds_both * 100) if max_seconds_both > 0 else 0 %}
-                            <div class="bar route2 bar-hover" style="height: {{ bar_height_2 }}%; background: {{ bar_colors[loop.index0] }};" data-name="{{ (result2.name or 'Route 2')|truncate(25) }}" data-pct="{{ '%.1f'|format(pct_2) }}" data-seconds="{{ seconds_2 }}" data-type="time"></div>
+                            <div class="bar route2 bar-hover" style="height: {{ bar_height_2 }}%; background: {{ bar_colors[loop.index0] }};" data-name="{{ (result2.name or 'Route 2')|truncate(25) }}" data-grade="{{ labels[loop.index0] }}%" data-pct="{{ '%.1f'|format(pct_2) }}" data-seconds="{{ seconds_2 }}" data-type="time"></div>
                             {% endif %}
                         </div>
                         <span class="label">{{ labels[loop.index0] }}</span>
@@ -4354,12 +4355,12 @@ HTML_TEMPLATE = """
                     {% endif %}
                     <div class="histogram-bar">
                         <div class="bar-container">
-                            <div class="bar bar-hover" style="height: {{ bar_height }}%; background: {{ bar_colors[loop.index0] }};" data-name="{{ (result.name or 'Route 1')|truncate(25) }}" data-pct="{{ '%.1f'|format(pct) }}" data-meters="{{ meters }}" data-type="distance"></div>
+                            <div class="bar bar-hover" style="height: {{ bar_height }}%; background: {{ bar_colors[loop.index0] }};" data-name="{{ (result.name or 'Route 1')|truncate(25) }}" data-grade="{{ labels[loop.index0] }}%" data-pct="{{ '%.1f'|format(pct) }}" data-meters="{{ meters }}" data-type="distance"></div>
                             {% if compare_mode and result2 %}
                             {% set meters_2 = result2.grade_distance_histogram[label] %}
                             {% set pct_2 = (meters_2 / total_dist_2 * 100) if total_dist_2 > 0 else 0 %}
                             {% set bar_height_2 = (meters_2 / max_dist_both * 100) if max_dist_both > 0 else 0 %}
-                            <div class="bar route2 bar-hover" style="height: {{ bar_height_2 }}%; background: {{ bar_colors[loop.index0] }};" data-name="{{ (result2.name or 'Route 2')|truncate(25) }}" data-pct="{{ '%.1f'|format(pct_2) }}" data-meters="{{ meters_2 }}" data-type="distance"></div>
+                            <div class="bar route2 bar-hover" style="height: {{ bar_height_2 }}%; background: {{ bar_colors[loop.index0] }};" data-name="{{ (result2.name or 'Route 2')|truncate(25) }}" data-grade="{{ labels[loop.index0] }}%" data-pct="{{ '%.1f'|format(pct_2) }}" data-meters="{{ meters_2 }}" data-type="distance"></div>
                             {% endif %}
                         </div>
                         <span class="label">{{ labels[loop.index0] }}</span>
@@ -4446,12 +4447,12 @@ HTML_TEMPLATE = """
                         {% endif %}
                         <div class="histogram-bar">
                             <div class="bar-container">
-                                <div class="bar bar-hover" style="height: {{ bar_height }}%; background: {{ steep_colors[loop.index0] }};" data-name="{{ (result.name or 'Route 1')|truncate(25) }}" data-pct="{{ '%.1f'|format(pct) }}" data-seconds="{{ seconds }}" data-type="time"></div>
+                                <div class="bar bar-hover" style="height: {{ bar_height }}%; background: {{ steep_colors[loop.index0] }};" data-name="{{ (result.name or 'Route 1')|truncate(25) }}" data-grade="{{ steep_labels[loop.index0] }}%" data-pct="{{ '%.1f'|format(pct) }}" data-seconds="{{ seconds }}" data-type="time"></div>
                                 {% if compare_mode and result2 %}
                                 {% set seconds_2 = result2.steep_time_histogram[label] %}
                                 {% set pct_2 = (seconds_2 / result2.hilliness_total_time * 100) if result2.hilliness_total_time > 0 else 0 %}
                                 {% set bar_height_2 = (seconds_2 / max_steep_time_both * 100) if max_steep_time_both > 0 else 0 %}
-                                <div class="bar route2 bar-hover" style="height: {{ bar_height_2 }}%; background: {{ steep_colors[loop.index0] }};" data-name="{{ (result2.name or 'Route 2')|truncate(25) }}" data-pct="{{ '%.1f'|format(pct_2) }}" data-seconds="{{ seconds_2 }}" data-type="time"></div>
+                                <div class="bar route2 bar-hover" style="height: {{ bar_height_2 }}%; background: {{ steep_colors[loop.index0] }};" data-name="{{ (result2.name or 'Route 2')|truncate(25) }}" data-grade="{{ steep_labels[loop.index0] }}%" data-pct="{{ '%.1f'|format(pct_2) }}" data-seconds="{{ seconds_2 }}" data-type="time"></div>
                                 {% endif %}
                             </div>
                             <span class="label">{{ steep_labels[loop.index0] }}</span>
@@ -4486,12 +4487,12 @@ HTML_TEMPLATE = """
                         {% endif %}
                         <div class="histogram-bar">
                             <div class="bar-container">
-                                <div class="bar bar-hover" style="height: {{ bar_height }}%; background: {{ steep_colors[loop.index0] }};" data-name="{{ (result.name or 'Route 1')|truncate(25) }}" data-pct="{{ '%.1f'|format(pct) }}" data-meters="{{ meters }}" data-type="distance"></div>
+                                <div class="bar bar-hover" style="height: {{ bar_height }}%; background: {{ steep_colors[loop.index0] }};" data-name="{{ (result.name or 'Route 1')|truncate(25) }}" data-grade="{{ steep_labels[loop.index0] }}%" data-pct="{{ '%.1f'|format(pct) }}" data-meters="{{ meters }}" data-type="distance"></div>
                                 {% if compare_mode and result2 %}
                                 {% set meters_2 = result2.steep_distance_histogram[label] %}
                                 {% set pct_2 = (meters_2 / result2.hilliness_total_distance * 100) if result2.hilliness_total_distance > 0 else 0 %}
                                 {% set bar_height_2 = (meters_2 / max_steep_dist_both * 100) if max_steep_dist_both > 0 else 0 %}
-                                <div class="bar route2 bar-hover" style="height: {{ bar_height_2 }}%; background: {{ steep_colors[loop.index0] }};" data-name="{{ (result2.name or 'Route 2')|truncate(25) }}" data-pct="{{ '%.1f'|format(pct_2) }}" data-meters="{{ meters_2 }}" data-type="distance"></div>
+                                <div class="bar route2 bar-hover" style="height: {{ bar_height_2 }}%; background: {{ steep_colors[loop.index0] }};" data-name="{{ (result2.name or 'Route 2')|truncate(25) }}" data-grade="{{ steep_labels[loop.index0] }}%" data-pct="{{ '%.1f'|format(pct_2) }}" data-meters="{{ meters_2 }}" data-type="distance"></div>
                                 {% endif %}
                             </div>
                             <span class="label">{{ steep_labels[loop.index0] }}</span>
