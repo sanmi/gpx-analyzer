@@ -70,9 +70,8 @@
       "route_url": "https://ridewithgps.com/routes/32159645",
       "trip_url": "https://ridewithgps.com/trips/50720949",
       "headwind": -5,
-      "tags": ["road", "gravel", "hilly", "california"],
-      "notes": "Road with climbing",
-      "gravel_grade": 2
+      "tags": ["road", "hilly", "california"],
+      "notes": "Road with climbing"
     },
     {
       "name": "Annonay to Yssingeaux",
@@ -81,7 +80,6 @@
       "tags": ["road", "gravel", "hilly", "france"],
       "notes": "Road with climbing",
       "mass": 90,
-      "headwind": -5,
       "gravel_grade": 2
     },
     {

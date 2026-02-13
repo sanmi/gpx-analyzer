@@ -20,7 +20,7 @@
     "hairpin_speed": 20.0,
     "straight_curvature": 0.3,
     "hairpin_curvature": 2.5,
-    "descent_braking_factor": 1.0,
+    "descent_braking_factor": 0.9,
     "gravel_grade": 2,
     "gravel_grades": {
         "1": {"power_factor": 0.95, "work_multiplier": 1.05, "coast_speed_pct": 0.90},
