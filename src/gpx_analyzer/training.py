@@ -18,6 +18,11 @@ from gpx_analyzer.smoothing import smooth_elevations
 from gpx_analyzer.distance import haversine_distance
 
 
+# Grade thresholds for terrain classification
+CLIMB_THRESHOLD = 2.0    # Grade > 2% is climbing
+DESCENT_THRESHOLD = -2.0  # Grade < -2% is descending
+MAX_COASTING_SPEED_MS = 48.0 / 3.6  # Default 48 km/h in m/s
+
 # Default gravel grades - matches cli.py DEFAULT_GRAVEL_GRADES
 DEFAULT_GRAVEL_GRADES = {
     "1": {"power_factor": 0.95, "work_multiplier": 1.05, "coast_speed_pct": 0.90},
@@ -201,7 +206,7 @@ def _calculate_trip_max_grade(points: list[TripPoint], window: float = 50.0) -> 
     return max_grade
 
 
-def _calculate_verbose_metrics(
+def calculate_verbose_metrics(
     trip_points: list[TripPoint],
     max_coasting_speed_ms: float,
 ) -> VerboseMetrics:
@@ -214,8 +219,6 @@ def _calculate_verbose_metrics(
     Returns:
         VerboseMetrics with power by terrain type and braking score
     """
-    CLIMB_THRESHOLD = 2.0  # Grade > 2% is climbing
-    DESCENT_THRESHOLD = -2.0  # Grade < -2% is descending
 
     # Accumulate time and power by terrain type
     climb_time = 0.0
@@ -490,7 +493,7 @@ def analyze_training_route(
 
         # Calculate actual power by terrain type from trip data
         # This gives us climbing_power and flat_power separately
-        actual_metrics = _calculate_verbose_metrics(trip_points, params.max_coasting_speed)
+        actual_metrics = calculate_verbose_metrics(trip_points, params.max_coasting_speed)
 
         # Use per-route power if specified, otherwise use actual climbing/flat/descending power from trip
         if route.avg_watts is not None:
@@ -603,7 +606,7 @@ def analyze_training_route(
         )
 
         # Calculate verbose metrics from trip (actual) and route (estimated with factor=1.0)
-        verbose_metrics = _calculate_verbose_metrics(trip_points, physics_params.max_coasting_speed)
+        verbose_metrics = calculate_verbose_metrics(trip_points, physics_params.max_coasting_speed)
         estimated_verbose_metrics = _calculate_estimated_verbose_metrics(smoothed, physics_params)
 
         # Step 2: Infer braking factor from ratio of actual to estimated braking scores

@@ -37,6 +37,11 @@ from gpx_analyzer.ridewithgps import (
 from gpx_analyzer.smoothing import smooth_elevations
 from gpx_analyzer.tunnel import detect_and_correct_tunnels
 from gpx_analyzer.climb import detect_climbs, slider_to_sensitivity, ClimbInfo
+from gpx_analyzer.training import (
+    calculate_verbose_metrics,
+    VerboseMetrics,
+    MAX_COASTING_SPEED_MS,
+)
 
 
 def _get_config_hash() -> str:
@@ -176,10 +181,10 @@ def _get_profile_data_cache_key(url: str, params: "RiderParams", smoothing: floa
     return hashlib.md5(key_str.encode()).hexdigest()
 
 
-def _get_trip_profile_data_cache_key(url: str, collapse_stops: bool) -> str:
+def _get_trip_profile_data_cache_key(url: str, collapse_stops: bool, smoothing: float) -> str:
     """Create a cache key for trip profile data."""
     config_hash = _get_config_hash()
-    key_str = f"trip|{url}|{collapse_stops}|{config_hash}"
+    key_str = f"trip|{url}|{collapse_stops}|{smoothing}|{config_hash}"
     return hashlib.md5(key_str.encode()).hexdigest()
 
 
@@ -189,10 +194,10 @@ MAX_TRIP_ANALYSIS_CACHE_ENTRIES = 50
 _trip_analysis_cache_stats = {"hits": 0, "misses": 0}
 
 
-def _get_trip_analysis_cache_key(url: str) -> str:
+def _get_trip_analysis_cache_key(url: str, smoothing: float) -> str:
     """Create a cache key for trip analysis."""
     config_hash = _get_config_hash()
-    key_str = f"trip_analysis|{url}|{config_hash}"
+    key_str = f"trip_analysis|{url}|{smoothing}|{config_hash}"
     return hashlib.md5(key_str.encode()).hexdigest()
 
 
@@ -2539,6 +2544,45 @@ HTML_TEMPLATE = """
         </div>
     </div>
 
+    <div id="brakingModal" class="modal-overlay" onclick="hideModal('brakingModal')">
+        <div class="modal" onclick="event.stopPropagation()">
+            <h3>Braking Factor</h3>
+            <p>The braking factor measures how fast you descend compared to the theoretical maximum coasting speed (48 km/h).</p>
+            <p>• <strong>&lt; 1.0</strong> - More cautious descending (braking)<br>
+            • <strong>= 1.0</strong> - Descending at expected speed<br>
+            • <strong>&gt; 1.0</strong> - Faster descending (tucking, drafting)</p>
+            <p>This is calculated from your actual descent speeds on segments with grade &lt; -2%.</p>
+            <button class="modal-close" onclick="hideModal('brakingModal')">Got it</button>
+        </div>
+    </div>
+
+    <div id="powerClimbingModal" class="modal-overlay" onclick="hideModal('powerClimbingModal')">
+        <div class="modal" onclick="event.stopPropagation()">
+            <h3>Power (Climbing)</h3>
+            <p>Your average power output on climbing segments, where the grade is steeper than +2%.</p>
+            <p>This reflects the effort required to overcome gravity on uphills. Climbing power is typically 10-30% higher than flat power for most riders.</p>
+            <button class="modal-close" onclick="hideModal('powerClimbingModal')">Got it</button>
+        </div>
+    </div>
+
+    <div id="powerFlatModal" class="modal-overlay" onclick="hideModal('powerFlatModal')">
+        <div class="modal" onclick="event.stopPropagation()">
+            <h3>Power (Flat)</h3>
+            <p>Your average power output on flat segments, where the grade is between -2% and +2%.</p>
+            <p>On flat terrain, most of your power goes to overcoming air resistance. This is typically your sustainable cruising power.</p>
+            <button class="modal-close" onclick="hideModal('powerFlatModal')">Got it</button>
+        </div>
+    </div>
+
+    <div id="powerDescendingModal" class="modal-overlay" onclick="hideModal('powerDescendingModal')">
+        <div class="modal" onclick="event.stopPropagation()">
+            <h3>Power (Descending)</h3>
+            <p>Your average power output on descending segments, where the grade is steeper than -2%.</p>
+            <p>On descents, gravity assists you so less pedaling is needed. This value is typically low or near zero if you're coasting.</p>
+            <button class="modal-close" onclick="hideModal('powerDescendingModal')">Got it</button>
+        </div>
+    </div>
+
     <div id="steepClimbsModal" class="modal-overlay" onclick="hideModal('steepClimbsModal')">
         <div class="modal" onclick="event.stopPropagation()">
             <h3>Steep Climbs Methodology</h3>
@@ -4172,6 +4216,34 @@ HTML_TEMPLATE = """
                         <td class="route-col">{% if result2.avg_watts is not none %}{{ result2.avg_watts|int }} W{% else %}-{% endif %}</td>
                         <td class="diff-col">{% if result.avg_watts is not none and result2.avg_watts is not none %}{{ format_diff(result.avg_watts, result2.avg_watts, 'W') }}{% else %}-{% endif %}</td>
                     </tr>
+                    {% if (is_trip and result.avg_power_climbing is not none) or (is_trip2 and result2.avg_power_climbing is not none) %}
+                    <tr>
+                        <td><span class="label-with-info">Power (Climbing) <button type="button" class="info-btn" onclick="showModal('powerClimbingModal')">?</button></span></td>
+                        <td class="route-col">{% if result.avg_power_climbing is not none %}{{ result.avg_power_climbing|int }} W{% else %}-{% endif %}</td>
+                        <td class="route-col">{% if result2.avg_power_climbing is not none %}{{ result2.avg_power_climbing|int }} W{% else %}-{% endif %}</td>
+                        <td class="diff-col">{% if result.avg_power_climbing is not none and result2.avg_power_climbing is not none %}{{ format_diff(result.avg_power_climbing, result2.avg_power_climbing, "W", 0) }}{% else %}-{% endif %}</td>
+                    </tr>
+                    <tr>
+                        <td><span class="label-with-info">Power (Flat) <button type="button" class="info-btn" onclick="showModal('powerFlatModal')">?</button></span></td>
+                        <td class="route-col">{% if result.avg_power_flat is not none %}{{ result.avg_power_flat|int }} W{% else %}-{% endif %}</td>
+                        <td class="route-col">{% if result2.avg_power_flat is not none %}{{ result2.avg_power_flat|int }} W{% else %}-{% endif %}</td>
+                        <td class="diff-col">{% if result.avg_power_flat is not none and result2.avg_power_flat is not none %}{{ format_diff(result.avg_power_flat, result2.avg_power_flat, "W", 0) }}{% else %}-{% endif %}</td>
+                    </tr>
+                    <tr>
+                        <td><span class="label-with-info">Power (Descending) <button type="button" class="info-btn" onclick="showModal('powerDescendingModal')">?</button></span></td>
+                        <td class="route-col">{% if result.avg_power_descending is not none %}{{ result.avg_power_descending|int }} W{% else %}-{% endif %}</td>
+                        <td class="route-col">{% if result2.avg_power_descending is not none %}{{ result2.avg_power_descending|int }} W{% else %}-{% endif %}</td>
+                        <td class="diff-col">{% if result.avg_power_descending is not none and result2.avg_power_descending is not none %}{{ format_diff(result.avg_power_descending, result2.avg_power_descending, "W", 0) }}{% else %}-{% endif %}</td>
+                    </tr>
+                    {% endif %}
+                    {% if (is_trip and result.braking_factor is not none) or (is_trip2 and result2.braking_factor is not none) %}
+                    <tr>
+                        <td><span class="label-with-info">Braking Factor <button type="button" class="info-btn" onclick="showModal('brakingModal')">?</button></span></td>
+                        <td class="route-col">{% if result.braking_factor is not none %}{{ "%.2f"|format(result.braking_factor) }}{% else %}-{% endif %}</td>
+                        <td class="route-col">{% if result2.braking_factor is not none %}{{ "%.2f"|format(result2.braking_factor) }}{% else %}-{% endif %}</td>
+                        <td class="diff-col">{% if result.braking_factor is not none and result2.braking_factor is not none %}{{ format_diff(result.braking_factor, result2.braking_factor, "", 2) }}{% else %}-{% endif %}</td>
+                    </tr>
+                    {% endif %}
                     <tr>
                         <td>Distance</td>
                         <td class="route-col" id="cmpDist1" data-km="{{ result.distance_km }}">{{ "%.1f"|format(result.distance_km) }} km</td>
@@ -4249,6 +4321,26 @@ HTML_TEMPLATE = """
             <div class="result-row primary">
                 <span class="result-label">{% if is_trip %}Avg Power{% else %}Est. Avg Power{% endif %}</span>
                 <span class="result-value">{{ result.avg_watts|int }} W</span>
+            </div>
+            {% endif %}
+            {% if is_trip and result.avg_power_climbing is not none %}
+            <div class="result-row">
+                <span class="result-label label-with-info">Power (Climbing) <button type="button" class="info-btn" onclick="showModal('powerClimbingModal')">?</button></span>
+                <span class="result-value">{{ result.avg_power_climbing|int }} W</span>
+            </div>
+            <div class="result-row">
+                <span class="result-label label-with-info">Power (Flat) <button type="button" class="info-btn" onclick="showModal('powerFlatModal')">?</button></span>
+                <span class="result-value">{% if result.avg_power_flat is not none %}{{ result.avg_power_flat|int }} W{% else %}-{% endif %}</span>
+            </div>
+            <div class="result-row">
+                <span class="result-label label-with-info">Power (Descending) <button type="button" class="info-btn" onclick="showModal('powerDescendingModal')">?</button></span>
+                <span class="result-value">{% if result.avg_power_descending is not none %}{{ result.avg_power_descending|int }} W{% else %}-{% endif %}</span>
+            </div>
+            {% endif %}
+            {% if is_trip and result.braking_factor is not none %}
+            <div class="result-row">
+                <span class="result-label label-with-info">Braking Factor <button type="button" class="info-btn" onclick="showModal('brakingModal')">?</button></span>
+                <span class="result-value">{{ "%.2f"|format(result.braking_factor) }}</span>
             </div>
             {% endif %}
         </div>
@@ -5784,6 +5876,11 @@ def analyze_single_route(url: str, params: RiderParams, smoothing: float | None 
         "work_kj": analysis.estimated_work / 1000,
         "avg_watts": (analysis.estimated_work / analysis.moving_time.total_seconds()) if analysis.moving_time.total_seconds() > 0 else None,
         "has_power": True,  # Routes have derived avg power from physics model
+        # Terrain-specific power (only for trips with recorded power data)
+        "avg_power_climbing": None,
+        "avg_power_flat": None,
+        "avg_power_descending": None,
+        "braking_factor": None,
         "unpaved_pct": unpaved_pct,
         "elevation_scale": api_elevation_scale,
         "elevation_scaled": abs(api_elevation_scale - 1.0) > 0.05,
@@ -5825,24 +5922,25 @@ def analyze_single_route(url: str, params: RiderParams, smoothing: float | None 
     return result
 
 
-def analyze_trip(url: str) -> dict:
+def analyze_trip(url: str, smoothing: float | None = None) -> dict:
     """Analyze a recorded trip - actual values, no estimation needed.
 
     Args:
         url: RideWithGPS trip URL
+        smoothing: Smoothing radius in meters. If None, uses config/default.
 
     Returns:
         Dict with trip analysis results including actual recorded time and power.
         Results are cached in memory for faster repeated access.
     """
+    config = _load_config() or {}
+    smoothing_radius = smoothing if smoothing is not None else config.get("smoothing", DEFAULTS["smoothing"])
+
     # Check cache first
-    cache_key = _get_trip_analysis_cache_key(url)
+    cache_key = _get_trip_analysis_cache_key(url, smoothing_radius)
     cached = _get_cached_trip_analysis(cache_key)
     if cached is not None:
         return cached
-
-    config = _load_config() or {}
-    smoothing_radius = config.get("smoothing", DEFAULTS["smoothing"])
     max_grade_window = config.get("max_grade_window_route", DEFAULTS["max_grade_window_route"])
     max_grade_smoothing = config.get("max_grade_smoothing", DEFAULTS["max_grade_smoothing"])
 
@@ -6005,6 +6103,9 @@ def analyze_trip(url: str) -> dict:
     if avg_watts is not None and moving_time > 0:
         work_kj = (avg_watts * moving_time) / 1000  # kJ
 
+    # Calculate terrain-specific power metrics (reuse training.py logic)
+    verbose_metrics = calculate_verbose_metrics(trip_points, MAX_COASTING_SPEED_MS)
+
     result = {
         "name": trip_metadata.get("name"),
         "distance_km": distance / 1000,
@@ -6039,6 +6140,11 @@ def analyze_trip(url: str) -> dict:
         "hilliness_total_distance": total_distance,
         # Trip-specific flags
         "is_trip": True,
+        # Terrain-specific power (calculated from trip data)
+        "avg_power_climbing": verbose_metrics.avg_power_climbing,
+        "avg_power_flat": verbose_metrics.avg_power_flat,
+        "avg_power_descending": verbose_metrics.avg_power_descending,
+        "braking_factor": verbose_metrics.braking_score,  # Renamed for UI clarity
         # Anomaly corrections
         "tunnels_corrected": len(tunnel_corrections),
         "tunnel_corrections": [
@@ -6544,25 +6650,27 @@ def _calculate_elevation_profile_data(url: str, params: RiderParams, smoothing: 
     return result
 
 
-def _calculate_trip_elevation_profile_data(url: str, collapse_stops: bool = False) -> dict:
+def _calculate_trip_elevation_profile_data(url: str, collapse_stops: bool = False,
+                                           smoothing: float | None = None) -> dict:
     """Calculate elevation profile data for a trip using actual timestamps.
 
     Args:
         url: RideWithGPS trip URL
         collapse_stops: If True, use cumulative moving time (excludes stops) for x-axis.
                        This makes the profile comparable to route profiles.
+        smoothing: Smoothing radius in meters. If None, uses config/default.
 
     Returns dict with times_hours, elevations, grades, and route_name.
     Results are cached in memory for faster repeated access.
     """
+    config = _load_config() or {}
+    smoothing_radius = smoothing if smoothing is not None else config.get("smoothing", DEFAULTS["smoothing"])
+
     # Check cache first
-    cache_key = _get_trip_profile_data_cache_key(url, collapse_stops)
+    cache_key = _get_trip_profile_data_cache_key(url, collapse_stops, smoothing_radius)
     cached = _get_cached_profile_data(cache_key)
     if cached is not None:
         return cached
-
-    config = _load_config() or {}
-    smoothing_radius = config.get("smoothing", DEFAULTS["smoothing"])
     max_grade_window = config.get("max_grade_window_route", DEFAULT_MAX_GRADE_WINDOW)
 
     trip_points, trip_metadata = get_trip_data(url)
@@ -6879,7 +6987,8 @@ def generate_trip_elevation_profile(url: str, title_time_hours: float | None = N
                                     max_ylim: float | None = None,
                                     max_speed_ylim: float | None = None,
                                     max_grade_ylim: float | None = None,
-                                    min_xlim_hours: float | None = None) -> bytes:
+                                    min_xlim_hours: float | None = None,
+                                    smoothing: float | None = None) -> bytes:
     """Generate elevation profile image for a trip with grade-based coloring.
 
     Args:
@@ -6894,10 +7003,11 @@ def generate_trip_elevation_profile(url: str, title_time_hours: float | None = N
         max_speed_ylim: Optional max speed y-axis limit in km/h (for synchronized comparison).
         max_grade_ylim: Optional max grade y-axis limit in % (for synchronized comparison).
         min_xlim_hours: Optional min x-axis limit in hours (for zooming).
+        smoothing: Smoothing radius in meters. If None, uses config/default.
 
     Returns PNG image as bytes.
     """
-    data = _calculate_trip_elevation_profile_data(url, collapse_stops=collapse_stops)
+    data = _calculate_trip_elevation_profile_data(url, collapse_stops=collapse_stops, smoothing=smoothing)
     times_hours = data["times_hours"]
     elevations = data["elevations"]
     grades = data["grades"]
@@ -7055,9 +7165,9 @@ def elevation_profile():
     try:
         if is_ridewithgps_trip_url(url):
             # Trip: use actual timestamps, no physics params needed
-            trip_result = analyze_trip(url)
+            trip_result = analyze_trip(url, smoothing=smoothing)
             title_time_hours = trip_result["time_seconds"] / 3600
-            img_bytes = generate_trip_elevation_profile(url, title_time_hours, collapse_stops=collapse_stops, max_xlim_hours=max_xlim_hours, overlay=overlay, imperial=imperial, max_ylim=max_ylim, max_speed_ylim=max_speed_ylim, max_grade_ylim=max_grade_ylim, min_xlim_hours=min_xlim_hours)
+            img_bytes = generate_trip_elevation_profile(url, title_time_hours, collapse_stops=collapse_stops, max_xlim_hours=max_xlim_hours, overlay=overlay, imperial=imperial, max_ylim=max_ylim, max_speed_ylim=max_speed_ylim, max_grade_ylim=max_grade_ylim, min_xlim_hours=min_xlim_hours, smoothing=smoothing)
         else:
             # Route: use physics estimation
             params = build_params(climbing_power, flat_power, mass, headwind, descent_braking_factor, descending_power, gravel_grade)
@@ -7103,7 +7213,7 @@ def elevation_profile_data():
     try:
         if is_ridewithgps_trip_url(url):
             # Trip: use actual timestamps (or moving time if collapse_stops)
-            data = _calculate_trip_elevation_profile_data(url, collapse_stops=collapse_stops)
+            data = _calculate_trip_elevation_profile_data(url, collapse_stops=collapse_stops, smoothing=smoothing)
         else:
             # Route: use physics estimation
             params = build_params(climbing_power, flat_power, mass, headwind, descent_braking_factor, descending_power, gravel_grade)
@@ -7212,7 +7322,7 @@ def _analyze_url(url: str, params: RiderParams, smoothing: float | None = None, 
         Tuple of (analysis result dict, is_trip flag)
     """
     if is_ridewithgps_trip_url(url):
-        result = analyze_trip(url)
+        result = analyze_trip(url, smoothing=smoothing)
         return result, True
     else:
         result = analyze_single_route(url, params, smoothing, smoothing_override)
@@ -7367,12 +7477,12 @@ def index():
     if compare_mode and result and result2 and not error:
         try:
             if is_trip:
-                data1 = _calculate_trip_elevation_profile_data(url)
+                data1 = _calculate_trip_elevation_profile_data(url, smoothing=smoothing)
             else:
                 params = build_params(climbing_power, flat_power, mass, headwind, descent_braking_factor, descending_power, gravel_grade)
                 data1 = _calculate_elevation_profile_data(url, params, smoothing, smoothing_override)
             if is_trip2:
-                data2 = _calculate_trip_elevation_profile_data(url2)
+                data2 = _calculate_trip_elevation_profile_data(url2, smoothing=smoothing)
             else:
                 if not is_trip:
                     # params already built above

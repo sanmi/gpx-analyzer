@@ -352,7 +352,7 @@ class TestVerboseMetrics:
 
     def test_actual_verbose_metrics_calculation(self):
         """Test calculation of verbose metrics from trip data."""
-        from gpx_analyzer.training import _calculate_verbose_metrics
+        from gpx_analyzer.training import calculate_verbose_metrics
         from gpx_analyzer.ridewithgps import TripPoint
 
         # Create trip points with power and speed data
@@ -369,7 +369,7 @@ class TestVerboseMetrics:
 
         max_coasting_speed_ms = 15.0  # 54 km/h
 
-        result = _calculate_verbose_metrics(points, max_coasting_speed_ms)
+        result = calculate_verbose_metrics(points, max_coasting_speed_ms)
 
         assert result is not None
         # Check that time percentages sum to ~100%
