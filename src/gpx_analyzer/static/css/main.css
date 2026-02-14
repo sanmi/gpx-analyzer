@@ -1581,3 +1581,50 @@ button:disabled { background: #999; cursor: not-allowed; }
         flex-direction: column;
     }
 }
+
+/* PWA - Service Worker Update Notification */
+.sw-update-notification {
+    position: fixed;
+    bottom: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: var(--accent);
+    color: white;
+    padding: 12px 20px;
+    border-radius: 8px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    z-index: 10000;
+    font-size: 0.9em;
+}
+.sw-update-notification button {
+    background: white;
+    color: var(--accent);
+    border: none;
+    padding: 6px 12px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-weight: 500;
+}
+.sw-update-notification button:hover {
+    background: #f0f0f0;
+}
+
+/* PWA - Offline Banner */
+.offline-banner {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    background: #ff9800;
+    color: white;
+    text-align: center;
+    padding: 8px;
+    font-size: 0.85em;
+    z-index: 10001;
+}
+body.offline {
+    padding-top: 40px;
+}

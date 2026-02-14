@@ -769,6 +769,19 @@ def _clear_elevation_profile_cache() -> int:
     return _profile_image_cache.clear()
 
 
+# PWA routes - serve manifest and service worker from root
+@app.route("/manifest.json")
+def manifest():
+    """Serve PWA manifest."""
+    return send_file("static/manifest.json", mimetype="application/manifest+json")
+
+
+@app.route("/sw.js")
+def service_worker():
+    """Serve service worker from root path (required for scope)."""
+    return send_file("static/sw.js", mimetype="application/javascript")
+
+
 @app.route("/cache-stats")
 def cache_stats():
     """Return cache statistics as JSON for all caches."""

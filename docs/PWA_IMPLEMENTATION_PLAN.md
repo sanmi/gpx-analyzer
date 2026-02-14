@@ -37,6 +37,43 @@ Users will explicitly "save for offline" routes/trips which will:
 3. Store in IndexedDB for persistence
 4. Mark as available offline in UI
 
+### 3. Offline Visibility UX
+
+**Problem:** Users need to know which routes are cached and available offline.
+
+**Solution:** Multi-layered visual feedback system:
+
+1. **Route-Level Indicators:**
+   - Saved routes show a "✓ Saved" badge/icon next to the route name
+   - Unsaved routes show a "Save for Offline" button
+   - While saving, show a progress indicator
+
+2. **Dedicated "Saved Routes" Page:**
+   - Accessible from main navigation (e.g., "My Saved Routes" link)
+   - Lists all offline-available routes/trips with:
+     - Route name and date saved
+     - Storage size used
+     - Last accessed date
+     - Delete button
+   - Shows total storage used vs. available quota
+   - Allows bulk delete/management
+
+3. **Offline Mode Behavior:**
+   - When offline, show banner: "You're offline. Only saved routes are available."
+   - URL input is disabled or shows warning when offline
+   - If user navigates to a non-cached route while offline:
+     - Show clear error: "This route hasn't been saved for offline use"
+     - Offer link to "View Saved Routes" page
+   - Saved routes in history are visually distinct (checkmark badge)
+
+4. **Cache Eviction Policy:**
+   - Explicit saves are **never auto-evicted** (user controls deletion)
+   - Only the user can delete saved routes (via management page)
+   - Storage quota warnings shown at 80% capacity
+   - If quota exceeded when saving new route:
+     - Show error with link to management page
+     - "Storage full. Delete some saved routes to save more."
+
 ---
 
 ## Implementation Phases
@@ -352,21 +389,60 @@ class OfflineStorage {
 
 #### 3.3 Implement "Save for Offline" Feature
 
-UI components:
+**Save Button (on analysis results page):**
 
 ```html
-<!-- Save button on analysis results -->
+<!-- Save button - shown after successful analysis -->
 <button id="save-offline" class="save-offline-btn">
   <span class="icon">📥</span>
   Save for Offline
 </button>
 
-<!-- Saved routes list -->
-<div class="saved-routes-section">
-  <h3>Saved Routes</h3>
-  <ul id="saved-routes-list">
-    <!-- Dynamically populated -->
-  </ul>
+<!-- After saving, changes to: -->
+<div class="saved-indicator">
+  <span class="icon">✓</span>
+  Saved for Offline
+  <button class="remove-saved">Remove</button>
+</div>
+```
+
+**Dedicated Saved Routes Page (`/saved`):**
+
+```html
+<!-- New page: Saved Routes Management -->
+<h1>My Saved Routes</h1>
+
+<div class="storage-stats">
+  <p>Storage used: 12.4 MB of ~50 MB</p>
+  <div class="storage-bar">
+    <div class="storage-used" style="width: 25%"></div>
+  </div>
+</div>
+
+<ul class="saved-routes-list">
+  <li class="saved-route-item">
+    <div class="route-info">
+      <span class="route-name">Mt. Hamilton Loop</span>
+      <span class="route-meta">Route · Saved Jan 15 · 245 KB</span>
+    </div>
+    <button class="delete-btn">Delete</button>
+  </li>
+  <!-- More items... -->
+</ul>
+
+<div class="empty-state" hidden>
+  <p>No routes saved for offline use yet.</p>
+  <p>Analyze a route, then click "Save for Offline" to access it without internet.</p>
+</div>
+```
+
+**Offline Error State (when accessing non-cached route while offline):**
+
+```html
+<div class="offline-error">
+  <h2>Route Not Available Offline</h2>
+  <p>This route hasn't been saved for offline use.</p>
+  <a href="/saved" class="btn">View Saved Routes</a>
 </div>
 ```
 
@@ -374,10 +450,13 @@ UI components:
 - [ ] Add "Save for Offline" button to analysis results
 - [ ] Implement save workflow (fetch all data, store in IndexedDB)
 - [ ] Show progress indicator during save
-- [ ] Add "Saved Routes" section to homepage
-- [ ] Implement delete/manage saved routes
-- [ ] Show storage usage stats
-- [ ] Add visual indicator for offline-available routes
+- [ ] Change button to "Saved ✓" indicator after saving
+- [ ] Create `/saved` page for route management
+- [ ] Show storage usage with visual bar
+- [ ] Implement individual route deletion
+- [ ] Add "Saved Routes" link to main navigation
+- [ ] Implement offline error page with redirect to saved routes
+- [ ] Add saved badge to routes in URL history dropdown
 
 ---
 

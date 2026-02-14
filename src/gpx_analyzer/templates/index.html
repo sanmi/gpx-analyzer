@@ -25,10 +25,20 @@
     <meta property="og:type" content="website">
     {% endif %}
     <meta property="og:url" content="{{ request.url | replace('http://', 'https://') }}">
+
+    <!-- PWA meta tags -->
+    <meta name="theme-color" content="#FF6B35">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="GPX Analyzer">
+    <link rel="manifest" href="/manifest.json">
+    <link rel="apple-touch-icon" href="{{ url_for('static', filename='icons/apple-touch-icon.png') }}">
+
     <link rel="stylesheet" href="{{ url_for('static', filename='css/main.css') }}">
     {% if umami_website_id %}
     <script defer src="{{ umami_script_url }}" data-website-id="{{ umami_website_id }}"></script>
     {% endif %}
+    <script defer src="{{ url_for('static', filename='js/sw-register.js') }}"></script>
 </head>
 <body>
     <div class="header-section">
