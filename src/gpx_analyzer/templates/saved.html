@@ -296,7 +296,7 @@
                         elevation = route.elevation_m ? Math.round(route.elevation_m) + ' m' : '-';
                     }
 
-                    var html = '<li style="display:flex; justify-content:space-between; align-items:center; padding:16px 0; border-bottom:1px solid #eee;">' +
+                    var html = '<li data-url="' + route.url + '" style="display:flex; justify-content:space-between; align-items:center; padding:16px 0; border-bottom:1px solid #eee;">' +
                         '<div style="flex:1; min-width:0;">' +
                             '<div class="route-name">' +
                                 '<a href="/?url=' + routeUrl + '">' + routeName + '</a>' +
@@ -327,7 +327,22 @@
 
             try {
                 await offlineStorage.deleteRoute(url);
-                // Reload the list to refresh everything
+
+                // Remove the list item from display
+                var item = document.querySelector('#savedRoutesList li[data-url="' + url + '"]');
+                if (item) {
+                    item.remove();
+                }
+
+                // Check if list is now empty
+                var list = document.getElementById('savedRoutesList');
+                if (list.children.length === 0) {
+                    list.style.display = 'none';
+                    document.getElementById('emptyState').style.display = 'block';
+                    document.getElementById('clearAllBtn').style.display = 'none';
+                }
+
+                // Refresh stats
                 loadSavedRoutes();
             } catch (e) {
                 alert('Failed to delete: ' + e.message);
