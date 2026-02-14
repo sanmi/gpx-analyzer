@@ -2873,22 +2873,29 @@
         updateComparisonTableUnits();
         initEnergyUnit();
 
-        // Initialize save offline button state
-        (async function initSaveOffline() {
+        // Initialize save offline button state (wait for offlineStorage to load)
+        function initSaveOffline() {
             const btn = document.getElementById('saveOfflineBtn');
-            if (!btn || typeof offlineStorage === 'undefined') return;
+            if (!btn) return;
 
-            try {
-                await offlineStorage.init();
+            // Wait for offlineStorage to be available (loaded with defer)
+            if (typeof offlineStorage === 'undefined') {
+                setTimeout(initSaveOffline, 50);
+                return;
+            }
+
+            offlineStorage.init().then(function() {
                 const url = btn.dataset.url;
-                const isSaved = await offlineStorage.isSaved(url);
+                return offlineStorage.isSaved(url);
+            }).then(function(isSaved) {
                 if (isSaved) {
                     btn.classList.add('saved');
                 }
-            } catch (e) {
+            }).catch(function(e) {
                 console.error('Failed to check offline status:', e);
-            }
-        })();
+            });
+        }
+        initSaveOffline();
 
         // Toggle save/unsave for offline
         window.toggleSaveOffline = async function() {
@@ -2944,15 +2951,17 @@
                     if (!profileResponse.ok) throw new Error('Failed to fetch profile data');
                     const profileData = await profileResponse.json();
 
+                    // Get route name from profile data or button data attribute
+                    const routeName = profileData.route_name || name || 'Unnamed Route';
+
                     // Create a simplified analysis result from the page data
                     const analysisResult = {
-                        name: name,
+                        name: routeName,
                         url: url,
-                        // Other fields would be extracted from the page
                     };
 
                     // Save to IndexedDB
-                    await offlineStorage.saveRoute(url, name, params, analysisResult, profileData);
+                    await offlineStorage.saveRoute(url, routeName, params, analysisResult, profileData);
 
                     btn.classList.remove('saving');
                     btn.classList.add('saved');

@@ -96,8 +96,10 @@
             color: var(--primary);
         }
         .route-meta {
+            display: block;
             font-size: 0.8em;
             color: var(--text-muted);
+            white-space: nowrap;
         }
         .delete-btn {
             background: #f5f5f5;
@@ -252,17 +254,25 @@
                 listEl.style.display = 'block';
                 clearBtn.style.display = 'inline-block';
 
-                listEl.innerHTML = routes.map(route => `
-                    <li class="saved-route-item" data-url="${route.url}">
-                        <div class="route-info">
-                            <span class="route-name">
-                                <a href="/?url=${encodeURIComponent(route.url)}">${route.name || 'Unnamed Route'}</a>
-                            </span>
-                            <span class="route-meta">Saved ${formatDate(route.savedAt)} · ${formatSize(route.sizeKb || 0)}</span>
-                        </div>
-                        <button type="button" class="delete-btn" onclick="deleteRoute('${route.url}')">Delete</button>
-                    </li>
-                `).join('');
+                listEl.innerHTML = routes.map(function(route, index) {
+                    const escapedUrl = route.url.replace(/'/g, "\\'").replace(/"/g, '&quot;');
+                    const displayName = route.name || 'Unnamed Route';
+                    const escapedName = displayName.replace(/</g, '&lt;').replace(/>/g, '&gt;');
+                    return '<li class="saved-route-item" data-url="' + escapedUrl + '">' +
+                        '<div class="route-info">' +
+                            '<span class="route-name">' +
+                                '<a href="/?url=' + encodeURIComponent(route.url) + '">' + escapedName + '</a>' +
+                            '</span>' +
+                            '<span class="route-meta">Saved ' + formatDate(route.savedAt) + ' &middot; ' + formatSize(route.sizeKb || 0) + '</span>' +
+                        '</div>' +
+                        '<button type="button" class="delete-btn" data-index="' + index + '">Delete</button>' +
+                    '</li>';
+                }).join('');
+
+                // Add click handlers for delete buttons
+                listEl.querySelectorAll('.delete-btn').forEach(function(btn, index) {
+                    btn.onclick = function() { deleteRoute(routes[index].url); };
+                });
 
             } catch (e) {
                 console.error('Failed to load saved routes:', e);
@@ -276,19 +286,7 @@
 
             try {
                 await offlineStorage.deleteRoute(url);
-                // Remove from list
-                const item = document.querySelector(`[data-url="${url}"]`);
-                if (item) item.remove();
-
-                // Check if list is empty
-                const list = document.getElementById('savedRoutesList');
-                if (list.children.length === 0) {
-                    list.style.display = 'none';
-                    document.getElementById('emptyState').style.display = 'block';
-                    document.getElementById('clearAllBtn').style.display = 'none';
-                }
-
-                // Refresh stats
+                // Reload the list to refresh everything
                 loadSavedRoutes();
             } catch (e) {
                 alert('Failed to delete: ' + e.message);
