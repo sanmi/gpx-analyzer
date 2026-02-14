@@ -8,14 +8,21 @@ Supports RideWithGPS route URLs with automatic surface type detection for mixed 
 
 ## Purpose
 
-This quantifies how difficult a route is going to be and lets you compare it to other routes you've made or other rides 
-you've ridden. It is designed for  planning bike adventures on unfamiliar territory, helping you to understand what 
-it will feel like. It helps answer questions like:
-- how hard is this ride?  
-- How long will it take me with all my touring gear?
-- how does it compare to that other ride I did?
+This tool for planning bike adventures on unfamiliar territory, helping you to understand what 
+it will feel like. With just a little upfront information like total bike weight and your esitmated power, it can help
+answer questions like:
+
+For planning
 - Are the routes on my tour too much?
-- how long will it take to climb this hill and when will we get to that bakery?
+- How hard is this ride and how long will it take me when I'm loaded with all my gear?
+- How does it compare to this other ride?
+
+While riding:
+- How much time left to get to the top of this hill and when will we get to that bakery?
+
+Tuning:
+- You can compare a route analysis with a previous activity along that route to see how good the predictions are and  
+  tune the power settings for your riding style  
 
 ## How It Works
 
