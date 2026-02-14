@@ -1653,13 +1653,15 @@ class TestCollectionRouteComparisonSelection:
         assert 'id="compareSelectionCount"' in html
 
     def test_compare_action_bar_css_exists(self, client):
-        """CSS for compare action bar should be present."""
-        response = client.get("/")
-        html = response.data.decode()
-        assert '.compare-action-bar' in html
-        assert '.compare-btn' in html
-        assert '.route-select-checkbox' in html
-        assert '.selected-route' in html
+        """CSS for compare action bar should be present in the external CSS file."""
+        # CSS is now in an external file, so we check the static CSS file
+        response = client.get("/static/css/main.css")
+        assert response.status_code == 200
+        css = response.data.decode()
+        assert '.compare-action-bar' in css
+        assert '.compare-btn' in css
+        assert '.route-select-checkbox' in css
+        assert '.selected-route' in css
 
     def test_compare_javascript_functions_exist(self, client):
         """JavaScript functions for route comparison should be present."""
