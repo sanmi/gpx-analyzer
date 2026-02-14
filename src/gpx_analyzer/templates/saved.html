@@ -222,14 +222,14 @@
             return (kb / 1024).toFixed(1) + ' MB';
         }
 
-        // Format duration (seconds to Xh Ym)
+        // Format duration (seconds to Xh Ymin)
         function formatDuration(seconds) {
             var hours = Math.floor(seconds / 3600);
             var minutes = Math.floor((seconds % 3600) / 60);
             if (hours > 0) {
-                return hours + 'h ' + (minutes < 10 ? '0' : '') + minutes + 'm';
+                return hours + 'h ' + (minutes < 10 ? '0' : '') + minutes + 'min';
             }
-            return minutes + 'm';
+            return minutes + ' min';
         }
 
         // Load and display saved routes

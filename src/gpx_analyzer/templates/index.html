@@ -2959,7 +2959,8 @@
                     const totalDistance = profileData.distances ? profileData.distances.reduce((a, b) => a + b, 0) / 1000 : 0; // km
                     const totalWork = profileData.works ? profileData.works.reduce((a, b) => a + b, 0) / 1000 : 0; // kJ
                     const totalElevGain = profileData.elev_gains ? profileData.elev_gains.reduce((a, b) => a + b, 0) : 0; // m
-                    const totalTime = profileData.total_time || (profileData.times ? profileData.times[profileData.times.length - 1] : 0); // seconds
+                    const totalTimeHours = profileData.total_time || (profileData.times ? profileData.times[profileData.times.length - 1] : 0);
+                    const totalTime = totalTimeHours * 3600; // convert hours to seconds
 
                     console.log('Calculated stats:', { totalDistance, totalWork, totalElevGain, totalTime });
 
