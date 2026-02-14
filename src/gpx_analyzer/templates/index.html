@@ -39,6 +39,8 @@
     <script defer src="{{ umami_script_url }}" data-website-id="{{ umami_website_id }}"></script>
     {% endif %}
     <script defer src="{{ url_for('static', filename='js/sw-register.js') }}"></script>
+    <script defer src="{{ url_for('static', filename='js/offline-storage.js') }}"></script>
+    <script defer src="{{ url_for('static', filename='js/offline-status.js') }}"></script>
 </head>
 <body>
     <div class="header-section">
@@ -76,7 +78,14 @@
             <h1>Reality Check my Route</h1>
         </div>
         <p class="tagline">Physics-based cycling time and energy estimates from elevation, surface, and rider parameters</p>
-        <a href="#" class="how-link" onclick="showModal('physicsModal'); return false;">How does it work?</a>
+        <div class="header-links">
+            <a href="#" class="how-link" onclick="showModal('physicsModal'); return false;">How does it work?</a>
+            <a href="/saved" class="saved-routes-link" id="savedRoutesLink">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M19 12v7H5v-7H3v7c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2v-7h-2zm-6 .67l2.59-2.58L17 11.5l-5 5-5-5 1.41-1.41L11 12.67V3h2v9.67z"/></svg>
+                <span>Saved Routes</span>
+                <span class="count-badge" id="savedCountBadge" style="display: none;">0</span>
+            </a>
+        </div>
     </div>
 
     <form method="POST" id="analyzeForm">
@@ -874,14 +883,36 @@
             }
         }
 
+        // Update saved routes count badge
+        async function updateSavedRoutesBadge() {
+            var badge = document.getElementById('savedCountBadge');
+            if (!badge || typeof offlineStorage === 'undefined') return;
+
+            try {
+                await offlineStorage.init();
+                var routes = await offlineStorage.getSavedRoutes();
+                if (routes.length > 0) {
+                    badge.textContent = routes.length;
+                    badge.style.display = 'inline';
+                } else {
+                    badge.style.display = 'none';
+                }
+            } catch (e) {
+                console.warn('Could not update saved routes badge:', e);
+            }
+        }
+
         // Initialize on page load
         document.addEventListener('DOMContentLoaded', function() {
             setupUrlDropdown();
             initAdvancedOptions();
+            // Update saved routes badge after a short delay (wait for offlineStorage)
+            setTimeout(updateSavedRoutesBadge, 200);
         });
         if (document.readyState !== 'loading') {
             setupUrlDropdown();
             initAdvancedOptions();
+            setTimeout(updateSavedRoutesBadge, 200);
         }
 
         function showModal(id) {
@@ -2170,6 +2201,12 @@
                 <span>Share</span>
             </button>
             {% endif %}
+            <button type="button" id="saveOfflineBtn" class="save-offline-btn" onclick="toggleSaveOffline()" title="Save for offline use" data-url="{{ url }}" data-name="{{ result.name|e if result.name else '' }}">
+                <svg class="save-icon" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M19 12v7H5v-7H3v7c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2v-7h-2zm-6 .67l2.59-2.58L17 11.5l-5 5-5-5 1.41-1.41L11 12.67V3h2v9.67z"/></svg>
+                <svg class="saved-icon" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" style="display:none"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>
+                <span class="save-text">Save Offline</span>
+                <span class="saved-text" style="display:none">Saved</span>
+            </button>
         </div>
 
         {% if compare_mode and result2 %}
@@ -2835,6 +2872,99 @@
         updateSingleRouteUnits();
         updateComparisonTableUnits();
         initEnergyUnit();
+
+        // Initialize save offline button state
+        (async function initSaveOffline() {
+            const btn = document.getElementById('saveOfflineBtn');
+            if (!btn || typeof offlineStorage === 'undefined') return;
+
+            try {
+                await offlineStorage.init();
+                const url = btn.dataset.url;
+                const isSaved = await offlineStorage.isSaved(url);
+                if (isSaved) {
+                    btn.classList.add('saved');
+                }
+            } catch (e) {
+                console.error('Failed to check offline status:', e);
+            }
+        })();
+
+        // Toggle save/unsave for offline
+        window.toggleSaveOffline = async function() {
+            const btn = document.getElementById('saveOfflineBtn');
+            if (!btn || typeof offlineStorage === 'undefined') {
+                alert('Offline storage not available');
+                return;
+            }
+
+            const url = btn.dataset.url;
+            const name = btn.dataset.name;
+            const isSaved = btn.classList.contains('saved');
+
+            if (isSaved) {
+                // Unsave - delete from offline storage
+                if (confirm('Remove this route from offline storage?')) {
+                    try {
+                        await offlineStorage.deleteRoute(url);
+                        btn.classList.remove('saved');
+                    } catch (e) {
+                        console.error('Failed to remove from offline storage:', e);
+                        alert('Failed to remove: ' + e.message);
+                    }
+                }
+            } else {
+                // Save for offline
+                btn.classList.add('saving');
+                btn.disabled = true;
+
+                try {
+                    // Get current analysis params
+                    const params = {
+                        climbing_power: parseFloat(document.getElementById('climbing_power').value),
+                        flat_power: parseFloat(document.getElementById('flat_power').value),
+                        mass: parseFloat(document.getElementById('mass').value),
+                        headwind: parseFloat(document.getElementById('headwind').value),
+                        descent_braking_factor: parseFloat(document.getElementById('descent_braking_factor').value),
+                        descending_power: parseFloat(document.getElementById('descending_power').value),
+                        smoothing: parseFloat(document.getElementById('smoothing').value)
+                    };
+
+                    // Fetch profile data
+                    const profileUrl = '/elevation-profile-data?' + new URLSearchParams({
+                        url: url,
+                        climbing_power: params.climbing_power,
+                        flat_power: params.flat_power,
+                        mass: params.mass,
+                        headwind: params.headwind,
+                        smoothing: params.smoothing
+                    }).toString();
+
+                    const profileResponse = await fetch(profileUrl);
+                    if (!profileResponse.ok) throw new Error('Failed to fetch profile data');
+                    const profileData = await profileResponse.json();
+
+                    // Create a simplified analysis result from the page data
+                    const analysisResult = {
+                        name: name,
+                        url: url,
+                        // Other fields would be extracted from the page
+                    };
+
+                    // Save to IndexedDB
+                    await offlineStorage.saveRoute(url, name, params, analysisResult, profileData);
+
+                    btn.classList.remove('saving');
+                    btn.classList.add('saved');
+                } catch (e) {
+                    console.error('Failed to save for offline:', e);
+                    alert('Failed to save: ' + e.message);
+                    btn.classList.remove('saving');
+                } finally {
+                    btn.disabled = false;
+                }
+            }
+        };
 
         // Elevation profile hover interaction
         // Setup function for a single profile (global so toggleCollapseStops/toggleOverlay can call it)

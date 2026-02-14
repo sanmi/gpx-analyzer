@@ -782,6 +782,15 @@ def service_worker():
     return send_file("static/sw.js", mimetype="application/javascript")
 
 
+@app.route("/saved")
+def saved_routes():
+    """Page to manage saved routes for offline use."""
+    analytics = _get_analytics_config()
+    return render_template("saved.html",
+                           umami_website_id=analytics.get("umami_website_id"),
+                           umami_script_url=analytics.get("umami_script_url"))
+
+
 @app.route("/cache-stats")
 def cache_stats():
     """Return cache statistics as JSON for all caches."""

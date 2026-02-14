@@ -1621,10 +1621,100 @@ button:disabled { background: #999; cursor: not-allowed; }
     background: #ff9800;
     color: white;
     text-align: center;
-    padding: 8px;
+    padding: 8px 12px;
     font-size: 0.85em;
     z-index: 10001;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 12px;
+}
+.offline-banner-link {
+    color: white;
+    text-decoration: underline;
+    font-weight: 500;
 }
 body.offline {
     padding-top: 40px;
+}
+
+/* PWA - Save for Offline Button */
+.save-offline-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: #f0f0f0;
+    border: 1px solid #ddd;
+    padding: 6px 12px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 0.85em;
+    color: #555;
+    transition: all 0.2s;
+}
+.save-offline-btn:hover {
+    background: #e8e8e8;
+    border-color: #ccc;
+}
+.save-offline-btn svg {
+    width: 18px;
+    height: 18px;
+    fill: currentColor;
+}
+.save-offline-btn.saved {
+    background: #e8f5e9;
+    border-color: #a5d6a7;
+    color: #2e7d32;
+}
+.save-offline-btn.saved .save-icon,
+.save-offline-btn.saved .save-text {
+    display: none;
+}
+.save-offline-btn.saved .saved-icon,
+.save-offline-btn.saved .saved-text {
+    display: inline !important;
+}
+.save-offline-btn.saving {
+    opacity: 0.7;
+    cursor: wait;
+}
+.save-offline-btn.saving .save-text::after {
+    content: '...';
+}
+
+/* Header Links Container */
+.header-links {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 16px;
+    flex-wrap: wrap;
+}
+
+/* Saved Routes Link in Header */
+.saved-routes-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    color: var(--text-muted);
+    text-decoration: none;
+    font-size: 0.85em;
+    padding: 4px 8px;
+    border-radius: 4px;
+    transition: background 0.2s;
+}
+.saved-routes-link:hover {
+    background: rgba(0,0,0,0.05);
+    color: var(--text-dark);
+}
+.saved-routes-link svg {
+    opacity: 0.7;
+}
+.saved-routes-link .count-badge {
+    background: var(--primary);
+    color: white;
+    font-size: 0.75em;
+    padding: 2px 6px;
+    border-radius: 10px;
+    font-weight: 500;
 }
