@@ -61,6 +61,8 @@ DEFAULTS = {
     "climb_min_distance": 500.0,      # Minimum climb length (m)
     "climb_grade_threshold": 2.0,     # Grade % to start detecting a climb
     "climb_default_sensitivity": 30.0, # Default descent tolerance (m)
+    # Trip-specific settings
+    "trip_smoothing_enabled": True,   # If False, trips use raw elevation data (no Gaussian smoothing)
 }
 
 # Default gravel grade parameters (used if not in config)
