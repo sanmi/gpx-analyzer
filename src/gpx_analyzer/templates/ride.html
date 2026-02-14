@@ -19,6 +19,7 @@
     <script defer src="{{ umami_script_url }}" data-website-id="{{ umami_website_id }}"></script>
     {% endif %}
     <script defer src="{{ url_for('static', filename='js/sw-register.js') }}"></script>
+    <script defer src="{{ url_for('static', filename='js/offline-storage.js') }}"></script>
     <script defer src="{{ url_for('static', filename='js/profile-renderer.js') }}"></script>
 </head>
 <body>
@@ -48,7 +49,7 @@
             <h1>Reality Check my Route</h1>
         </div>
         <p class="tagline">Climb Details</p>
-        <a href="#" class="back-link" id="backLink" onclick="goBack(); return false;">&larr; Back to Analysis</a>
+        <a href="/" class="back-link" id="backLink">&larr; Back to Analysis</a>
     </div>
 
     <div class="summary-card">
@@ -570,8 +571,181 @@
         window.addEventListener('resize', handleResize);
         window.addEventListener('orientationchange', () => setTimeout(handleResize, 100));
 
+        // Handle offline page load using cached data from IndexedDB
+        async function handleOfflinePageLoad() {
+            if (navigator.onLine) return false;
+
+            // Update route name from URL param (cached page may have wrong name)
+            const urlParams = new URLSearchParams(window.location.search);
+            const routeNameFromUrl = urlParams.get('route_name');
+            if (routeNameFromUrl) {
+                const routeNameEl = document.querySelector('.route-name');
+                if (routeNameEl) routeNameEl.textContent = routeNameFromUrl;
+                document.title = routeNameFromUrl + ' | Ride Details';
+            }
+
+            // Try to load data from IndexedDB
+            if (typeof offlineStorage === 'undefined') {
+                console.log('[Ride] offlineStorage not available');
+                return false;
+            }
+
+            try {
+                await offlineStorage.init();
+
+                // Get saved route metadata (includes the params it was saved with)
+                const savedRoute = await offlineStorage.getSavedRoute(routeUrl);
+                if (!savedRoute || !savedRoute.analysisParams) {
+                    console.log('[Ride] Route not saved for offline use');
+                    return false;
+                }
+
+                const params = savedRoute.analysisParams;
+
+                // Get cached profile data
+                const profileData = await offlineStorage.getProfileData(routeUrl, params);
+                if (!profileData) {
+                    console.log('[Ride] No cached profile data');
+                    return false;
+                }
+
+                // Get cached climbs
+                const climbs = await offlineStorage.getClimbs(routeUrl, params);
+
+                // Hide loading spinners
+                const elevationLoading = document.getElementById('elevationLoading');
+                const climbLoading = document.getElementById('climbLoading');
+                if (elevationLoading) elevationLoading.classList.add('hidden');
+                if (climbLoading) climbLoading.classList.add('hidden');
+
+                // Setup elevation profile with cached data
+                setupElevationProfileOffline(profileData);
+
+                // Render climbs with cached data
+                if (climbs && climbs.length > 0) {
+                    renderClimbTable(climbs);
+                    setupClimbProfileOffline(profileData, climbs);
+                }
+
+                console.log('[Ride] Loaded from offline cache');
+                return true;
+            } catch (err) {
+                console.error('[Ride] Offline load error:', err);
+                return false;
+            }
+        }
+
+        // Setup elevation profile with offline data (no fetch)
+        function setupElevationProfileOffline(profileData) {
+            const container = document.getElementById('elevationContainer');
+            const canvas = document.getElementById('elevationCanvas');
+            const tooltip = document.getElementById('elevationTooltip');
+            if (!container || !canvas || !tooltip) return;
+
+            const options = {
+                imperial: isImperial(),
+                showSpeedOverlay: document.getElementById('overlay_speed')?.checked || false,
+                showGradeOverlay: document.getElementById('overlay_grade')?.checked || false,
+                showGravel: document.getElementById('overlay_gravel')?.checked || false,
+                tunnelRanges: profileData.tunnel_ranges || [],
+                unpavedRanges: profileData.unpaved_ranges || []
+            };
+
+            const renderer = new ElevationProfileRenderer(canvas, profileData, options);
+
+            renderer.onHover = function(dataPoint, x, y) {
+                const imp = isImperial();
+                const elevUnit = imp ? 'ft' : 'm';
+                const elevVal = imp ? dataPoint.elevation * 3.28084 : dataPoint.elevation;
+                let speedText = '';
+                if (dataPoint.speed !== null && dataPoint.speed !== undefined) {
+                    const speedUnit = imp ? 'mph' : 'km/h';
+                    const speedVal = imp ? dataPoint.speed * 0.621371 : dataPoint.speed;
+                    speedText = ' | ' + speedVal.toFixed(1) + ' ' + speedUnit;
+                }
+                tooltip.innerHTML = '<div class="grade">' + formatGrade(dataPoint.grade) + '</div>' +
+                                   '<div class="elev">' + Math.round(elevVal) + ' ' + elevUnit + speedText + ' | ' + formatTime(dataPoint.time) + '</div>';
+                tooltip.style.left = x + 'px';
+                tooltip.style.bottom = '60px';
+                tooltip.classList.add('visible');
+            };
+
+            renderer.onSelect = function(stats, selection) {
+                showSelectionPopup(stats, selection, renderer, container);
+            };
+
+            renderer.init();
+
+            canvas.addEventListener('mouseleave', () => {
+                tooltip.classList.remove('visible');
+            });
+
+            container._renderer = renderer;
+            container._profileData = profileData;
+
+            container._updateRendererOptions = function(newOptions) {
+                if ('showSpeedOverlay' in newOptions) renderer.showSpeedOverlay = newOptions.showSpeedOverlay;
+                if ('showGradeOverlay' in newOptions) renderer.showGradeOverlay = newOptions.showGradeOverlay;
+                if ('showGravel' in newOptions) renderer.showGravel = newOptions.showGravel;
+                if ('imperial' in newOptions) renderer.imperial = newOptions.imperial;
+                renderer.render();
+            };
+        }
+
+        // Setup climb profile with offline data
+        function setupClimbProfileOffline(profileData, climbs) {
+            const climbTooltip = document.getElementById('climbTooltip');
+
+            const climbRegions = climbs.map(climb => ({
+                start_time: climb.start_time_hours,
+                end_time: climb.end_time_hours,
+                climb_id: climb.climb_id,
+                label: climb.label
+            }));
+
+            profileData.climb_regions = climbRegions;
+
+            const options = {
+                imperial: isImperial(),
+                showSpeedOverlay: false,
+                showGradeOverlay: false,
+                showGravel: false,
+                tunnelRanges: profileData.tunnel_ranges || [],
+                unpavedRanges: profileData.unpaved_ranges || []
+            };
+
+            climbRenderer = new ElevationProfileRenderer(climbCanvas, profileData, options);
+
+            climbRenderer.onHover = function(dataPoint, x, y) {
+                const imp = isImperial();
+                const elevUnit = imp ? 'ft' : 'm';
+                const elevVal = imp ? dataPoint.elevation * 3.28084 : dataPoint.elevation;
+                climbTooltip.innerHTML = '<div class="grade">' + formatGrade(dataPoint.grade) + '</div>' +
+                                        '<div class="elev">' + Math.round(elevVal) + ' ' + elevUnit + ' | ' + formatTime(dataPoint.time) + '</div>';
+                climbTooltip.style.left = x + 'px';
+                climbTooltip.style.bottom = '60px';
+                climbTooltip.classList.add('visible');
+            };
+
+            climbRenderer.onSelect = function(stats, selection) {
+                showSelectionPopup(stats, selection, climbRenderer, climbProfileContainer);
+            };
+
+            climbRenderer.init();
+
+            climbCanvas.addEventListener('mouseleave', () => {
+                climbTooltip.classList.remove('visible');
+            });
+        }
+
         // Initial load
-        document.addEventListener('DOMContentLoaded', () => {
+        document.addEventListener('DOMContentLoaded', async () => {
+            // Try offline first
+            const loadedOffline = await handleOfflinePageLoad();
+
+            // If offline load succeeded, skip online fetch
+            if (loadedOffline) return;
+
             const container = document.getElementById('elevationContainer');
             const dataUrl = container?.getAttribute('data-base-data-url');
             if (dataUrl) {
@@ -643,8 +817,8 @@
             // Re-render climb table with new units
             updateClimbs();
         }
-
-        function goBack() {
+        // Update back link href with current settings (for iOS PWA compatibility)
+        function updateBackLink() {
             let url = '/?url=' + encodeURIComponent(routeUrl) + '&' + baseParams;
             // Add settings from localStorage
             try {
@@ -653,7 +827,8 @@
                 if (localStorage.getItem('overlay_gravel') === 'true') url += '&show_gravel=true';
                 if (localStorage.getItem('ride_imperial') === 'true') url += '&imperial=1';
             } catch (e) {}
-            window.location.href = url;
+            const backLink = document.getElementById('backLink');
+            if (backLink) backLink.href = url;
         }
 
         // Load saved settings from localStorage
@@ -661,9 +836,19 @@
             try {
                 // Load speed toggle
                 const savedSpeed = localStorage.getItem('ride_show_speed');
-                if (savedSpeed === 'true') {
-                    const speedCb = document.getElementById('overlay_speed');
-                    if (speedCb) speedCb.checked = true;
+                const speedCb = document.getElementById('overlay_speed');
+                if (savedSpeed === 'true' && speedCb) {
+                    speedCb.checked = true;
+                }
+                // Load grade toggle
+                const savedGrade = localStorage.getItem('ride_show_grade');
+                const gradeCb = document.getElementById('overlay_grade');
+                if (savedGrade === 'true' && gradeCb) {
+                    gradeCb.checked = true;
+                }
+                // Enforce mutual exclusivity: if both speed and grade are checked, prefer speed
+                if (speedCb && gradeCb && speedCb.checked && gradeCb.checked) {
+                    gradeCb.checked = false;
                 }
                 // Load gravel toggle
                 const savedGravel = localStorage.getItem('ride_show_gravel');
@@ -690,6 +875,7 @@
             } catch (e) {}
         }
         initSavedSettings();
+        updateBackLink();
     </script>
 
     <div class="footer">

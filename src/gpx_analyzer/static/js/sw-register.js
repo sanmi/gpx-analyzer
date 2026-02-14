@@ -52,7 +52,6 @@
       notification.innerHTML = `
         <span>A new version is available.</span>
         <button onclick="window.location.reload()">Refresh</button>
-        <button onclick="this.parentElement.remove()">Dismiss</button>
       `;
       document.body.appendChild(notification);
     }

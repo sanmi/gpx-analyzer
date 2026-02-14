@@ -903,18 +903,122 @@
             }
         }
 
+        // Handle offline page load with URL parameter
+        async function handleOfflinePageLoad() {
+            // Only run if we're offline and have a URL parameter
+            if (navigator.onLine) return;
+
+            var urlParams = new URLSearchParams(window.location.search);
+            var url = urlParams.get('url');
+            if (!url) return;
+
+            // Immediately hide any error/server-rendered content to prevent flash
+            var errorEl = document.getElementById('errorContainer');
+            if (errorEl) errorEl.classList.add('hidden');
+            var serverError = document.querySelector('.server-error');
+            if (serverError) serverError.style.display = 'none';
+
+            // Wait for offlineStorage to be available
+            if (typeof offlineStorage === 'undefined') {
+                console.log('[Offline] Waiting for offlineStorage...');
+                setTimeout(handleOfflinePageLoad, 100);
+                return;
+            }
+
+            try {
+                console.log('[Offline] Loading saved route:', url);
+
+                // Check if this route is saved
+                var savedRoute = await offlineStorage.getSavedRoute(url);
+                if (!savedRoute) {
+                    showError('This route is not saved for offline use. Save routes while online to access them offline.');
+                    return;
+                }
+
+                // Use the params the route was saved with
+                var params = savedRoute.analysisParams;
+                if (!params) {
+                    showError('Saved route is missing analysis parameters.');
+                    return;
+                }
+
+                // Get cached analysis data
+                var analysisResult = await offlineStorage.getAnalysis(url, params);
+                if (!analysisResult) {
+                    // Use summary stats from saved route
+                    analysisResult = {
+                        name: savedRoute.name,
+                        distance_km: savedRoute.distance_km,
+                        work_kj: savedRoute.work_kj,
+                        elevation_m: savedRoute.elevation_m,
+                        time_seconds: savedRoute.time_seconds
+                    };
+                }
+
+                // Get cached profile data
+                var profileData = await offlineStorage.getProfileData(url, params);
+
+                // Render the cached results
+                renderOfflineResults(analysisResult, profileData, url, params);
+
+                // Update the form URL field
+                document.getElementById('url').value = url;
+
+            } catch (err) {
+                console.error('[Offline] Load error:', err);
+                showError('Failed to load offline data: ' + (err.message || 'Unknown error'));
+            }
+        }
+
+        // Disable/enable parameter inputs based on online status
+        function updateOfflineInputState() {
+            var isOffline = !navigator.onLine;
+            var paramInputs = ['climbing_power', 'flat_power', 'mass', 'headwind',
+                               'descending_power', 'descent_braking_factor', 'gravel_grade', 'smoothing'];
+
+            paramInputs.forEach(function(id) {
+                var el = document.getElementById(id);
+                if (el) {
+                    el.disabled = isOffline;
+                    if (isOffline) {
+                        el.style.opacity = '0.6';
+                        el.title = 'Parameters cannot be changed while offline';
+                    } else {
+                        el.style.opacity = '1';
+                        el.title = '';
+                    }
+                }
+            });
+
+            // Also disable advanced toggle if offline
+            var advancedToggle = document.getElementById('advancedToggle');
+            if (advancedToggle && isOffline) {
+                advancedToggle.style.opacity = '0.6';
+            } else if (advancedToggle) {
+                advancedToggle.style.opacity = '1';
+            }
+        }
+
         // Initialize on page load
         document.addEventListener('DOMContentLoaded', function() {
+            // Handle offline page load FIRST to prevent error flash
+            handleOfflinePageLoad();
             setupUrlDropdown();
             initAdvancedOptions();
-            // Update saved routes badge after a short delay (wait for offlineStorage)
             setTimeout(updateSavedRoutesBadge, 200);
+            updateOfflineInputState();
         });
         if (document.readyState !== 'loading') {
+            handleOfflinePageLoad();
             setupUrlDropdown();
             initAdvancedOptions();
             setTimeout(updateSavedRoutesBadge, 200);
+            updateOfflineInputState();
         }
+
+        // Update input state when online/offline changes
+        window.addEventListener('online', updateOfflineInputState);
+        window.addEventListener('offline', updateOfflineInputState);
 
         function showModal(id) {
             document.getElementById(id).classList.add('active');
@@ -1131,6 +1235,9 @@
             if (!urlInput || !urlInput.value) return;
             var url = '/ride?url=' + encodeURIComponent(urlInput.value);
             url += '&climbing_power={{ climbing_power }}&flat_power={{ flat_power }}&mass={{ mass }}&headwind={{ headwind }}&smoothing={{ smoothing }}';
+            // Add route name for offline display
+            var routeName = '{{ result.name|e if result and result.name else "" }}';
+            if (routeName) url += '&route_name=' + encodeURIComponent(routeName);
             if (document.getElementById('imperial')?.checked) url += '&imperial=1';
             // Save current overlay states to localStorage for ride page to read
             try {
@@ -1262,6 +1369,9 @@
             // Hide server-rendered single route results
             var singleResults = document.getElementById('singleRouteResults');
             if (singleResults) singleResults.style.display = 'none';
+            // Hide offline results
+            var offlineResults = document.getElementById('offlineResults');
+            if (offlineResults) offlineResults.style.display = 'none';
             // Hide server-rendered errors
             var serverErrors = document.querySelectorAll('.server-error');
             serverErrors.forEach(function(el) { el.style.display = 'none'; });
@@ -1272,6 +1382,297 @@
             var errorEl = document.getElementById('errorContainer');
             errorEl.textContent = message;
             errorEl.classList.remove('hidden');
+        }
+
+        // Render results from offline cache - reuses singleRouteResults container for consistent styling
+        function renderOfflineResults(analysisResult, profileData, url, params) {
+            hideAllResults();
+
+            var imperial = document.getElementById('imperial').checked;
+            var r = analysisResult;
+
+            // Use existing singleRouteResults container or create one - ensures same CSS applies
+            var container = document.getElementById('singleRouteResults');
+            if (!container) {
+                container = document.createElement('div');
+                container.id = 'singleRouteResults';
+                container.className = 'results route-results';
+                var errorContainer = document.getElementById('errorContainer');
+                if (errorContainer) {
+                    errorContainer.after(container);
+                } else {
+                    document.body.appendChild(container);
+                }
+            }
+
+            var timeStr = r.time_str || (Math.floor(r.time_seconds / 3600) + 'h ' + String(Math.floor((r.time_seconds % 3600) / 60)).padStart(2, '0') + 'min');
+            var timeHours = (r.time_seconds / 3600).toFixed(1);
+            var paramInfo = (params.climbing_power || '?') + 'W/' + (params.flat_power || '?') + 'W, ' + (params.mass || '?') + 'kg';
+
+            // Load saved checkbox settings
+            var savedSpeed = localStorage.getItem('overlay_speed') === 'true';
+            var savedGrade = localStorage.getItem('overlay_grade') === 'true';
+            var savedGravel = localStorage.getItem('overlay_gravel') === 'true';
+
+            // Build elevation notes (same as online)
+            var elevationNotes = '';
+            if (r.elevation_scaled) {
+                elevationNotes += '<div class="note">Elevation scaled ' + (r.elevation_scale || 1).toFixed(2) + 'x to match RideWithGPS API data.</div>';
+            }
+            if (r.noise_ratio && r.noise_ratio > 1.2) {
+                elevationNotes += '<div class="note noise-note"><span class="noise-badge">Elevation noise: ' + r.noise_ratio.toFixed(1) + 'x</span></div>';
+            }
+
+            // Build HTML - exact same structure as online singleRouteResults
+            container.innerHTML = `
+                <div class="results-header">
+                    <h2>${r.name || 'Route Analysis'}</h2>
+                    <span class="result-badge route-badge">Planned Route</span>
+                    <span class="result-badge offline-badge">Saved</span>
+                </div>
+
+                <div class="primary-results">
+                    <div class="result-row primary">
+                        <span class="result-label">Est. Moving Time</span>
+                        <span class="result-value">${timeStr}</span>
+                    </div>
+                    <div class="result-row primary">
+                        <span class="result-label">Est. Work</span>
+                        <span class="result-value">${r.work_kj ? Math.round(r.work_kj) + ' kJ' : '-'}</span>
+                    </div>
+                    <div class="result-row primary">
+                        <span class="result-label">Est. Energy</span>
+                        <span class="result-value">${r.work_kj ? Math.round(r.work_kj * 1.075) + ' kcal' : '-'}</span>
+                    </div>
+                    <div class="result-row primary">
+                        <span class="result-label">Est. Avg Power</span>
+                        <span class="result-value">${r.avg_watts ? Math.round(r.avg_watts) + ' W' : '-'}</span>
+                    </div>
+                </div>
+
+                <div class="result-row">
+                    <span class="result-label">Distance</span>
+                    <span class="result-value">${imperial ? (r.distance_km * 0.621371).toFixed(1) + ' mi' : (r.distance_km || 0).toFixed(1) + ' km'}</span>
+                </div>
+                <div class="result-row">
+                    <span class="result-label">Elevation Gain</span>
+                    <span class="result-value">${imperial ? Math.round((r.elevation_m || 0) * 3.28084) + ' ft' : Math.round(r.elevation_m || 0) + ' m'}</span>
+                </div>
+                <div class="result-row">
+                    <span class="result-label">Elevation Loss</span>
+                    <span class="result-value">${imperial ? Math.round((r.elevation_loss_m || r.elevation_m || 0) * 3.28084) + ' ft' : Math.round(r.elevation_loss_m || r.elevation_m || 0) + ' m'}</span>
+                </div>
+                <div class="result-row">
+                    <span class="result-label">Avg Speed</span>
+                    <span class="result-value">${imperial ? ((r.avg_speed_kmh || 0) * 0.621371).toFixed(1) + ' mph' : (r.avg_speed_kmh || 0).toFixed(1) + ' km/h'}</span>
+                </div>
+                <div class="result-row">
+                    <span class="result-label">Surface</span>
+                    <span class="result-value">${r.unpaved_pct != null ? Math.round(r.unpaved_pct) + '% unpaved' : '-'}</span>
+                </div>
+                <div class="result-row">
+                    <span class="result-label">Hilliness</span>
+                    <span class="result-value">${imperial ? Math.round((r.hilliness_score || 0) * 5.28) + ' ft/mi' : Math.round(r.hilliness_score || 0) + ' m/km'}</span>
+                </div>
+                <div class="result-row">
+                    <span class="result-label">Steepness</span>
+                    <span class="result-value">${(r.steepness_score || 0).toFixed(1)}%</span>
+                </div>
+                <div class="result-row">
+                    <span class="result-label">&gt;10%</span>
+                    <span class="result-value">${r.steep_time_seconds && r.steep_time_seconds >= 60 ? (Math.round(r.steep_time_seconds / 60) < 60 ? Math.round(r.steep_time_seconds / 60) + ' min' : Math.floor(r.steep_time_seconds / 3600) + 'h ' + String(Math.floor((r.steep_time_seconds % 3600) / 60)).padStart(2, '0') + 'm') : '-'}</span>
+                </div>
+
+                ${elevationNotes}
+
+                <div class="elevation-profile">
+                    <div class="elevation-profile-header">
+                        <h4><a href="${url}" target="_blank">${r.name || 'Route'}</a> - ${timeHours}h</h4>
+                        <div class="elevation-profile-toggles">
+                            <div class="collapse-stops-toggle">
+                                <input type="checkbox" id="offline_overlay_speed" ${savedSpeed ? 'checked' : ''}>
+                                <label for="offline_overlay_speed">Speed</label>
+                            </div>
+                            <div class="collapse-stops-toggle">
+                                <input type="checkbox" id="offline_overlay_grade" ${savedGrade ? 'checked' : ''}>
+                                <label for="offline_overlay_grade">Grade</label>
+                            </div>
+                            <div class="collapse-stops-toggle">
+                                <input type="checkbox" id="offline_overlay_gravel" ${savedGravel ? 'checked' : ''}>
+                                <label for="offline_overlay_gravel">Unpaved</label>
+                            </div>
+                        </div>
+                        <a href="#" class="ride-link" id="offlineViewClimbsLink" style="font-size: 0.85em; color: #4CAF50;">View Climbs &rarr;</a>
+                    </div>
+                    <div class="elevation-profile-container" id="offlineElevationContainer">
+                        <canvas id="offlineElevationCanvas" class="elevation-canvas"></canvas>
+                        <div class="elevation-tooltip" id="offlineElevationTooltip">
+                            <div class="grade">--</div>
+                            <div class="elev">--</div>
+                        </div>
+                        <div class="elevation-selection-popup" id="offlineSelectionPopup" style="display:none;"></div>
+                        <div class="zoom-out-link" id="offlineZoomOutLink" style="display:none;"><a href="#">Zoom Out</a></div>
+                    </div>
+                </div>
+
+                <div class="offline-notice" style="background:#fff3cd;padding:10px 12px;border-radius:8px;margin-top:16px;font-size:0.85em;color:#856404;">
+                    <strong>Offline Mode</strong> - Cached data (${paramInfo}). Re-analyze online to change parameters.
+                </div>
+            `;
+
+            container.style.display = 'block';
+
+            // Set up View Climbs link
+            document.getElementById('offlineViewClimbsLink').onclick = function(e) {
+                e.preventDefault();
+                // Save current checkbox states for ride page
+                localStorage.setItem('ride_show_speed', document.getElementById('offline_overlay_speed').checked);
+                localStorage.setItem('ride_show_grade', document.getElementById('offline_overlay_grade').checked);
+                localStorage.setItem('ride_show_gravel', document.getElementById('offline_overlay_gravel').checked);
+                localStorage.setItem('ride_imperial', imperial);
+                var rideUrl = '/ride?url=' + encodeURIComponent(url);
+                rideUrl += '&climbing_power=' + (params.climbing_power || 250);
+                rideUrl += '&flat_power=' + (params.flat_power || 180);
+                rideUrl += '&mass=' + (params.mass || 75);
+                rideUrl += '&headwind=' + (params.headwind || 0);
+                rideUrl += '&smoothing=' + (params.smoothing || 50);
+                if (r.name) rideUrl += '&route_name=' + encodeURIComponent(r.name);
+                if (imperial) rideUrl += '&imperial=1';
+                location.href = rideUrl;
+            };
+
+            // Initialize elevation profile
+            if (profileData && typeof ElevationProfileRenderer !== 'undefined') {
+                setTimeout(function() {
+                    var canvas = document.getElementById('offlineElevationCanvas');
+                    var tooltip = document.getElementById('offlineElevationTooltip');
+                    var selectionPopup = document.getElementById('offlineSelectionPopup');
+                    var zoomOutLink = document.getElementById('offlineZoomOutLink');
+                    var offlineRenderer = null;
+                    var offlineSelectionJustCreated = false;
+
+                    if (canvas && tooltip) {
+                        offlineRenderer = new ElevationProfileRenderer(canvas, profileData, {
+                            imperial: imperial,
+                            showSpeedOverlay: savedSpeed,
+                            showGradeOverlay: savedGrade,
+                            showGravel: savedGravel
+                        });
+
+                        document.getElementById('offlineElevationContainer')._renderer = offlineRenderer;
+
+                        offlineRenderer.onHover = function(dataPoint, x, y) {
+                            var elevUnit = imperial ? 'ft' : 'm';
+                            var elevVal = imperial ? dataPoint.elevation * 3.28084 : dataPoint.elevation;
+                            var gradeStr = dataPoint.grade !== null ? ((dataPoint.grade >= 0 ? '+' : '') + dataPoint.grade.toFixed(1) + '%') : 'N/A';
+                            tooltip.innerHTML = '<div class="grade">' + gradeStr + '</div><div class="elev">' + Math.round(elevVal) + ' ' + elevUnit + '</div>';
+                            tooltip.style.left = x + 'px';
+                            tooltip.style.bottom = '60px';
+                            tooltip.classList.add('visible');
+                        };
+
+                        canvas.addEventListener('mouseleave', function() { tooltip.classList.remove('visible'); });
+
+                        offlineRenderer.onSelect = function(stats, selection) {
+                            tooltip.classList.remove('visible');
+                            if (!selectionPopup || !stats) return;
+                            offlineSelectionJustCreated = true;
+                            setTimeout(function() { offlineSelectionJustCreated = false; }, 0);
+
+                            var imp = imperial;
+                            var distVal = imp ? (stats.distance / 1000 * 0.621371) : (stats.distance / 1000);
+                            var distUnit = imp ? 'mi' : 'km';
+                            var elevGainVal = imp ? (stats.elevGain * 3.28084) : stats.elevGain;
+                            var elevLossVal = imp ? (stats.elevLoss * 3.28084) : stats.elevLoss;
+                            var elevUnit = imp ? 'ft' : 'm';
+
+                            var html = '<span class="selection-close">&times;</span>';
+                            html += '<div class="selection-stat"><span class="stat-label">Duration</span><span class="stat-value">' + formatDuration(stats.duration) + '</span></div>';
+                            html += '<div class="selection-stat"><span class="stat-label">Distance</span><span class="stat-value">' + distVal.toFixed(1) + ' ' + distUnit + '</span></div>';
+                            html += '<div class="selection-stat"><span class="stat-label">Elev Gain</span><span class="stat-value">+' + Math.round(elevGainVal) + ' ' + elevUnit + '</span></div>';
+                            html += '<div class="selection-stat"><span class="stat-label">Elev Loss</span><span class="stat-value">' + Math.round(elevLossVal) + ' ' + elevUnit + '</span></div>';
+                            var isZoomed = offlineRenderer && (offlineRenderer.viewRange.start > 0 || offlineRenderer.viewRange.end < 1);
+                            html += '<div class="selection-zoom-btn">' + (isZoomed ? 'Zoom Out' : 'Zoom In') + '</div>';
+
+                            selectionPopup.innerHTML = html;
+                            selectionPopup.style.display = 'block';
+                            var rect = canvas.getBoundingClientRect();
+                            var centerX = offlineRenderer._normToCanvasX((selection.start + selection.end) / 2);
+                            selectionPopup.style.left = (centerX / rect.width * 100) + '%';
+                            selectionPopup.style.bottom = '70px';
+
+                            selectionPopup.querySelector('.selection-close').onclick = function(ev) { ev.stopPropagation(); clearSel(); };
+                            selectionPopup.querySelector('.selection-zoom-btn').onclick = function(ev) {
+                                ev.stopPropagation();
+                                if (isZoomed) { offlineRenderer.resetZoom(); zoomOutLink.style.display = 'none'; }
+                                else { offlineRenderer.zoomToSelection(); zoomOutLink.style.display = 'block'; }
+                                clearSel();
+                            };
+                        };
+
+                        function clearSel() {
+                            if (offlineRenderer) offlineRenderer.selection = null;
+                            selectionPopup.style.display = 'none';
+                            selectionPopup.innerHTML = '';
+                            if (offlineRenderer) offlineRenderer.render();
+                        }
+
+                        zoomOutLink.querySelector('a').onclick = function(e) {
+                            e.preventDefault();
+                            offlineRenderer.resetZoom();
+                            zoomOutLink.style.display = 'none';
+                            clearSel();
+                        };
+
+                        document.addEventListener('click', function(e) {
+                            if (offlineSelectionJustCreated) return;
+                            if (selectionPopup.style.display !== 'none' && !selectionPopup.contains(e.target) && !canvas.contains(e.target)) clearSel();
+                        });
+                        document.addEventListener('keydown', function(e) { if (e.key === 'Escape') clearSel(); });
+
+                        offlineRenderer.init();
+
+                        // Checkbox handlers - save to localStorage with mutual exclusivity
+                        document.getElementById('offline_overlay_speed').onchange = function() {
+                            // Speed and grade are mutually exclusive
+                            if (this.checked) {
+                                var gradeCheckbox = document.getElementById('offline_overlay_grade');
+                                if (gradeCheckbox && gradeCheckbox.checked) {
+                                    gradeCheckbox.checked = false;
+                                    offlineRenderer.showGradeOverlay = false;
+                                    localStorage.setItem('overlay_grade', 'false');
+                                }
+                            }
+                            offlineRenderer.showSpeedOverlay = this.checked;
+                            localStorage.setItem('overlay_speed', this.checked);
+                            offlineRenderer.render();
+                        };
+                        document.getElementById('offline_overlay_grade').onchange = function() {
+                            // Speed and grade are mutually exclusive
+                            if (this.checked) {
+                                var speedCheckbox = document.getElementById('offline_overlay_speed');
+                                if (speedCheckbox && speedCheckbox.checked) {
+                                    speedCheckbox.checked = false;
+                                    offlineRenderer.showSpeedOverlay = false;
+                                    localStorage.setItem('overlay_speed', 'false');
+                                }
+                            }
+                            offlineRenderer.showGradeOverlay = this.checked;
+                            localStorage.setItem('overlay_grade', this.checked);
+                            offlineRenderer.render();
+                        };
+                        document.getElementById('offline_overlay_gravel').onchange = function() {
+                            offlineRenderer.showGravel = this.checked;
+                            localStorage.setItem('overlay_gravel', this.checked);
+                            offlineRenderer.render();
+                        };
+
+                        window.addEventListener('resize', function() { if (offlineRenderer) offlineRenderer.resize(); });
+                    }
+                }, 100);
+            }
+
+            document.title = (r.name || 'Route') + ' (Offline) | Reality Check my Route';
         }
 
         function isImperial() {
@@ -1397,10 +1798,81 @@
             tbody.appendChild(totalsRow);
         }
 
-        document.getElementById('analyzeForm').addEventListener('submit', function(e) {
+        document.getElementById('analyzeForm').addEventListener('submit', async function(e) {
             var mode = document.getElementById('mode').value;
+
+            // Check if offline and handle accordingly
+            if (!navigator.onLine) {
+                e.preventDefault();
+
+                if (mode === 'collection') {
+                    showError('Collection analysis is not available offline. Please connect to the internet or view your saved routes.');
+                    return;
+                }
+
+                // Single route mode - try to load from offline storage
+                var url = document.getElementById('url').value.trim();
+                if (!url) {
+                    showError('Please enter a route URL.');
+                    return;
+                }
+
+                var submitBtn = document.getElementById('submitBtn');
+                submitBtn.disabled = true;
+                submitBtn.textContent = 'Loading...';
+
+                try {
+                    if (typeof offlineStorage === 'undefined') {
+                        throw new Error('Offline storage not available');
+                    }
+
+                    await offlineStorage.init();
+
+                    // Get saved route metadata (includes the params it was saved with)
+                    var savedRoute = await offlineStorage.getSavedRoute(url);
+                    if (!savedRoute) {
+                        throw new Error('This route is not saved for offline use. Save routes while online to access them offline.');
+                    }
+
+                    // Use the params the route was saved with
+                    var params = savedRoute.analysisParams;
+                    if (!params) {
+                        throw new Error('Saved route is missing analysis parameters.');
+                    }
+
+                    // Get cached analysis data using saved params
+                    var analysisResult = await offlineStorage.getAnalysis(url, params);
+                    if (!analysisResult) {
+                        // Try to use the summary stats from the saved route
+                        analysisResult = {
+                            name: savedRoute.name,
+                            distance_km: savedRoute.distance_km,
+                            work_kj: savedRoute.work_kj,
+                            elevation_m: savedRoute.elevation_m,
+                            time_seconds: savedRoute.time_seconds
+                        };
+                    }
+
+                    // Get cached profile data using saved params
+                    var profileData = await offlineStorage.getProfileData(url, params);
+
+                    // Redirect to display the cached results
+                    // We need to render results client-side since we can't POST to server
+                    renderOfflineResults(analysisResult, profileData, url, params);
+
+                    submitBtn.disabled = false;
+                    submitBtn.textContent = 'Analyze';
+                } catch (err) {
+                    console.error('Offline load error:', err);
+                    showError(err.message || 'Failed to load offline data.');
+                    submitBtn.disabled = false;
+                    submitBtn.textContent = 'Analyze';
+                }
+                return;
+            }
+
             if (mode !== 'collection') {
-                // For single routes, URL will be saved after results load (with name)
+                // For single routes online, let the form submit normally
                 return;
             }
 
@@ -2141,7 +2613,24 @@
                 <span>Share</span>
             </button>
             {% endif %}
-            <button type="button" id="saveOfflineBtn" class="save-offline-btn" onclick="toggleSaveOffline()" title="Save for offline use" data-url="{{ url }}" data-name="{{ result.name|e if result.name else '' }}">
+            <button type="button" id="saveOfflineBtn" class="save-offline-btn" onclick="toggleSaveOffline()" title="Save for offline use"
+                data-url="{{ url }}"
+                data-name="{{ result.name|e if result.name else '' }}"
+                data-time-str="{{ result.time_str }}"
+                data-time-seconds="{{ result.time_seconds }}"
+                data-distance-km="{{ result.distance_km }}"
+                data-elevation-m="{{ result.elevation_m }}"
+                data-elevation-loss-m="{{ result.elevation_loss_m }}"
+                data-work-kj="{{ result.work_kj if result.work_kj is not none else '' }}"
+                data-avg-speed-kmh="{{ result.avg_speed_kmh }}"
+                data-avg-watts="{{ result.avg_watts if result.avg_watts is not none else '' }}"
+                data-hilliness-score="{{ result.hilliness_score }}"
+                data-steepness-score="{{ result.steepness_score }}"
+                data-steep-time-seconds="{{ result.steep_time_seconds if result.steep_time_seconds else 0 }}"
+                data-unpaved-pct="{{ result.unpaved_pct if result.unpaved_pct is not none else '' }}"
+                data-elevation-scaled="{{ 'true' if result.elevation_scaled else 'false' }}"
+                data-elevation-scale="{{ result.elevation_scale if result.elevation_scale else 1 }}"
+                data-noise-ratio="{{ result.noise_ratio if result.noise_ratio else '' }}">
                 <svg class="save-icon" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M19 12v7H5v-7H3v7c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2v-7h-2zm-6 .67l2.59-2.58L17 11.5l-5 5-5-5 1.41-1.41L11 12.67V3h2v9.67z"/></svg>
                 <svg class="saved-icon" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" style="display:none"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>
                 <span class="save-text">Save Offline</span>
@@ -2867,7 +3356,7 @@
                         smoothing: parseFloat(document.getElementById('smoothing').value)
                     };
 
-                    // Fetch profile data
+                    // Fetch profile data and climbs in parallel
                     const profileUrl = '/elevation-profile-data?' + new URLSearchParams({
                         url: url,
                         climbing_power: params.climbing_power,
@@ -2877,37 +3366,59 @@
                         smoothing: params.smoothing
                     }).toString();
 
-                    const profileResponse = await fetch(profileUrl);
+                    const climbsUrl = '/api/detect-climbs?' + new URLSearchParams({
+                        url: url,
+                        climbing_power: params.climbing_power,
+                        flat_power: params.flat_power,
+                        mass: params.mass,
+                        headwind: params.headwind,
+                        smoothing: params.smoothing,
+                        sensitivity: 50
+                    }).toString();
+
+                    const [profileResponse, climbsResponse] = await Promise.all([
+                        fetch(profileUrl),
+                        fetch(climbsUrl).catch(() => null)
+                    ]);
+
                     if (!profileResponse.ok) throw new Error('Failed to fetch profile data');
                     const profileData = await profileResponse.json();
+
+                    // Parse climbs response if available
+                    let climbs = null;
+                    if (climbsResponse && climbsResponse.ok) {
+                        const climbsData = await climbsResponse.json();
+                        climbs = climbsData.climbs || null;
+                    }
 
                     // Get route name from profile data or button data attribute
                     const routeName = profileData.route_name || name || 'Unnamed Route';
 
-                    // Calculate summary stats from profile data
-                    console.log('Profile data keys:', Object.keys(profileData));
-                    const totalDistance = profileData.distances ? profileData.distances.reduce((a, b) => a + b, 0) / 1000 : 0; // km
-                    const totalWork = profileData.works ? profileData.works.reduce((a, b) => a + b, 0) / 1000 : 0; // kJ
-                    const totalElevGain = profileData.elev_gains ? profileData.elev_gains.reduce((a, b) => a + b, 0) : 0; // m
-                    const totalTimeHours = profileData.total_time || (profileData.times ? profileData.times[profileData.times.length - 1] : 0);
-                    const totalTime = totalTimeHours * 3600; // convert hours to seconds
-
-                    console.log('Calculated stats:', { totalDistance, totalWork, totalElevGain, totalTime });
-
-                    // Create analysis result with summary stats
+                    // Get full analysis result from button data attributes (server-rendered values)
                     const analysisResult = {
                         name: routeName,
                         url: url,
-                        distance_km: totalDistance,
-                        work_kj: totalWork,
-                        elevation_m: totalElevGain,
-                        time_seconds: totalTime,
+                        time_str: btn.dataset.timeStr || '',
+                        time_seconds: parseFloat(btn.dataset.timeSeconds) || 0,
+                        distance_km: parseFloat(btn.dataset.distanceKm) || 0,
+                        elevation_m: parseFloat(btn.dataset.elevationM) || 0,
+                        elevation_loss_m: parseFloat(btn.dataset.elevationLossM) || 0,
+                        work_kj: btn.dataset.workKj ? parseFloat(btn.dataset.workKj) : null,
+                        avg_speed_kmh: parseFloat(btn.dataset.avgSpeedKmh) || 0,
+                        avg_watts: btn.dataset.avgWatts ? parseFloat(btn.dataset.avgWatts) : null,
+                        hilliness_score: parseFloat(btn.dataset.hillinessScore) || 0,
+                        steepness_score: parseFloat(btn.dataset.steepnessScore) || 0,
+                        steep_time_seconds: parseFloat(btn.dataset.steepTimeSeconds) || 0,
+                        unpaved_pct: btn.dataset.unpavedPct !== '' ? parseFloat(btn.dataset.unpavedPct) : null,
+                        elevation_scaled: btn.dataset.elevationScaled === 'true',
+                        elevation_scale: parseFloat(btn.dataset.elevationScale) || 1,
+                        noise_ratio: btn.dataset.noiseRatio ? parseFloat(btn.dataset.noiseRatio) : null
                     };
 
                     console.log('Analysis result to save:', analysisResult);
 
-                    // Save to IndexedDB
-                    await offlineStorage.saveRoute(url, routeName, params, analysisResult, profileData);
+                    // Save to IndexedDB (including climbs for ride page)
+                    await offlineStorage.saveRoute(url, routeName, params, analysisResult, profileData, climbs);
 
                     btn.classList.remove('saving');
                     btn.classList.add('saved');
@@ -3207,7 +3718,7 @@
                 <a href="https://github.com/sanmi/gpx-analyzer" target="_blank">Source Code</a>
                 <a href="https://github.com/sanmi/gpx-analyzer/issues" target="_blank">Report a Bug</a>
             </div>
-            <div class="footer-version">{{ version_date }} ({{ git_hash }})</div>
+            <div class="footer-version">{{ version_date }} ({{ git_hash }}) · SW v46</div>
             <div class="footer-copyright">© 2025 Frank San Miguel</div>
         </div>
     </div>

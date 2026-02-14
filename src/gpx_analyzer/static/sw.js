@@ -7,7 +7,7 @@
  * - Pages: Network First with cache fallback
  */
 
-const CACHE_VERSION = 'v12';
+const CACHE_VERSION = 'v46';
 const STATIC_CACHE = `gpx-static-${CACHE_VERSION}`;
 const DYNAMIC_CACHE = `gpx-dynamic-${CACHE_VERSION}`;
 
@@ -15,6 +15,7 @@ const DYNAMIC_CACHE = `gpx-dynamic-${CACHE_VERSION}`;
 const STATIC_ASSETS = [
   '/',
   '/saved',
+  '/ride',
   '/static/css/main.css',
   '/static/css/ride.css',
   '/manifest.json',
@@ -24,6 +25,9 @@ const STATIC_ASSETS = [
   '/static/js/profile-renderer.js',
   '/static/icons/apple-touch-icon.png',
 ];
+
+// Pages that should use cached version when offline (ignoring query params)
+const OFFLINE_PAGES = ['/', '/saved', '/ride'];
 
 // Install event - pre-cache static assets
 self.addEventListener('install', (event) => {
@@ -66,6 +70,11 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
+  // Don't intercept POST requests - let them go to the server
+  if (event.request.method !== 'GET') {
+    return;
+  }
+
   // Static assets - cache first
   if (url.pathname.startsWith('/static/')) {
     event.respondWith(cacheFirst(event.request, STATIC_CACHE));
@@ -75,13 +84,19 @@ self.addEventListener('fetch', (event) => {
   // API endpoints - network first
   if (url.pathname === '/elevation-profile-data' ||
       url.pathname === '/analyze' ||
-      url.pathname === '/climbs') {
+      url.pathname === '/climbs' ||
+      url.pathname === '/api/detect-climbs') {
     event.respondWith(networkFirst(event.request, DYNAMIC_CACHE));
     return;
   }
 
-  // Pages - network first with fallback
+  // Pages - use network-first, but fall back to cache when offline
   if (event.request.mode === 'navigate') {
+    const pagePath = url.pathname;
+    if (OFFLINE_PAGES.includes(pagePath)) {
+      event.respondWith(networkFirstWithOfflineFallback(event.request, pagePath));
+      return;
+    }
     event.respondWith(networkFirst(event.request, DYNAMIC_CACHE));
     return;
   }
@@ -128,14 +143,24 @@ async function networkFirst(request, cacheName) {
     return networkResponse;
   } catch (error) {
     console.log('[SW] Network request failed, trying cache:', request.url);
-    const cachedResponse = await cache.match(request);
+
+    // Try dynamic cache first
+    let cachedResponse = await cache.match(request);
+    if (cachedResponse) {
+      return cachedResponse;
+    }
+
+    // Also check static cache (for pre-cached pages like /saved)
+    const staticCache = await caches.open(STATIC_CACHE);
+    cachedResponse = await staticCache.match(request);
     if (cachedResponse) {
       return cachedResponse;
     }
 
     // For navigation requests, try returning the home page
     if (request.mode === 'navigate') {
-      const homeResponse = await cache.match('/');
+      // Check static cache for home page
+      const homeResponse = await staticCache.match('/');
       if (homeResponse) {
         return homeResponse;
       }
@@ -149,6 +174,57 @@ async function networkFirst(request, cacheName) {
         headers: { 'Content-Type': 'application/json' }
       }
     );
+  }
+}
+
+/**
+ * Network-first with offline fallback for known pages
+ * Tries network first (for fresh content), falls back to cache when offline
+ */
+async function networkFirstWithOfflineFallback(request, pagePath) {
+  const staticCache = await caches.open(STATIC_CACHE);
+  const dynamicCache = await caches.open(DYNAMIC_CACHE);
+
+  try {
+    // Try network first
+    const networkResponse = await fetch(request);
+    if (networkResponse.ok) {
+      // Cache the response for offline use
+      dynamicCache.put(request, networkResponse.clone());
+    }
+    return networkResponse;
+  } catch (error) {
+    // Network failed - we're offline, serve from cache
+    console.log('[SW] Network failed, serving from cache:', pagePath);
+
+    // Try dynamic cache first (has query params)
+    let cachedResponse = await dynamicCache.match(request);
+    if (cachedResponse) {
+      return cachedResponse.clone();
+    }
+
+    // Try static cache with just the path
+    cachedResponse = await staticCache.match(pagePath);
+    if (cachedResponse) {
+      return cachedResponse.clone();
+    }
+
+    // Try static cache with request
+    cachedResponse = await staticCache.match(request);
+    if (cachedResponse) {
+      return cachedResponse.clone();
+    }
+
+    // Fallback to home page
+    const homeResponse = await staticCache.match('/');
+    if (homeResponse) {
+      return homeResponse.clone();
+    }
+
+    return new Response('Offline - page not cached', {
+      status: 503,
+      headers: { 'Content-Type': 'text/plain' }
+    });
   }
 }
 
