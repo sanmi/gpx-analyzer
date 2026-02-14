@@ -85,13 +85,16 @@ button:disabled { background: #999; cursor: not-allowed; }
     border-left: 4px solid #2196F3;
 }
 .result-badge {
-    display: inline-block;
-    padding: 2px 8px;
-    border-radius: 12px;
-    font-size: 11px;
+    display: inline-flex;
+    align-items: center;
+    padding: 4px 10px;
+    border-radius: 4px;
+    font-size: 12px;
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.5px;
+    height: 28px;
+    box-sizing: border-box;
 }
 .route-badge {
     background: #E8F5E9;
@@ -114,7 +117,7 @@ button:disabled { background: #999; cursor: not-allowed; }
     margin: 0;
 }
 .share-btn {
-    padding: 4px 8px;
+    padding: 4px 10px;
     background: white;
     border: 1.5px solid var(--primary);
     color: var(--primary);
@@ -127,6 +130,9 @@ button:disabled { background: #999; cursor: not-allowed; }
     font-weight: 500;
     flex-shrink: 0;
     width: auto;
+    height: 28px;
+    box-sizing: border-box;
+    margin: 0;
 }
 .share-btn svg {
     width: 14px;
@@ -1642,23 +1648,28 @@ body.offline {
 .save-offline-btn {
     display: inline-flex;
     align-items: center;
-    gap: 6px;
+    gap: 4px;
     background: #f0f0f0;
-    border: 1px solid #ddd;
-    padding: 6px 12px;
-    border-radius: 6px;
+    border: 1.5px solid #ddd;
+    padding: 4px 10px;
+    border-radius: 4px;
     cursor: pointer;
-    font-size: 0.85em;
+    font-size: 12px;
+    font-weight: 500;
     color: #555;
     transition: all 0.2s;
+    height: 28px;
+    box-sizing: border-box;
+    width: auto;
+    margin: 0;
 }
 .save-offline-btn:hover {
     background: #e8e8e8;
     border-color: #ccc;
 }
 .save-offline-btn svg {
-    width: 18px;
-    height: 18px;
+    width: 14px;
+    height: 14px;
     fill: currentColor;
 }
 .save-offline-btn.saved {
