@@ -35,7 +35,7 @@ from gpx_analyzer.ridewithgps import (
     TripPoint,
 )
 from gpx_analyzer.smoothing import smooth_elevations
-from gpx_analyzer.tunnel import detect_and_correct_tunnels
+from gpx_analyzer.tunnel import detect_and_correct_elevation_anomalies
 from gpx_analyzer.climb import detect_climbs, slider_to_sensitivity, ClimbInfo
 from gpx_analyzer.training import (
     calculate_verbose_metrics,
@@ -2410,7 +2410,7 @@ HTML_TEMPLATE = """
             <ul class="param-list">
                 <li><span class="param-name">Smoothing radius (m)</span> — Gaussian smoothing applied to elevation data. Reduces GPS noise and unrealistic grade spikes while preserving overall climb profile.</li>
                 <li><span class="param-name">Elevation scale</span> — Multiplier applied after smoothing. Auto-calculated from RideWithGPS API (DEM-corrected) elevation when available.</li>
-                <li><span class="param-name">Anomaly detection</span> — Automatic detection of elevation anomalies in DEM (Digital Elevation Model) data, such as tunnels or bridges where DEM shows the surface above rather than the actual path. Anomalies appear as artificial elevation spikes. Detected anomalies are corrected by linear interpolation and highlighted with yellow bands in the elevation profile.</li>
+                <li><span class="param-name">Anomaly detection</span> — Automatic detection of elevation anomalies: (1) spikes from DEM artifacts like tunnels or bridges where elevation shows the surface above rather than the actual path, and (2) dropouts from GPS/sensor errors where elevation briefly drops to zero or unrealistic values. Both are corrected by linear interpolation and highlighted with yellow bands in the elevation profile.</li>
             </ul>
 
             <button class="modal-close" onclick="hideModal('physicsModal')">Got it</button>
@@ -5861,7 +5861,7 @@ def analyze_single_route(url: str, params: RiderParams, smoothing: float | None 
         raise ValueError("Route contains fewer than 2 track points")
 
     # Detect and correct elevation anomalies (tunnels, bridges, etc.) in raw elevation data
-    points, tunnel_corrections = detect_and_correct_tunnels(points)
+    points, tunnel_corrections = detect_and_correct_elevation_anomalies(points)
 
     # Process elevation with noise detection, smoothing, and API scaling
     elev_result = process_elevation_data(points, route_metadata, smoothing_radius, smoothing_override)
@@ -5969,7 +5969,6 @@ def analyze_trip(url: str, smoothing: float | None = None) -> dict:
     if cached is not None:
         return cached
     max_grade_window = config.get("max_grade_window_route", DEFAULTS["max_grade_window_route"])
-    max_grade_smoothing = config.get("max_grade_smoothing", DEFAULTS["max_grade_smoothing"])
 
     trip_points, trip_metadata = get_trip_data(url)
 
@@ -5987,7 +5986,7 @@ def analyze_trip(url: str, smoothing: float | None = None) -> dict:
         ))
 
     # Detect and correct elevation anomalies (tunnels, bridges, etc.) in elevation data
-    track_points, tunnel_corrections = detect_and_correct_tunnels(track_points)
+    track_points, tunnel_corrections = detect_and_correct_elevation_anomalies(track_points)
 
     # Calculate unscaled points (with or without smoothing)
     api_elevation_gain = trip_metadata.get("elevation_gain")
@@ -6013,16 +6012,9 @@ def analyze_trip(url: str, smoothing: float | None = None) -> dict:
         smoothed_points = _scale_elevation_points(track_points, api_elevation_scale)
 
     # Calculate rolling grades for max grade (filters GPS noise)
-    if smoothing_radius > 0:
-        unscaled_points = smooth_elevations(track_points, smoothing_radius, 1.0)
-    else:
-        unscaled_points = track_points
-
-    if max_grade_smoothing > 0:
-        grade_points = smooth_elevations(unscaled_points, max_grade_smoothing, 1.0)
-    else:
-        grade_points = unscaled_points
-    rolling_grades = _calculate_rolling_grades(grade_points, max_grade_window)
+    # Use unscaled points (already computed above with user's smoothing setting)
+    # No extra smoothing - matches how routes work and elevation profile display
+    rolling_grades = _calculate_rolling_grades(unscaled, max_grade_window)
     max_grade = max(rolling_grades) if rolling_grades else 0.0
 
     # Calculate grade histograms using actual timestamps from trip
@@ -6590,7 +6582,7 @@ def _calculate_elevation_profile_data(url: str, params: RiderParams, smoothing: 
         raise ValueError("Route contains fewer than 2 track points")
 
     # Detect and correct elevation anomalies (tunnels, bridges, etc.)
-    points, tunnel_corrections = detect_and_correct_tunnels(points)
+    points, tunnel_corrections = detect_and_correct_elevation_anomalies(points)
 
     # Process elevation with noise detection, smoothing, and API scaling
     elev_result = process_elevation_data(points, route_metadata, smoothing_radius, smoothing_override)
@@ -6737,7 +6729,7 @@ def _calculate_trip_elevation_profile_data(url: str, collapse_stops: bool = Fals
         ))
 
     # Detect and correct elevation anomalies (tunnels, bridges, etc.)
-    track_points, tunnel_corrections = detect_and_correct_tunnels(track_points)
+    track_points, tunnel_corrections = detect_and_correct_elevation_anomalies(track_points)
 
     # Calculate unscaled points (with or without smoothing)
     api_elevation_gain = trip_metadata.get("elevation_gain")
