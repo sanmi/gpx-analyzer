@@ -340,6 +340,12 @@
 
             try {
                 await offlineStorage.clearAll();
+                // Clear the list immediately
+                document.getElementById('savedRoutesList').innerHTML = '';
+                document.getElementById('savedRoutesList').style.display = 'none';
+                document.getElementById('emptyState').style.display = 'block';
+                document.getElementById('clearAllBtn').style.display = 'none';
+                // Refresh stats
                 loadSavedRoutes();
             } catch (e) {
                 alert('Failed to clear data: ' + e.message);
