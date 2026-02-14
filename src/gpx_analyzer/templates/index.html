@@ -2955,10 +2955,13 @@
                     const routeName = profileData.route_name || name || 'Unnamed Route';
 
                     // Calculate summary stats from profile data
+                    console.log('Profile data keys:', Object.keys(profileData));
                     const totalDistance = profileData.distances ? profileData.distances.reduce((a, b) => a + b, 0) / 1000 : 0; // km
                     const totalWork = profileData.works ? profileData.works.reduce((a, b) => a + b, 0) / 1000 : 0; // kJ
                     const totalElevGain = profileData.elev_gains ? profileData.elev_gains.reduce((a, b) => a + b, 0) : 0; // m
                     const totalTime = profileData.total_time || (profileData.times ? profileData.times[profileData.times.length - 1] : 0); // seconds
+
+                    console.log('Calculated stats:', { totalDistance, totalWork, totalElevGain, totalTime });
 
                     // Create analysis result with summary stats
                     const analysisResult = {
@@ -2969,6 +2972,8 @@
                         elevation_m: totalElevGain,
                         time_seconds: totalTime,
                     };
+
+                    console.log('Analysis result to save:', analysisResult);
 
                     // Save to IndexedDB
                     await offlineStorage.saveRoute(url, routeName, params, analysisResult, profileData);

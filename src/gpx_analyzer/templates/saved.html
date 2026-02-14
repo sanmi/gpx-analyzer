@@ -274,18 +274,27 @@
 
                 listEl.innerHTML = '';
                 routes.forEach(function(route, index) {
-                    console.log('Route ' + index + ':', route);
+                    console.log('Route ' + index + ' FULL DATA:', JSON.stringify(route, null, 2));
 
                     var routeName = route.name || 'Unnamed Route';
                     var routeDate = formatDate(route.savedAt);
                     var routeSize = formatSize(route.sizeKb || 0);
                     var routeUrl = encodeURIComponent(route.url);
 
-                    // Format stats
-                    var distance = route.distance_km ? route.distance_km.toFixed(1) + ' km' : '-';
-                    var elevation = route.elevation_m ? Math.round(route.elevation_m) + ' m' : '-';
+                    // Check unit preference from localStorage
+                    var imperial = localStorage.getItem('imperial') === 'true';
+
+                    // Format stats with labels
                     var work = route.work_kj ? Math.round(route.work_kj) + ' kJ' : '-';
                     var time = route.time_seconds ? formatDuration(route.time_seconds) : '-';
+                    var distance, elevation;
+                    if (imperial) {
+                        distance = route.distance_km ? (route.distance_km * 0.621371).toFixed(1) + ' mi' : '-';
+                        elevation = route.elevation_m ? Math.round(route.elevation_m * 3.28084) + ' ft' : '-';
+                    } else {
+                        distance = route.distance_km ? route.distance_km.toFixed(1) + ' km' : '-';
+                        elevation = route.elevation_m ? Math.round(route.elevation_m) + ' m' : '-';
+                    }
 
                     var html = '<li style="display:flex; justify-content:space-between; align-items:center; padding:16px 0; border-bottom:1px solid #eee;">' +
                         '<div style="flex:1; min-width:0;">' +
@@ -293,10 +302,10 @@
                                 '<a href="/?url=' + routeUrl + '">' + routeName + '</a>' +
                             '</div>' +
                             '<div style="display:flex; gap:16px; flex-wrap:wrap; font-size:0.85em; color:#555; margin-bottom:4px;">' +
-                                '<span title="Estimated time">' + time + '</span>' +
-                                '<span title="Distance">' + distance + '</span>' +
-                                '<span title="Elevation gain">' + elevation + '</span>' +
-                                '<span title="Estimated work">' + work + '</span>' +
+                                '<span><strong>Work:</strong> ' + work + '</span>' +
+                                '<span><strong>Time:</strong> ' + time + '</span>' +
+                                '<span><strong>Dist:</strong> ' + distance + '</span>' +
+                                '<span><strong>Elev:</strong> ' + elevation + '</span>' +
                             '</div>' +
                             '<div style="font-size:0.8em; color:#888;">Saved ' + routeDate + ' · ' + routeSize + '</div>' +
                         '</div>' +
