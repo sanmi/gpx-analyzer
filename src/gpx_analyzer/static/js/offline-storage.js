@@ -119,14 +119,19 @@
           resolve();
         };
 
-        // Save route metadata
+        // Save route metadata with summary stats
         const savedRoutes = transaction.objectStore(STORES.SAVED_ROUTES);
         savedRoutes.put({
           url: url,
           name: name,
           savedAt: now,
           analysisParams: analysisParams,
-          sizeKb: this._estimateSize(analysisResult, profileData, climbs)
+          sizeKb: this._estimateSize(analysisResult, profileData, climbs),
+          // Summary stats for display
+          distance_km: analysisResult.distance_km || 0,
+          work_kj: analysisResult.work_kj || 0,
+          elevation_m: analysisResult.elevation_m || 0,
+          time_seconds: analysisResult.time_seconds || 0,
         });
 
         // Save analysis result

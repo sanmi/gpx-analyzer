@@ -216,6 +216,16 @@
             return (kb / 1024).toFixed(1) + ' MB';
         }
 
+        // Format duration (seconds to Xh Ym)
+        function formatDuration(seconds) {
+            var hours = Math.floor(seconds / 3600);
+            var minutes = Math.floor((seconds % 3600) / 60);
+            if (hours > 0) {
+                return hours + 'h ' + (minutes < 10 ? '0' : '') + minutes + 'm';
+            }
+            return minutes + 'm';
+        }
+
         // Load and display saved routes
         async function loadSavedRoutes() {
             const loadingEl = document.getElementById('routesLoading');
@@ -254,24 +264,40 @@
                 listEl.style.display = 'block';
                 clearBtn.style.display = 'inline-block';
 
-                listEl.innerHTML = routes.map(function(route, index) {
-                    const escapedUrl = route.url.replace(/'/g, "\\'").replace(/"/g, '&quot;');
-                    const displayName = route.name || 'Unnamed Route';
-                    const escapedName = displayName.replace(/</g, '&lt;').replace(/>/g, '&gt;');
-                    return '<li class="saved-route-item" data-url="' + escapedUrl + '">' +
-                        '<div class="route-info">' +
-                            '<span class="route-name">' +
-                                '<a href="/?url=' + encodeURIComponent(route.url) + '">' + escapedName + '</a>' +
-                            '</span>' +
-                            '<span class="route-meta">Saved ' + formatDate(route.savedAt) + ' &middot; ' + formatSize(route.sizeKb || 0) + '</span>' +
-                        '</div>' +
-                        '<button type="button" class="delete-btn" data-index="' + index + '">Delete</button>' +
-                    '</li>';
-                }).join('');
+                console.log('Rendering routes:', routes);
 
-                // Add click handlers for delete buttons
-                listEl.querySelectorAll('.delete-btn').forEach(function(btn, index) {
-                    btn.onclick = function() { deleteRoute(routes[index].url); };
+                listEl.innerHTML = '';
+                routes.forEach(function(route, index) {
+                    console.log('Route ' + index + ':', route);
+
+                    var routeName = route.name || 'Unnamed Route';
+                    var routeDate = formatDate(route.savedAt);
+                    var routeSize = formatSize(route.sizeKb || 0);
+                    var routeUrl = encodeURIComponent(route.url);
+
+                    // Format stats
+                    var distance = route.distance_km ? route.distance_km.toFixed(1) + ' km' : '-';
+                    var elevation = route.elevation_m ? Math.round(route.elevation_m) + ' m' : '-';
+                    var work = route.work_kj ? Math.round(route.work_kj) + ' kJ' : '-';
+                    var time = route.time_seconds ? formatDuration(route.time_seconds) : '-';
+
+                    var html = '<li style="display:flex; justify-content:space-between; align-items:center; padding:16px 0; border-bottom:1px solid #eee;">' +
+                        '<div style="flex:1; min-width:0;">' +
+                            '<div style="font-weight:600; color:#333; margin-bottom:6px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">' +
+                                '<a href="/?url=' + routeUrl + '" style="color:#2D3047; text-decoration:none;">' + routeName + '</a>' +
+                            '</div>' +
+                            '<div style="display:flex; gap:16px; flex-wrap:wrap; font-size:0.85em; color:#555; margin-bottom:4px;">' +
+                                '<span title="Estimated time">' + time + '</span>' +
+                                '<span title="Distance">' + distance + '</span>' +
+                                '<span title="Elevation gain">' + elevation + '</span>' +
+                                '<span title="Estimated work">' + work + '</span>' +
+                            '</div>' +
+                            '<div style="font-size:0.8em; color:#888;">Saved ' + routeDate + ' · ' + routeSize + '</div>' +
+                        '</div>' +
+                        '<button type="button" onclick="deleteRoute(\'' + route.url.replace(/'/g, "\\'") + '\')" style="background:#f5f5f5; border:1px solid #ddd; color:#666; padding:8px 16px; border-radius:4px; cursor:pointer; margin-left:16px; flex-shrink:0;">Delete</button>' +
+                    '</li>';
+
+                    listEl.insertAdjacentHTML('beforeend', html);
                 });
 
             } catch (e) {

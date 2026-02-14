@@ -2954,10 +2954,20 @@
                     // Get route name from profile data or button data attribute
                     const routeName = profileData.route_name || name || 'Unnamed Route';
 
-                    // Create a simplified analysis result from the page data
+                    // Calculate summary stats from profile data
+                    const totalDistance = profileData.distances ? profileData.distances.reduce((a, b) => a + b, 0) / 1000 : 0; // km
+                    const totalWork = profileData.works ? profileData.works.reduce((a, b) => a + b, 0) / 1000 : 0; // kJ
+                    const totalElevGain = profileData.elev_gains ? profileData.elev_gains.reduce((a, b) => a + b, 0) : 0; // m
+                    const totalTime = profileData.times_hours ? profileData.times_hours[profileData.times_hours.length - 1] * 3600 : 0; // seconds
+
+                    // Create analysis result with summary stats
                     const analysisResult = {
                         name: routeName,
                         url: url,
+                        distance_km: totalDistance,
+                        work_kj: totalWork,
+                        elevation_m: totalElevGain,
+                        time_seconds: totalTime,
                     };
 
                     // Save to IndexedDB
