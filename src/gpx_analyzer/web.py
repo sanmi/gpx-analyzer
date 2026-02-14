@@ -11,7 +11,6 @@ from flask import Flask, render_template, request, Response, send_file, jsonify
 import matplotlib
 matplotlib.use('Agg')  # Non-interactive backend for server
 import matplotlib.pyplot as plt
-from matplotlib.collections import PolyCollection
 
 from gpx_analyzer import __version_date__, get_git_hash
 from gpx_analyzer.analyzer import analyze, calculate_hilliness, DEFAULT_MAX_GRADE_WINDOW, DEFAULT_MAX_GRADE_SMOOTHING, GRADE_BINS, GRADE_LABELS, STEEP_GRADE_BINS, STEEP_GRADE_LABELS, _calculate_rolling_grades
@@ -58,6 +57,17 @@ from gpx_analyzer.cache import (
     make_profile_data_cache_key,
     make_trip_profile_data_cache_key,
     make_trip_analysis_cache_key,
+)
+from gpx_analyzer.profile import (
+    smooth_speeds,
+    scale_elevation_points,
+)
+from gpx_analyzer.charts import (
+    add_speed_overlay,
+    add_grade_overlay,
+    set_fixed_margins,
+    generate_elevation_profile as _generate_elevation_profile_chart,
+    generate_ride_profile as _generate_ride_profile_chart,
 )
 
 
@@ -959,130 +969,31 @@ def generate_histogram_image(result: dict):
     return send_file(buf, mimetype='image/png')
 
 
-def _smooth_speeds(speeds_ms: list, cum_dist: list, window_m: float = 300) -> list:
-    """Apply distance-based running average to speed data.
-
-    Args:
-        speeds_ms: Speed in m/s for each segment (len = N).
-        cum_dist: Cumulative distance at each point (len = N+1).
-        window_m: Smoothing window in meters.
-
-    Returns list of smoothed speeds in km/h (len = N).
-    """
-    n = len(speeds_ms)
-    if n == 0:
-        return []
-    # Compute segment centers
-    seg_centers = [(cum_dist[j] + cum_dist[j + 1]) / 2 for j in range(n)]
-    half = window_m / 2
-    smoothed = []
-    left = 0
-    running_sum = 0.0
-    window_count = 0
-    right = 0
-    for i in range(n):
-        # Expand right pointer to include segments within window
-        while right < n and seg_centers[right] <= seg_centers[i] + half:
-            running_sum += speeds_ms[right]
-            window_count += 1
-            right += 1
-        # Shrink left pointer to exclude segments outside window
-        while left < n and seg_centers[left] < seg_centers[i] - half:
-            running_sum -= speeds_ms[left]
-            window_count -= 1
-            left += 1
-        smoothed.append((running_sum / window_count * 3.6) if window_count > 0 else 0.0)
-    return smoothed
-
-
+# Wrapper functions that delegate to charts module
 def _add_speed_overlay(ax, times_hours: list, speeds_kmh: list, imperial: bool = False,
                        max_speed_ylim: float | None = None):
-    """Add speed line overlay with right Y-axis to an elevation profile plot.
-
-    Args:
-        max_speed_ylim: Optional max speed in km/h for synchronized Y-axis.
-                        Converted to display units internally.
-    """
-    if imperial:
-        speeds = [s * 0.621371 for s in speeds_kmh]
-        label = 'Speed (mph)'
-        tick_interval = 5
-        max_display = max_speed_ylim * 0.621371 if max_speed_ylim is not None else None
-    else:
-        speeds = list(speeds_kmh)
-        label = 'Speed (km/h)'
-        tick_interval = 10
-        max_display = max_speed_ylim if max_speed_ylim is not None else None
-
-    # Segment midpoint times
-    speed_times = [(times_hours[i] + times_hours[i + 1]) / 2
-                   for i in range(len(speeds))]
-
-    ax2 = ax.twinx()
-    ax2.plot(speed_times, speeds, color='#2196F3', linewidth=1.2, alpha=0.7)
-    ax2.set_ylabel(label, fontsize=10, color='#2196F3')
-    ax2.tick_params(axis='y', labelcolor='#2196F3')
-
-    max_speed = max_display if max_display is not None else (max(speeds) if speeds else 50)
-    max_tick = int(max_speed / tick_interval + 1) * tick_interval
-    ax2.set_yticks(range(0, max_tick + 1, tick_interval))
-    ax2.set_ylim(0, max_tick)
-    ax2.spines['top'].set_visible(False)
+    """Add speed line overlay with right Y-axis."""
+    add_speed_overlay(ax, times_hours, speeds_kmh, imperial, max_speed_ylim)
 
 
 def _add_grade_overlay(ax, times_hours: list, grades: list, max_grade_ylim: float | None = None):
-    """Add grade line overlay with right Y-axis to an elevation profile plot.
+    """Add grade line overlay with right Y-axis."""
+    add_grade_overlay(ax, times_hours, grades, max_grade_ylim)
 
-    Args:
-        ax: Primary matplotlib axis
-        times_hours: X-axis time values
-        grades: Grade values in percent
-        max_grade_ylim: Optional max grade for synchronized Y-axis in comparison mode
-    """
-    # Filter out None grades (stopped segments in trips)
-    grade_times = []
-    grade_values = []
-    for i, g in enumerate(grades):
-        if g is not None and i < len(times_hours) - 1:
-            # Use segment midpoint time
-            grade_times.append((times_hours[i] + times_hours[i + 1]) / 2)
-            grade_values.append(g)
 
-    if not grade_values:
-        ax.spines['right'].set_visible(False)
-        return
+def _set_fixed_margins(fig, fig_width: float, fig_height: float) -> None:
+    """Set fixed margins for consistent coordinate mapping."""
+    set_fixed_margins(fig, fig_width, fig_height)
 
-    ax2 = ax.twinx()
-    ax2.plot(grade_times, grade_values, color='#333333', linewidth=1.2, alpha=0.7)  # Dark gray/black
-    ax2.set_ylabel('Grade (%)', fontsize=10, color='#333333')
-    ax2.tick_params(axis='y', labelcolor='#333333')
 
-    # Calculate Y-axis limits with tick intervals matching speed overlay style
-    actual_max = max(grade_values)
-    actual_min = min(grade_values)
-    tick_interval = 5  # 5% intervals
+def _smooth_speeds(speeds_ms: list, cum_dist: list, window_m: float = 300) -> list:
+    """Apply distance-based running average to speed data."""
+    return smooth_speeds(speeds_ms, cum_dist, window_m)
 
-    # Use provided max or calculate from data (ensure at least 15% range for visibility)
-    if max_grade_ylim is not None:
-        max_tick = int(max_grade_ylim / tick_interval + 1) * tick_interval
-        min_tick = -max_tick  # Symmetric for comparison mode
-    elif actual_min >= 0:
-        # All positive grades
-        max_tick = int(max(actual_max, 15) / tick_interval + 1) * tick_interval
-        min_tick = 0
-    else:
-        # Has negative grades - use actual range with some padding
-        max_tick = int(max(actual_max, 10) / tick_interval + 1) * tick_interval
-        min_tick = int(min(actual_min, -10) / tick_interval - 1) * tick_interval
 
-    ax2.set_yticks(range(min_tick, max_tick + 1, tick_interval))
-    ax2.set_ylim(min_tick, max_tick)
-
-    # Add zero line for reference when showing negative grades
-    if min_tick < 0:
-        ax2.axhline(y=0, color='#333333', linewidth=0.5, alpha=0.3, linestyle='--')
-
-    ax2.spines['top'].set_visible(False)
+def _scale_elevation_points(points: list[TrackPoint], scale: float) -> list[TrackPoint]:
+    """Apply elevation scaling to points without smoothing."""
+    return scale_elevation_points(points, scale)
 
 
 def _calculate_elevation_profile_data(url: str, params: RiderParams, smoothing: float | None = None, smoothing_override: bool = False) -> dict:
@@ -1392,30 +1303,6 @@ def _calculate_trip_elevation_profile_data(url: str, collapse_stops: bool = Fals
     return result
 
 
-def _set_fixed_margins(fig, fig_width: float, fig_height: float) -> None:
-    """Set fixed margins in inches for consistent JavaScript coordinate mapping.
-
-    Uses fixed inch-based margins so that the plot area is predictable
-    regardless of content. The JavaScript uses the formula:
-        left_pct = 0.7 / fig_width
-        right_pct = 1 - 0.7 / fig_width
-    which corresponds to 0.7 inch left margin and 0.7 inch right margin.
-    """
-    # Fixed margins in inches - these match the JavaScript formula
-    left_margin_in = 0.7
-    right_margin_in = 0.7
-    bottom_margin_in = 0.55
-    top_margin_in = 0.35
-
-    # Convert to figure fractions
-    left = left_margin_in / fig_width
-    right = 1 - right_margin_in / fig_width
-    bottom = bottom_margin_in / fig_height
-    top = 1 - top_margin_in / fig_height
-
-    fig.subplots_adjust(left=left, right=right, bottom=bottom, top=top)
-
-
 def generate_elevation_profile(url: str, params: RiderParams, title_time_hours: float | None = None,
                                max_xlim_hours: float | None = None,
                                overlay: str | None = None, imperial: bool = False,
@@ -1432,9 +1319,7 @@ def generate_elevation_profile(url: str, params: RiderParams, title_time_hours: 
         url: RideWithGPS route URL
         params: Rider parameters
         title_time_hours: Optional time to display in title (from calibrated analysis).
-                          If None, uses uncalibrated time from profile data.
         max_xlim_hours: Optional max x-axis limit in hours (for synchronized comparison).
-                        If None, uses the profile's own max time.
         overlay: Optional overlay type (e.g. "speed").
         imperial: If True, use imperial units for overlay axis.
         max_ylim: Optional max y-axis limit in meters (for synchronized comparison).
@@ -1448,111 +1333,18 @@ def generate_elevation_profile(url: str, params: RiderParams, title_time_hours: 
     Returns PNG image as bytes.
     """
     data = _calculate_elevation_profile_data(url, params, smoothing)
-    times_hours = data["times_hours"]
-    elevations = data["elevations"]
-    grades = data["grades"]
-    tunnel_time_ranges = data.get("tunnel_time_ranges", [])
-
-    # Grade to color mapping - matches histogram colors exactly
-    # Main histogram colors: <-10, -10, -8, -6, -4, -2, 0, +2, +4, +6, +8, >10
-    main_colors = [
-        '#4a90d9', '#5a9fd9', '#6aaee0', '#7abde7', '#8acbef', '#9adaf6',
-        '#cccccc',
-        '#ffb399', '#ff9966', '#ff7f33', '#ff6600', '#e55a00'
-    ]
-    # Steep histogram colors: 10-12, 12-14, 14-16, 16-18, 18-20, >20
-    steep_colors = ['#e55a00', '#cc4400', '#b33300', '#992200', '#801100', '#660000']
-
-    def grade_to_color(g):
-        """Map grade to histogram color."""
-        # For grades >= 10%, use steep histogram colors
-        if g >= 10:
-            if g < 12:
-                return steep_colors[0]
-            elif g < 14:
-                return steep_colors[1]
-            elif g < 16:
-                return steep_colors[2]
-            elif g < 18:
-                return steep_colors[3]
-            elif g < 20:
-                return steep_colors[4]
-            else:
-                return steep_colors[5]
-        # For grades < 10%, use main histogram colors
-        for i, threshold in enumerate(GRADE_BINS[1:]):
-            if g < threshold:
-                return main_colors[i]
-        return main_colors[-1]
-
-    # Create figure with dynamic aspect ratio
-    fig_height = 4
-    fig_width = fig_height * aspect_ratio
-    fig, ax = plt.subplots(figsize=(fig_width, fig_height), facecolor='white')
-
-    # Build all polygons and colors at once for efficient rendering
-    # Using PolyCollection is ~30x faster than calling fill_between in a loop
-    polygons = []
-    colors = []
-    for i in range(len(grades)):
-        t0, t1 = times_hours[i], times_hours[i+1]
-        e0, e1 = elevations[i], elevations[i+1]
-        # Each polygon: bottom-left, bottom-right, top-right, top-left
-        polygons.append([(t0, 0), (t1, 0), (t1, e1), (t0, e0)])
-        colors.append(grade_to_color(grades[i]))
-
-    # Draw all filled segments at once
-    coll = PolyCollection(polygons, facecolors=colors, edgecolors='none', linewidths=0)
-    ax.add_collection(coll)
-
-    # Add outline on top
-    ax.plot(times_hours, elevations, color='#333333', linewidth=0.5)
-
-    # Highlight anomaly-corrected regions with vertical bands and markers
-    max_elev = max_ylim if max_ylim is not None else max(elevations) * 1.1
-    for start_time, end_time in tunnel_time_ranges:
-        ax.axvspan(start_time, end_time, alpha=0.25, color='#FFC107', zorder=0.5,
-                   label='Anomaly corrected' if start_time == tunnel_time_ranges[0][0] else None)
-        # Add "A" marker at top center of band
-        mid_time = (start_time + end_time) / 2
-        ax.text(mid_time, max_elev * 0.92, 'A', fontsize=9, fontweight='bold',
-                color='#E65100', ha='center', va='center',
-                bbox=dict(boxstyle='circle,pad=0.2', facecolor='#FFF3E0', edgecolor='#FF9800', linewidth=1))
-
-    # Highlight unpaved/gravel sections with a thin brown strip at the bottom
-    if show_gravel:
-        strip_height = max_elev * 0.03
-        for start_time, end_time in data.get("unpaved_time_ranges", []):
-            ax.fill_between([start_time, end_time], 0, strip_height,
-                            color='#8B6914', alpha=0.5, zorder=1)
-
-    # Style the plot - use xlim parameters for zooming/comparison
-    x_min = min_xlim_hours if min_xlim_hours is not None else 0
-    x_max = max_xlim_hours if max_xlim_hours is not None else times_hours[-1]
-    ax.set_xlim(x_min, x_max)
-    ax.set_ylim(0, max_elev)
-    ax.set_xlabel('Time (hours)', fontsize=10)
-    ax.set_ylabel('Elevation (m)', fontsize=10)
-
-    ax.spines['top'].set_visible(False)
-
-    if overlay == "speed" and data.get("speeds_kmh"):
-        _add_speed_overlay(ax, times_hours, data["speeds_kmh"], imperial, max_speed_ylim=max_speed_ylim)
-    elif overlay == "grade" and data.get("grades"):
-        _add_grade_overlay(ax, times_hours, data["grades"], max_grade_ylim=max_grade_ylim)
-    else:
-        ax.spines['right'].set_visible(False)
-
-    ax.grid(axis='y', alpha=0.3, linestyle='-', linewidth=0.5)
-
-    _set_fixed_margins(fig, fig_width, fig_height)
-
-    buf = io.BytesIO()
-    fig.savefig(buf, format='png', dpi=100,
-                facecolor='white', edgecolor='none')
-    plt.close(fig)
-    buf.seek(0)
-    return buf.getvalue()
+    return _generate_elevation_profile_chart(
+        data,
+        overlay=overlay,
+        imperial=imperial,
+        max_ylim=max_ylim,
+        max_speed_ylim=max_speed_ylim,
+        max_grade_ylim=max_grade_ylim,
+        show_gravel=show_gravel,
+        aspect_ratio=aspect_ratio,
+        min_xlim_hours=min_xlim_hours,
+        max_xlim_hours=max_xlim_hours,
+    )
 
 
 def generate_trip_elevation_profile(url: str, title_time_hours: float | None = None, collapse_stops: bool = False,
@@ -1570,7 +1362,6 @@ def generate_trip_elevation_profile(url: str, title_time_hours: float | None = N
         title_time_hours: Optional time to display in title.
         collapse_stops: If True, use moving time (excludes stops) for x-axis.
         max_xlim_hours: Optional max x-axis limit in hours (for synchronized comparison).
-                        If None, uses the profile's own max time.
         overlay: Optional overlay type (e.g. "speed").
         imperial: If True, use imperial units for overlay axis.
         max_ylim: Optional max y-axis limit in meters (for synchronized comparison).
@@ -1582,93 +1373,19 @@ def generate_trip_elevation_profile(url: str, title_time_hours: float | None = N
     Returns PNG image as bytes.
     """
     data = _calculate_trip_elevation_profile_data(url, collapse_stops=collapse_stops, smoothing=smoothing)
-    times_hours = data["times_hours"]
-    elevations = data["elevations"]
-    grades = data["grades"]
-    tunnel_time_ranges = data.get("tunnel_time_ranges", [])
-
-    # Reuse the same grade-to-color mapping from route profile
-    main_colors = [
-        '#4a90d9', '#5a9fd9', '#6aaee0', '#7abde7', '#8acbef', '#9adaf6',
-        '#cccccc',
-        '#ffb399', '#ff9966', '#ff7f33', '#ff6600', '#e55a00'
-    ]
-    steep_colors = ['#e55a00', '#cc4400', '#b33300', '#992200', '#801100', '#660000']
-
-    def grade_to_color(g):
-        if g is None:
-            return '#ffffff'  # White for stopped segments
-        if g >= 10:
-            if g < 12:
-                return steep_colors[0]
-            elif g < 14:
-                return steep_colors[1]
-            elif g < 16:
-                return steep_colors[2]
-            elif g < 18:
-                return steep_colors[3]
-            elif g < 20:
-                return steep_colors[4]
-            else:
-                return steep_colors[5]
-        for i, threshold in enumerate(GRADE_BINS[1:]):
-            if g < threshold:
-                return main_colors[i]
-        return main_colors[-1]
-
-    fig, ax = plt.subplots(figsize=(14, 4), facecolor='white')
-
-    polygons = []
-    colors = []
-    for i in range(len(grades)):
-        t0, t1 = times_hours[i], times_hours[i+1]
-        e0, e1 = elevations[i], elevations[i+1]
-        polygons.append([(t0, 0), (t1, 0), (t1, e1), (t0, e0)])
-        colors.append(grade_to_color(grades[i]))
-
-    coll = PolyCollection(polygons, facecolors=colors, edgecolors='none', linewidths=0)
-    ax.add_collection(coll)
-
-    ax.plot(times_hours, elevations, color='#333333', linewidth=0.5)
-
-    # Highlight anomaly-corrected regions with vertical bands and markers
-    max_elev = max_ylim if max_ylim is not None else max(elevations) * 1.1
-    for start_time, end_time in tunnel_time_ranges:
-        ax.axvspan(start_time, end_time, alpha=0.25, color='#FFC107', zorder=0.5,
-                   label='Anomaly corrected' if start_time == tunnel_time_ranges[0][0] else None)
-        # Add "A" marker at top center of band
-        mid_time = (start_time + end_time) / 2
-        ax.text(mid_time, max_elev * 0.92, 'A', fontsize=9, fontweight='bold',
-                color='#E65100', ha='center', va='center',
-                bbox=dict(boxstyle='circle,pad=0.2', facecolor='#FFF3E0', edgecolor='#FF9800', linewidth=1))
-
-    # Use xlim parameters for zooming/comparison
-    x_min = min_xlim_hours if min_xlim_hours is not None else 0
-    x_max = max_xlim_hours if max_xlim_hours is not None else times_hours[-1]
-    ax.set_xlim(x_min, x_max)
-    ax.set_ylim(0, max_elev)
-    ax.set_xlabel('Time (hours)', fontsize=10)
-    ax.set_ylabel('Elevation (m)', fontsize=10)
-
-    ax.spines['top'].set_visible(False)
-
-    if overlay == "speed" and data.get("speeds_kmh"):
-        _add_speed_overlay(ax, times_hours, data["speeds_kmh"], imperial, max_speed_ylim=max_speed_ylim)
-    elif overlay == "grade" and data.get("grades"):
-        _add_grade_overlay(ax, times_hours, data["grades"], max_grade_ylim=max_grade_ylim)
-    else:
-        ax.spines['right'].set_visible(False)
-
-    ax.grid(axis='y', alpha=0.3, linestyle='-', linewidth=0.5)
-
-    _set_fixed_margins(fig, 14, 4)
-
-    buf = io.BytesIO()
-    fig.savefig(buf, format='png', dpi=100,
-                facecolor='white', edgecolor='none')
-    plt.close(fig)
-    buf.seek(0)
-    return buf.getvalue()
+    # Use aspect_ratio=3.5 for trips (14/4 = 3.5) to match previous behavior
+    return _generate_elevation_profile_chart(
+        data,
+        overlay=overlay,
+        imperial=imperial,
+        max_ylim=max_ylim,
+        max_speed_ylim=max_speed_ylim,
+        max_grade_ylim=max_grade_ylim,
+        show_gravel=False,
+        aspect_ratio=3.5,
+        min_xlim_hours=min_xlim_hours,
+        max_xlim_hours=max_xlim_hours,
+    )
 
 
 @app.route("/elevation-profile")
@@ -2374,77 +2091,7 @@ def _generate_ride_profile(times_hours: list, elevations: list, grades: list, cl
     Returns:
         PNG image bytes
     """
-    # Grade to color mapping
-    main_colors = [
-        '#4a90d9', '#5a9fd9', '#6aaee0', '#7abde7', '#8acbef', '#9adaf6',
-        '#cccccc',
-        '#ffb399', '#ff9966', '#ff7f33', '#ff6600', '#e55a00'
-    ]
-    steep_colors = ['#e55a00', '#cc4400', '#b33300', '#992200', '#801100', '#660000']
-
-    def grade_to_color(g):
-        if g >= 10:
-            if g < 12: return steep_colors[0]
-            elif g < 14: return steep_colors[1]
-            elif g < 16: return steep_colors[2]
-            elif g < 18: return steep_colors[3]
-            elif g < 20: return steep_colors[4]
-            else: return steep_colors[5]
-        for i, threshold in enumerate(GRADE_BINS[1:]):
-            if g < threshold:
-                return main_colors[i]
-        return main_colors[-1]
-
-    # Figure with dynamic aspect ratio (height fixed, width varies)
-    fig_height = 4
-    fig_width = fig_height * aspect_ratio
-    fig, ax = plt.subplots(figsize=(fig_width, fig_height), facecolor='white')
-
-    # Build polygons for grade coloring
-    polygons = []
-    colors = []
-    for i in range(len(grades)):
-        t0, t1 = times_hours[i], times_hours[i+1]
-        e0, e1 = elevations[i], elevations[i+1]
-        polygons.append([(t0, 0), (t1, 0), (t1, e1), (t0, e0)])
-        colors.append(grade_to_color(grades[i]))
-
-    coll = PolyCollection(polygons, facecolors=colors, edgecolors='none', linewidths=0)
-    ax.add_collection(coll)
-
-    # Add outline
-    ax.plot(times_hours, elevations, color='#333333', linewidth=0.5)
-
-    max_elev = max(elevations) * 1.15
-
-    # Highlight climbs with green bands and numbered markers
-    for climb in climbs:
-        # Green band
-        ax.axvspan(climb.start_time_hours, climb.end_time_hours,
-                   alpha=0.2, color='#4CAF50', zorder=0.5)
-
-        # Numbered marker at top center of band
-        mid_time = (climb.start_time_hours + climb.end_time_hours) / 2
-        ax.text(mid_time, max_elev * 0.92, str(climb.climb_id),
-                fontsize=10, fontweight='bold', color='white', ha='center', va='center',
-                bbox=dict(boxstyle='circle,pad=0.3', facecolor='#4CAF50', edgecolor='#388E3C', linewidth=1.5))
-
-    # Style
-    ax.set_xlim(0, times_hours[-1])
-    ax.set_ylim(0, max_elev)
-    ax.set_xlabel('Time (hours)', fontsize=10)
-    ax.set_ylabel('Elevation (m)', fontsize=10)
-    ax.spines['top'].set_visible(False)
-    ax.spines['right'].set_visible(False)
-    ax.grid(axis='y', alpha=0.3, linestyle='-', linewidth=0.5)
-
-    _set_fixed_margins(fig, fig_width, fig_height)
-
-    buf = io.BytesIO()
-    fig.savefig(buf, format='png', dpi=100, facecolor='white', edgecolor='none')
-    plt.close(fig)
-    buf.seek(0)
-    return buf.getvalue()
+    return _generate_ride_profile_chart(times_hours, elevations, grades, climbs, aspect_ratio)
 
 
 @app.route("/ride")
