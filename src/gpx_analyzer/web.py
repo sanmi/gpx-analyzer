@@ -35,7 +35,7 @@ from gpx_analyzer.ridewithgps import (
     TripPoint,
 )
 from gpx_analyzer.smoothing import smooth_elevations
-from gpx_analyzer.tunnel import detect_and_correct_tunnels
+from gpx_analyzer.tunnel import detect_and_correct_elevation_anomalies
 from gpx_analyzer.climb import detect_climbs, slider_to_sensitivity, ClimbInfo
 from gpx_analyzer.training import (
     calculate_verbose_metrics,
@@ -54,6 +54,7 @@ def _get_config_hash() -> str:
         "climb_threshold_grade", "steep_descent_speed", "steep_descent_grade",
         "straight_descent_speed", "hairpin_speed", "straight_curvature", "hairpin_curvature",
         "drivetrain_efficiency", "gravel_grade", "elevation_scale",
+        "trip_smoothing_enabled",
     ]
     config_str = "|".join(f"{k}={config.get(k, '')}" for k in relevant_keys)
     return hashlib.md5(config_str.encode()).hexdigest()[:8]
@@ -181,10 +182,11 @@ def _get_profile_data_cache_key(url: str, params: "RiderParams", smoothing: floa
     return hashlib.md5(key_str.encode()).hexdigest()
 
 
-def _get_trip_profile_data_cache_key(url: str, collapse_stops: bool, smoothing: float) -> str:
+def _get_trip_profile_data_cache_key(url: str, collapse_stops: bool, smoothing: float,
+                                      trip_smoothing_enabled: bool = True) -> str:
     """Create a cache key for trip profile data."""
     config_hash = _get_config_hash()
-    key_str = f"trip|{url}|{collapse_stops}|{smoothing}|{config_hash}"
+    key_str = f"trip|{url}|{collapse_stops}|{smoothing}|{trip_smoothing_enabled}|{config_hash}"
     return hashlib.md5(key_str.encode()).hexdigest()
 
 
@@ -194,10 +196,11 @@ MAX_TRIP_ANALYSIS_CACHE_ENTRIES = 50
 _trip_analysis_cache_stats = {"hits": 0, "misses": 0}
 
 
-def _get_trip_analysis_cache_key(url: str, smoothing: float) -> str:
+def _get_trip_analysis_cache_key(url: str, smoothing: float,
+                                  trip_smoothing_enabled: bool = True) -> str:
     """Create a cache key for trip analysis."""
     config_hash = _get_config_hash()
-    key_str = f"trip_analysis|{url}|{smoothing}|{config_hash}"
+    key_str = f"trip_analysis|{url}|{smoothing}|{trip_smoothing_enabled}|{config_hash}"
     return hashlib.md5(key_str.encode()).hexdigest()
 
 
@@ -241,6 +244,25 @@ def _cache_profile_data(cache_key: str, data: dict) -> None:
         sorted_keys = sorted(_profile_data_cache.keys(), key=lambda k: _profile_data_cache[k][1])
         for key in sorted_keys[:len(_profile_data_cache) - MAX_PROFILE_DATA_CACHE_ENTRIES]:
             del _profile_data_cache[key]
+
+
+def _scale_elevation_points(points: list[TrackPoint], scale: float) -> list[TrackPoint]:
+    """Apply elevation scaling to points without smoothing.
+
+    This is used when trip_smoothing_enabled is False to scale raw elevation
+    data to match the API-reported elevation gain.
+    """
+    if not points or scale == 1.0:
+        return points
+    first_elev = points[0].elevation or 0
+    result = []
+    for p in points:
+        if p.elevation is not None:
+            scaled_elev = first_elev + (p.elevation - first_elev) * scale
+        else:
+            scaled_elev = None
+        result.append(TrackPoint(lat=p.lat, lon=p.lon, elevation=scaled_elev, time=p.time))
+    return result
 
 
 def _get_profile_data_cache_stats() -> dict:
@@ -2388,7 +2410,7 @@ HTML_TEMPLATE = """
             <ul class="param-list">
                 <li><span class="param-name">Smoothing radius (m)</span> — Gaussian smoothing applied to elevation data. Reduces GPS noise and unrealistic grade spikes while preserving overall climb profile.</li>
                 <li><span class="param-name">Elevation scale</span> — Multiplier applied after smoothing. Auto-calculated from RideWithGPS API (DEM-corrected) elevation when available.</li>
-                <li><span class="param-name">Anomaly detection</span> — Automatic detection of elevation anomalies in DEM (Digital Elevation Model) data, such as tunnels or bridges where DEM shows the surface above rather than the actual path. Anomalies appear as artificial elevation spikes. Detected anomalies are corrected by linear interpolation and highlighted with yellow bands in the elevation profile.</li>
+                <li><span class="param-name">Anomaly detection</span> — Automatic detection of elevation anomalies: (1) spikes from DEM artifacts like tunnels or bridges where elevation shows the surface above rather than the actual path, and (2) dropouts from GPS/sensor errors where elevation briefly drops to zero or unrealistic values. Both are corrected by linear interpolation and highlighted with yellow bands in the elevation profile.</li>
             </ul>
 
             <button class="modal-close" onclick="hideModal('physicsModal')">Got it</button>
@@ -5839,7 +5861,7 @@ def analyze_single_route(url: str, params: RiderParams, smoothing: float | None 
         raise ValueError("Route contains fewer than 2 track points")
 
     # Detect and correct elevation anomalies (tunnels, bridges, etc.) in raw elevation data
-    points, tunnel_corrections = detect_and_correct_tunnels(points)
+    points, tunnel_corrections = detect_and_correct_elevation_anomalies(points)
 
     # Process elevation with noise detection, smoothing, and API scaling
     elev_result = process_elevation_data(points, route_metadata, smoothing_radius, smoothing_override)
@@ -5934,15 +5956,19 @@ def analyze_trip(url: str, smoothing: float | None = None) -> dict:
         Results are cached in memory for faster repeated access.
     """
     config = _load_config() or {}
-    smoothing_radius = smoothing if smoothing is not None else config.get("smoothing", DEFAULTS["smoothing"])
+    trip_smoothing_enabled = config.get("trip_smoothing_enabled", DEFAULTS.get("trip_smoothing_enabled", True))
 
-    # Check cache first
-    cache_key = _get_trip_analysis_cache_key(url, smoothing_radius)
+    if trip_smoothing_enabled:
+        smoothing_radius = smoothing if smoothing is not None else config.get("smoothing", DEFAULTS["smoothing"])
+    else:
+        smoothing_radius = 0.0  # No smoothing for trips
+
+    # Check cache first (include trip_smoothing_enabled in key)
+    cache_key = _get_trip_analysis_cache_key(url, smoothing_radius, trip_smoothing_enabled)
     cached = _get_cached_trip_analysis(cache_key)
     if cached is not None:
         return cached
     max_grade_window = config.get("max_grade_window_route", DEFAULTS["max_grade_window_route"])
-    max_grade_smoothing = config.get("max_grade_smoothing", DEFAULTS["max_grade_smoothing"])
 
     trip_points, trip_metadata = get_trip_data(url)
 
@@ -5960,26 +5986,35 @@ def analyze_trip(url: str, smoothing: float | None = None) -> dict:
         ))
 
     # Detect and correct elevation anomalies (tunnels, bridges, etc.) in elevation data
-    track_points, tunnel_corrections = detect_and_correct_tunnels(track_points)
+    track_points, tunnel_corrections = detect_and_correct_elevation_anomalies(track_points)
 
-    # Apply smoothing for elevation profile and grade calculations
+    # Calculate unscaled points (with or without smoothing)
     api_elevation_gain = trip_metadata.get("elevation_gain")
     api_elevation_scale = 1.0
-    if api_elevation_gain and api_elevation_gain > 0:
-        unscaled = smooth_elevations(track_points, smoothing_radius, 1.0)
-        smoothed_gain = calculate_elevation_gain(unscaled)
-        if smoothed_gain > 0:
-            api_elevation_scale = api_elevation_gain / smoothed_gain
 
-    smoothed_points = smooth_elevations(track_points, smoothing_radius, api_elevation_scale)
+    if smoothing_radius > 0:
+        # Apply smoothing for elevation profile and grade calculations
+        unscaled = smooth_elevations(track_points, smoothing_radius, 1.0)
+    else:
+        # No smoothing - use raw track points
+        unscaled = track_points
+
+    if api_elevation_gain and api_elevation_gain > 0:
+        unscaled_gain = calculate_elevation_gain(unscaled)
+        if unscaled_gain > 0:
+            api_elevation_scale = api_elevation_gain / unscaled_gain
+
+    # Apply scaling to get final points
+    if smoothing_radius > 0:
+        smoothed_points = smooth_elevations(track_points, smoothing_radius, api_elevation_scale)
+    else:
+        # Scale raw points
+        smoothed_points = _scale_elevation_points(track_points, api_elevation_scale)
 
     # Calculate rolling grades for max grade (filters GPS noise)
-    unscaled_points = smooth_elevations(track_points, smoothing_radius, 1.0)
-    if max_grade_smoothing > 0:
-        grade_points = smooth_elevations(unscaled_points, max_grade_smoothing, 1.0)
-    else:
-        grade_points = unscaled_points
-    rolling_grades = _calculate_rolling_grades(grade_points, max_grade_window)
+    # Use unscaled points (already computed above with user's smoothing setting)
+    # No extra smoothing - matches how routes work and elevation profile display
+    rolling_grades = _calculate_rolling_grades(unscaled, max_grade_window)
     max_grade = max(rolling_grades) if rolling_grades else 0.0
 
     # Calculate grade histograms using actual timestamps from trip
@@ -6547,7 +6582,7 @@ def _calculate_elevation_profile_data(url: str, params: RiderParams, smoothing: 
         raise ValueError("Route contains fewer than 2 track points")
 
     # Detect and correct elevation anomalies (tunnels, bridges, etc.)
-    points, tunnel_corrections = detect_and_correct_tunnels(points)
+    points, tunnel_corrections = detect_and_correct_elevation_anomalies(points)
 
     # Process elevation with noise detection, smoothing, and API scaling
     elev_result = process_elevation_data(points, route_metadata, smoothing_radius, smoothing_override)
@@ -6664,10 +6699,15 @@ def _calculate_trip_elevation_profile_data(url: str, collapse_stops: bool = Fals
     Results are cached in memory for faster repeated access.
     """
     config = _load_config() or {}
-    smoothing_radius = smoothing if smoothing is not None else config.get("smoothing", DEFAULTS["smoothing"])
+    trip_smoothing_enabled = config.get("trip_smoothing_enabled", DEFAULTS.get("trip_smoothing_enabled", True))
 
-    # Check cache first
-    cache_key = _get_trip_profile_data_cache_key(url, collapse_stops, smoothing_radius)
+    if trip_smoothing_enabled:
+        smoothing_radius = smoothing if smoothing is not None else config.get("smoothing", DEFAULTS["smoothing"])
+    else:
+        smoothing_radius = 0.0  # No smoothing for trips
+
+    # Check cache first (include trip_smoothing_enabled in key)
+    cache_key = _get_trip_profile_data_cache_key(url, collapse_stops, smoothing_radius, trip_smoothing_enabled)
     cached = _get_cached_profile_data(cache_key)
     if cached is not None:
         return cached
@@ -6689,19 +6729,29 @@ def _calculate_trip_elevation_profile_data(url: str, collapse_stops: bool = Fals
         ))
 
     # Detect and correct elevation anomalies (tunnels, bridges, etc.)
-    track_points, tunnel_corrections = detect_and_correct_tunnels(track_points)
+    track_points, tunnel_corrections = detect_and_correct_elevation_anomalies(track_points)
 
-    # Apply smoothing with API elevation scaling
+    # Calculate unscaled points (with or without smoothing)
     api_elevation_gain = trip_metadata.get("elevation_gain")
     api_elevation_scale = 1.0
-    unscaled_points = smooth_elevations(track_points, smoothing_radius, 1.0)
-    if api_elevation_gain and api_elevation_gain > 0:
-        smoothed_gain = calculate_elevation_gain(unscaled_points)
-        if smoothed_gain > 0:
-            api_elevation_scale = api_elevation_gain / smoothed_gain
 
+    if smoothing_radius > 0:
+        unscaled_points = smooth_elevations(track_points, smoothing_radius, 1.0)
+    else:
+        # No smoothing - use raw track points
+        unscaled_points = track_points
+
+    if api_elevation_gain and api_elevation_gain > 0:
+        unscaled_gain = calculate_elevation_gain(unscaled_points)
+        if unscaled_gain > 0:
+            api_elevation_scale = api_elevation_gain / unscaled_gain
+
+    # Apply scaling to get final points
     if api_elevation_scale != 1.0:
-        scaled_points = smooth_elevations(track_points, smoothing_radius, api_elevation_scale)
+        if smoothing_radius > 0:
+            scaled_points = smooth_elevations(track_points, smoothing_radius, api_elevation_scale)
+        else:
+            scaled_points = _scale_elevation_points(track_points, api_elevation_scale)
     else:
         scaled_points = unscaled_points
 
