@@ -40,6 +40,7 @@
     {% endif %}
     <script defer src="{{ url_for('static', filename='js/sw-register.js') }}"></script>
     <script defer src="{{ url_for('static', filename='js/offline-storage.js') }}"></script>
+    <script defer src="{{ url_for('static', filename='js/profile-renderer.js') }}"></script>
     <script defer src="{{ url_for('static', filename='js/offline-status.js') }}"></script>
 </head>
 <body>
@@ -1045,37 +1046,23 @@
 
             ['1', '2'].forEach(function(suffix) {
                 var container = document.getElementById('elevationContainer' + suffix);
-                var img = document.getElementById('elevationImg' + suffix);
-                var loading = document.getElementById('elevationLoading' + suffix);
-                if (!container || !img) return;
+                if (!container) return;
 
-                var baseProfileUrl = container.getAttribute('data-base-profile-url');
                 var baseDataUrl = container.getAttribute('data-base-data-url');
-                if (!baseProfileUrl) return;
+                if (!baseDataUrl) return;
 
                 var collapseCheckbox = document.getElementById('collapseStops' + suffix);
                 var collapseParam = (collapseCheckbox && collapseCheckbox.checked) ? '&collapse_stops=true' : '';
-                var overlayParams = _buildOverlayParams();
 
                 // Update stored max_xlim_hours
                 container.setAttribute('data-max-xlim-hours', maxXlim.toFixed(4));
 
-                // Show loading spinner
-                if (loading) {
-                    loading.classList.remove('hidden');
-                    img.classList.add('loading');
-                }
-
-                // Update image source with new max_xlim_hours
-                img.src = baseProfileUrl + '&max_xlim_hours=' + maxXlim.toFixed(4) + collapseParam + overlayParams;
-
-                // Re-setup the elevation profile tooltip
-                if (typeof window.setupElevationProfile === 'function' && baseDataUrl) {
+                // Re-setup the elevation profile with Canvas renderer
+                if (typeof window.setupElevationProfile === 'function') {
                     window.setupElevationProfile(
                         'elevationContainer' + suffix,
-                        'elevationImg' + suffix,
+                        'elevationCanvas' + suffix,
                         'elevationTooltip' + suffix,
-                        'elevationCursor' + suffix,
                         baseDataUrl + collapseParam,
                         maxXlim
                     );
@@ -1088,10 +1075,8 @@
             var suffix = profileNum ? profileNum : '';
             var checkbox = document.getElementById('collapseStops' + suffix);
             var container = document.getElementById('elevationContainer' + suffix);
-            var img = document.getElementById('elevationImg' + suffix);
-            var loading = document.getElementById('elevationLoading' + suffix);
 
-            if (!checkbox || !container || !img) return;
+            if (!checkbox || !container) return;
 
             // Save preference to localStorage
             localStorage.setItem('collapseStops' + suffix, checkbox.checked);
@@ -1104,31 +1089,21 @@
                 return;
             }
 
-            // Single profile mode - original behavior
-            var baseProfileUrl = container.getAttribute('data-base-profile-url');
+            // Single profile mode - refetch data with new collapse_stops param
             var baseDataUrl = container.getAttribute('data-base-data-url');
             var maxXlimHours = container.getAttribute('data-max-xlim-hours');
             var maxXlim = maxXlimHours ? parseFloat(maxXlimHours) : null;
 
-            if (!baseProfileUrl) return;
+            if (!baseDataUrl) return;
 
             var collapseParam = checkbox.checked ? '&collapse_stops=true' : '';
-            var overlayParams = _buildOverlayParams();
 
-            // Show loading spinner
-            loading.classList.remove('hidden');
-            img.classList.add('loading');
-
-            // Update image source
-            img.src = baseProfileUrl + collapseParam + overlayParams;
-
-            // Re-setup the elevation profile tooltip with new data URL
-            if (typeof window.setupElevationProfile === 'function' && baseDataUrl) {
+            // Re-setup the elevation profile with Canvas renderer
+            if (typeof window.setupElevationProfile === 'function') {
                 window.setupElevationProfile(
                     'elevationContainer' + suffix,
-                    'elevationImg' + suffix,
+                    'elevationCanvas' + suffix,
                     'elevationTooltip' + suffix,
-                    'elevationCursor' + suffix,
                     baseDataUrl + collapseParam,
                     maxXlim
                 );
@@ -1181,49 +1156,14 @@
                 }
             }
 
-            // Refresh all visible elevation profiles
+            // Update all visible Canvas renderers (no data refetch needed)
             ['', '1', '2'].forEach(function(suffix) {
                 var container = document.getElementById('elevationContainer' + suffix);
-                var img = document.getElementById('elevationImg' + suffix);
-                var loading = document.getElementById('elevationLoading' + suffix);
-                if (!container || !img) return;
+                if (!container) return;
 
-                var baseProfileUrl = container.getAttribute('data-base-profile-url');
-                var baseDataUrl = container.getAttribute('data-base-data-url');
-                var maxXlimHours = container.getAttribute('data-max-xlim-hours');
-                var maxXlim = maxXlimHours ? parseFloat(maxXlimHours) : null;
-                if (!baseProfileUrl) return;
-
-                // Build collapse_stops param for this specific profile
-                var collapseCheckbox = document.getElementById('collapseStops' + suffix);
-                var collapseParam = (collapseCheckbox && collapseCheckbox.checked) ? '&collapse_stops=true' : '';
-                var overlayParams = _buildOverlayParams();
-
-                // Preserve zoom state from container data attributes
-                var xlimParams = '';
-                var zoomMin = container.getAttribute('data-zoom-min');
-                var zoomMax = container.getAttribute('data-zoom-max');
-                if (zoomMin && zoomMax) {
-                    // Zoomed: use zoom bounds
-                    xlimParams = '&min_xlim_hours=' + zoomMin + '&max_xlim_hours=' + zoomMax;
-                } else if (maxXlim) {
-                    // Not zoomed but in comparison mode: use synchronized max_xlim
-                    xlimParams = '&max_xlim_hours=' + maxXlim.toFixed(4);
-                }
-
-                loading.classList.remove('hidden');
-                img.classList.add('loading');
-                img.src = baseProfileUrl + collapseParam + overlayParams + xlimParams;
-
-                if (typeof window.setupElevationProfile === 'function' && baseDataUrl) {
-                    window.setupElevationProfile(
-                        'elevationContainer' + suffix,
-                        'elevationImg' + suffix,
-                        'elevationTooltip' + suffix,
-                        'elevationCursor' + suffix,
-                        baseDataUrl + collapseParam,
-                        maxXlim
-                    );
+                // Call the renderer's update method if available
+                if (typeof container._updateRendererOptions === 'function') {
+                    container._updateRendererOptions();
                 }
             });
 
@@ -2712,15 +2652,11 @@
                     <div class="elevation-loading" id="elevationLoading1">
                         <div class="elevation-spinner"></div>
                     </div>
-                    <img src=""
-                         alt="Elevation profile - Route 1" id="elevationImg1" class="loading"
-                         onload="document.getElementById('elevationLoading1').classList.add('hidden'); this.classList.remove('loading');">
-                    <div class="elevation-cursor" id="elevationCursor1"></div>
+                    <canvas id="elevationCanvas1" class="elevation-canvas"></canvas>
                     <div class="elevation-tooltip" id="elevationTooltip1">
                         <div class="grade">--</div>
                         <div class="elev">--</div>
                     </div>
-                    <div class="elevation-selection" id="elevationSelection1"></div>
                     <div class="elevation-selection-popup" id="elevationSelectionPopup1" style="display: none;"></div>
                     <div class="zoom-out-link" id="zoomOutLink1" style="display: none;"><a href="#" onclick="return false;">Zoom Out</a></div>
                 </div>
@@ -2756,15 +2692,11 @@
                     <div class="elevation-loading" id="elevationLoading2">
                         <div class="elevation-spinner"></div>
                     </div>
-                    <img src=""
-                         alt="Elevation profile - Route 2" id="elevationImg2" class="loading"
-                         onload="document.getElementById('elevationLoading2').classList.add('hidden'); this.classList.remove('loading');">
-                    <div class="elevation-cursor" id="elevationCursor2"></div>
+                    <canvas id="elevationCanvas2" class="elevation-canvas"></canvas>
                     <div class="elevation-tooltip" id="elevationTooltip2">
                         <div class="grade">--</div>
                         <div class="elev">--</div>
                     </div>
-                    <div class="elevation-selection" id="elevationSelection2"></div>
                     <div class="elevation-selection-popup" id="elevationSelectionPopup2" style="display: none;"></div>
                     <div class="zoom-out-link" id="zoomOutLink2" style="display: none;"><a href="#" onclick="return false;">Zoom Out</a></div>
                 </div>
@@ -2808,15 +2740,11 @@
                 <div class="elevation-loading" id="elevationLoading">
                     <div class="elevation-spinner"></div>
                 </div>
-                <img src="/elevation-profile?url={{ url|urlencode }}&climbing_power={{ climbing_power }}&flat_power={{ flat_power }}&mass={{ mass }}&headwind={{ headwind }}&descending_power={{ descending_power }}&descent_braking_factor={{ descent_braking_factor }}&gravel_grade={{ gravel_grade }}&smoothing={{ smoothing|int }}"
-                     alt="Elevation profile" id="elevationImg" class="loading"
-                     onload="document.getElementById('elevationLoading').classList.add('hidden'); this.classList.remove('loading');">
-                <div class="elevation-cursor" id="elevationCursor"></div>
+                <canvas id="elevationCanvas" class="elevation-canvas"></canvas>
                 <div class="elevation-tooltip" id="elevationTooltip">
                     <div class="grade">--</div>
                     <div class="elev">--</div>
                 </div>
-                <div class="elevation-selection" id="elevationSelection"></div>
                 <div class="elevation-selection-popup" id="elevationSelectionPopup" style="display: none;"></div>
                 <div class="zoom-out-link" id="zoomOutLink" style="display: none;"><a href="#" onclick="return false;">Zoom Out</a></div>
             </div>
@@ -2996,133 +2924,30 @@
             }
         };
 
-        // Elevation profile hover interaction
+        // Elevation profile Canvas-based rendering
         // Setup function for a single profile (global so toggleCollapseStops/toggleOverlay can call it)
         // maxXlimHours: optional max x-axis time (for synchronized comparison profiles)
-        window.setupElevationProfile = function(containerId, imgId, tooltipId, cursorId, dataUrl, maxXlimHours) {
+        window.setupElevationProfile = function(containerId, canvasId, tooltipId, dataUrl, maxXlimHours) {
             const container = document.getElementById(containerId);
-            const img = document.getElementById(imgId);
+            const canvas = document.getElementById(canvasId);
             const tooltip = document.getElementById(tooltipId);
-            const cursor = document.getElementById(cursorId);
-            if (!container || !img || !tooltip || !cursor) return;
+            if (!container || !canvas || !tooltip) return;
 
-            // Derive selection element IDs from container suffix
+            // Derive element IDs from container suffix
             const suffix = containerId.replace('elevationContainer', '');
-            const selection = document.getElementById('elevationSelection' + suffix);
             const selectionPopup = document.getElementById('elevationSelectionPopup' + suffix);
-
-            let profileData = null;
-            let xlimHours = maxXlimHours || null;
-
-            // Selection state
-            let selectionStart = null;  // xPct where drag started
-            let isSelecting = false;
-            let selectionActive = false;
-
-            // Zoom state - restore from container data attributes if present
-            const savedZoomMin = container.getAttribute('data-zoom-min');
-            const savedZoomMax = container.getAttribute('data-zoom-max');
-            let isZoomed = !!(savedZoomMin && savedZoomMax);
-            let zoomMinHours = savedZoomMin ? parseFloat(savedZoomMin) : null;
-            let zoomMaxHours = savedZoomMax ? parseFloat(savedZoomMax) : null;
-            let selectionStartTime = null;
-            let selectionEndTime = null;
             const zoomOutLink = document.getElementById('zoomOutLink' + suffix);
+            const loading = document.getElementById('elevationLoading' + suffix);
 
-            // Clear any stale popup and selection from previous initialization
-            if (selectionPopup) { selectionPopup.style.display = 'none'; selectionPopup.innerHTML = ''; }
-            if (selection) selection.classList.remove('visible');
+            let renderer = null;
+            let xlimHours = maxXlimHours || null;
+            let selectionJustCreated = false;
 
-            // Show/hide zoom out link based on restored state
-            if (zoomOutLink) {
-                zoomOutLink.style.display = isZoomed ? 'block' : 'none';
-                if (isZoomed) {
-                    zoomOutLink.querySelector('a').onclick = function(e) {
-                        e.preventDefault();
-                        zoomOut();
-                    };
-                }
-            }
+            // Store renderer on container for access by overlay toggles
+            container._renderer = null;
+            container._dataUrl = dataUrl;
 
-            // Fetch profile data
-            fetch(dataUrl)
-                .then(r => {
-                    if (!r.ok) {
-                        console.error('Profile data fetch failed:', r.status, r.statusText, dataUrl);
-                        return { error: 'HTTP ' + r.status };
-                    }
-                    return r.json();
-                })
-                .then(data => {
-                    if (data && !data.error) {
-                        profileData = data;
-                        if (!xlimHours) xlimHours = profileData.total_time;
-                    } else if (data && data.error) {
-                        console.error('Profile data error:', data.error, dataUrl);
-                    }
-                })
-                .catch(err => console.error('Profile data fetch exception:', err, dataUrl));
-
-            // The plot area margins match _set_fixed_margins() for figsize=(14,4)
-            // Left: 0.7in/14in = 0.05, Right: 1 - 0.7in/14in = 0.95
-            // These are constant regardless of speed overlay (overlay shares same plot area)
-            const plotLeftPct = 0.05;
-            const plotRightPct = 0.95;
-
-            function getDataAtPosition(xPct) {
-                if (!profileData || !profileData.times || profileData.times.length < 2) return null;
-
-                const plotXPct = (xPct - plotLeftPct) / (plotRightPct - plotLeftPct);
-                if (plotXPct < 0 || plotXPct > 1) return null;
-
-                // Use zoom bounds if zoomed, otherwise full range
-                const minTime = isZoomed ? zoomMinHours : 0;
-                const maxTime = isZoomed ? zoomMaxHours : (xlimHours || profileData.total_time);
-                const time = minTime + plotXPct * (maxTime - minTime);
-                if (time > profileData.total_time || time < 0) return null;
-
-                for (let i = 0; i < profileData.times.length - 1; i++) {
-                    if (time >= profileData.times[i] && time < profileData.times[i + 1]) {
-                        return {
-                            grade: profileData.grades[i],
-                            elevation: profileData.elevations[i] || 0,
-                            speed: profileData.speeds ? profileData.speeds[i] : null,
-                            time: time
-                        };
-                    }
-                }
-                const lastIdx = profileData.grades.length - 1;
-                return {
-                    grade: profileData.grades[lastIdx],
-                    elevation: profileData.elevations[lastIdx + 1] || 0,
-                    speed: profileData.speeds ? profileData.speeds[lastIdx] : null,
-                    time: time
-                };
-            }
-
-            function getIndexAtPosition(xPct) {
-                if (!profileData || !profileData.times || profileData.times.length < 2) return -1;
-                // Clamp to plot boundaries so extremities still work
-                const plotXPct = Math.max(0, Math.min(1, (xPct - plotLeftPct) / (plotRightPct - plotLeftPct)));
-                // Use zoom bounds if zoomed
-                const minTime = isZoomed ? zoomMinHours : 0;
-                const maxTime = isZoomed ? zoomMaxHours : (xlimHours || profileData.total_time);
-                const time = Math.max(0, Math.min(minTime + plotXPct * (maxTime - minTime), profileData.total_time));
-                for (let i = 0; i < profileData.times.length - 1; i++) {
-                    if (time >= profileData.times[i] && time < profileData.times[i + 1]) return i;
-                }
-                return profileData.times.length - 2;
-            }
-
-            // Convert time to index (for selection repositioning after zoom)
-            function getIndexAtTime(time) {
-                if (!profileData || !profileData.times || profileData.times.length < 2) return -1;
-                for (let i = 0; i < profileData.times.length - 1; i++) {
-                    if (time >= profileData.times[i] && time < profileData.times[i + 1]) return i;
-                }
-                return profileData.times.length - 2;
-            }
-
+            // Helper functions
             function formatGrade(g) {
                 if (g === null || g === undefined) return 'Stopped';
                 const sign = g >= 0 ? '+' : '';
@@ -3143,128 +2968,39 @@
                 return h + 'h ' + m.toString().padStart(2, '0') + 'm';
             }
 
-            // Tooltip helpers
-            function updateTooltip(xPct, clientX) {
-                const data = getDataAtPosition(xPct);
-                if (data) {
-                    tooltip.querySelector('.grade').textContent = formatGrade(data.grade);
-                    const elevUnit = isImperial() ? 'ft' : 'm';
-                    const elevVal = isImperial() ? data.elevation * 3.28084 : data.elevation;
-                    var speedText = '';
-                    if (data.speed !== null && data.speed !== undefined) {
-                        var speedUnit = isImperial() ? 'mph' : 'km/h';
-                        var speedVal = isImperial() ? data.speed * 0.621371 : data.speed;
-                        speedText = ' | ' + speedVal.toFixed(1) + ' ' + speedUnit;
-                    }
-                    tooltip.querySelector('.elev').textContent = Math.round(elevVal) + ' ' + elevUnit + speedText + ' | ' + formatTime(data.time);
-
-                    const rect = img.getBoundingClientRect();
-                    const xPos = clientX - rect.left;
-                    tooltip.style.left = xPos + 'px';
-                    tooltip.style.bottom = '60px';
-                    tooltip.classList.add('visible');
-                    cursor.style.left = xPos + 'px';
-                    cursor.classList.add('visible');
-                } else {
-                    hideTooltip();
+            function updateTooltip(data, x, y) {
+                if (!data) return;
+                tooltip.querySelector('.grade').textContent = formatGrade(data.grade);
+                const elevUnit = isImperial() ? 'ft' : 'm';
+                const elevVal = isImperial() ? data.elevation * 3.28084 : data.elevation;
+                var speedText = '';
+                if (data.speed !== null && data.speed !== undefined) {
+                    var speedUnit = isImperial() ? 'mph' : 'km/h';
+                    var speedVal = isImperial() ? data.speed * 0.621371 : data.speed;
+                    speedText = ' | ' + speedVal.toFixed(1) + ' ' + speedUnit;
                 }
+                tooltip.querySelector('.elev').textContent = Math.round(elevVal) + ' ' + elevUnit + speedText + ' | ' + formatTime(data.time);
+                tooltip.style.left = x + 'px';
+                tooltip.style.bottom = '60px';
+                tooltip.classList.add('visible');
             }
 
             function hideTooltip() {
                 tooltip.classList.remove('visible');
-                cursor.classList.remove('visible');
             }
 
-            // Selection helpers
-            function updateSelectionHighlight(startXPct, endXPct) {
-                if (!selection) return;
-                // Clamp to plot area so highlight doesn't extend into axis margins
-                const clampedStart = Math.max(plotLeftPct, Math.min(plotRightPct, startXPct));
-                const clampedEnd = Math.max(plotLeftPct, Math.min(plotRightPct, endXPct));
-                const left = Math.min(clampedStart, clampedEnd) * 100;
-                const right = Math.max(clampedStart, clampedEnd) * 100;
-                selection.style.left = left + '%';
-                selection.style.width = (right - left) + '%';
-                selection.classList.add('visible');
-            }
-
-            function computeSelectionStats(startIdx, endIdx) {
-                if (!profileData) return null;
-                const d = profileData;
-                const i = Math.min(startIdx, endIdx);
-                const j = Math.max(startIdx, endIdx);
-                if (i < 0 || j >= d.times.length) return null;
-
-                // Duration (hours)
-                const duration = d.times[j + 1 < d.times.length ? j + 1 : j] - d.times[i];
-
-                // Distance (meters -> km)
-                let distM = 0;
-                if (d.distances) {
-                    for (let k = i; k <= j; k++) distM += (d.distances[k] || 0);
-                }
-                const distKm = distM / 1000;
-
-                // Elevation gain/loss - use pre-computed arrays to survive downsampling
-                let elevGain = 0, elevLoss = 0;
-                if (d.elev_gains && d.elev_losses) {
-                    for (let k = i; k <= j; k++) {
-                        elevGain += (d.elev_gains[k] || 0);
-                        elevLoss += (d.elev_losses[k] || 0);
-                    }
-                } else {
-                    for (let k = i; k <= j; k++) {
-                        const diff = (d.elevations[k + 1] !== undefined ? d.elevations[k + 1] : d.elevations[k]) - d.elevations[k];
-                        if (diff > 0) elevGain += diff;
-                        else elevLoss += diff;
-                    }
-                }
-
-                // Avg grade
-                let gradeSum = 0, gradeCount = 0;
-                for (let k = i; k <= j; k++) {
-                    if (d.grades[k] !== null && d.grades[k] !== undefined) {
-                        gradeSum += d.grades[k];
-                        gradeCount++;
-                    }
-                }
-                const avgGrade = gradeCount > 0 ? gradeSum / gradeCount : null;
-
-                // Avg speed (km/h) = total distance / total time
-                const avgSpeed = (duration > 0 && distKm > 0) ? distKm / duration : null;
-
-                // Total work (using pre-computed works array for accuracy)
-                let workJ = 0;
-                if (d.works) {
-                    for (let k = i; k <= j; k++) {
-                        workJ += (d.works[k] || 0);
-                    }
-                } else if (d.powers) {
-                    // Fall back to power*time if works not available
-                    for (let k = i; k <= j; k++) {
-                        if (d.powers[k] !== null && d.powers[k] !== undefined) {
-                            const dt = ((d.times[k + 1 < d.times.length ? k + 1 : k] - d.times[k]) * 3600);
-                            workJ += d.powers[k] * dt;
-                        }
-                    }
-                }
-                // Avg power = work / time (matches summary calculation)
-                const durationSec = duration * 3600;
-                const avgPower = (workJ > 0 && durationSec > 0) ? workJ / durationSec : null;
-                const workKJ = workJ / 1000;
-
-                return { duration, distKm, elevGain, elevLoss, avgGrade, avgSpeed, avgPower, workKJ };
-            }
-
-            function showSelectionPopup(stats, xPctCenter) {
+            function showSelectionPopup(stats, canvasX) {
                 if (!selectionPopup || !stats) return;
+                // Set flag to prevent immediate dismissal by click handler
+                selectionJustCreated = true;
+                setTimeout(() => { selectionJustCreated = false; }, 0);
                 const imp = isImperial();
-                const distVal = imp ? (stats.distKm * 0.621371) : stats.distKm;
+                const distVal = imp ? (stats.distance / 1000 * 0.621371) : (stats.distance / 1000);
                 const distUnit = imp ? 'mi' : 'km';
                 const elevGainVal = imp ? (stats.elevGain * 3.28084) : stats.elevGain;
                 const elevLossVal = imp ? (stats.elevLoss * 3.28084) : stats.elevLoss;
                 const elevUnit = imp ? 'ft' : 'm';
-                const speedVal = stats.avgSpeed !== null ? (imp ? stats.avgSpeed * 0.621371 : stats.avgSpeed) : null;
+                const speedVal = stats.avgSpeed > 0 ? (imp ? stats.avgSpeed * 0.621371 : stats.avgSpeed) : null;
                 const speedUnit = imp ? 'mph' : 'km/h';
 
                 let html = '<span class="selection-close">&times;</span>';
@@ -3272,25 +3008,24 @@
                 html += '<div class="selection-stat"><span class="stat-label">Distance</span><span class="stat-value">' + distVal.toFixed(1) + ' ' + distUnit + '</span></div>';
                 html += '<div class="selection-stat"><span class="stat-label">Elev Gain</span><span class="stat-value">+' + Math.round(elevGainVal) + ' ' + elevUnit + '</span></div>';
                 html += '<div class="selection-stat"><span class="stat-label">Elev Loss</span><span class="stat-value">' + Math.round(elevLossVal) + ' ' + elevUnit + '</span></div>';
-                if (stats.avgGrade !== null) {
-                    html += '<div class="selection-stat"><span class="stat-label">Avg Grade</span><span class="stat-value">' + formatGrade(stats.avgGrade) + '</span></div>';
-                }
                 if (speedVal !== null) {
                     html += '<div class="selection-stat"><span class="stat-label">Avg Speed</span><span class="stat-value">' + speedVal.toFixed(1) + ' ' + speedUnit + '</span></div>';
                 }
-                if (stats.avgPower !== null) {
-                    html += '<div class="selection-stat"><span class="stat-label">Avg Power</span><span class="stat-value">' + Math.round(stats.avgPower) + ' W</span></div>';
-                    html += '<div class="selection-stat"><span class="stat-label">Work</span><span class="stat-value">' + stats.workKJ.toFixed(1) + ' kJ</span></div>';
+                if (stats.work > 0) {
+                    html += '<div class="selection-stat"><span class="stat-label">Work</span><span class="stat-value">' + stats.work.toFixed(1) + ' kJ</span></div>';
                 }
 
                 // Add zoom button
+                const isZoomed = renderer && (renderer.viewRange.start > 0 || renderer.viewRange.end < 1);
                 html += '<div class="selection-zoom-btn">' + (isZoomed ? 'Zoom Out' : 'Zoom In') + '</div>';
 
                 selectionPopup.innerHTML = html;
                 selectionPopup.style.display = 'block';
-                selectionPopup.style.left = (xPctCenter * 100) + '%';
+                // Position based on canvas position
+                const rect = canvas.getBoundingClientRect();
+                const xPct = canvasX / rect.width;
+                selectionPopup.style.left = (xPct * 100) + '%';
                 selectionPopup.style.bottom = '70px';
-                selectionActive = true;
 
                 // Close button handler
                 var closeBtn = selectionPopup.querySelector('.selection-close');
@@ -3307,401 +3042,128 @@
                     zoomBtn.addEventListener('click', function(ev) {
                         ev.stopPropagation();
                         if (isZoomed) {
-                            zoomOut();
+                            if (renderer) renderer.resetZoom();
+                            if (zoomOutLink) zoomOutLink.style.display = 'none';
                         } else {
-                            zoomIn();
+                            if (renderer) renderer.zoomToSelection();
+                            if (zoomOutLink) zoomOutLink.style.display = 'block';
                         }
+                        clearSelection();
                     });
                 }
             }
 
             function clearSelection() {
-                if (selection) selection.classList.remove('visible');
+                if (renderer) renderer.selection = null;
                 if (selectionPopup) { selectionPopup.style.display = 'none'; selectionPopup.innerHTML = ''; }
-                selectionStart = null;
-                isSelecting = false;
-                selectionActive = false;
+                if (renderer) renderer.render();
             }
 
-            function zoomIn() {
-                if (!profileData || !selection) return;
-
-                // Get selection bounds in pixel percentages
-                const selLeft = parseFloat(selection.style.left) / 100;
-                const selWidth = parseFloat(selection.style.width) / 100;
-
-                // Convert to time using current zoom state
-                const plotRange = plotRightPct - plotLeftPct;
-                const minTime = isZoomed ? zoomMinHours : 0;
-                const maxTime = isZoomed ? zoomMaxHours : (xlimHours || profileData.total_time);
-                const viewRange = maxTime - minTime;
-
-                const startPct = (selLeft - plotLeftPct) / plotRange;
-                const endPct = (selLeft + selWidth - plotLeftPct) / plotRange;
-
-                selectionStartTime = minTime + startPct * viewRange;
-                selectionEndTime = minTime + endPct * viewRange;
-
-                // Calculate zoom bounds with padding so selection takes 90% of view
-                const selectionDuration = selectionEndTime - selectionStartTime;
-                const totalZoomRange = selectionDuration / 0.9;
-                const padding = (totalZoomRange - selectionDuration) / 2;
-
-                zoomMinHours = Math.max(0, selectionStartTime - padding);
-                zoomMaxHours = Math.min(profileData.total_time, selectionEndTime + padding);
-
-                // Store zoom state on container for persistence across overlay toggles
-                container.setAttribute('data-zoom-min', zoomMinHours.toFixed(4));
-                container.setAttribute('data-zoom-max', zoomMaxHours.toFixed(4));
-
-                isZoomed = true;
-                refreshZoomedProfile();
-            }
-
-            function zoomOut() {
-                isZoomed = false;
-                zoomMinHours = null;
-                zoomMaxHours = null;
-                selectionStartTime = null;
-                selectionEndTime = null;
-
-                // Clear zoom state from container
-                container.removeAttribute('data-zoom-min');
-                container.removeAttribute('data-zoom-max');
-
-                clearSelection();
-                refreshZoomedProfile();
-            }
-
-            function refreshZoomedProfile() {
-                var baseProfileUrl = container.getAttribute('data-base-profile-url');
-                var baseDataUrl = container.getAttribute('data-base-data-url');
-                var loading = document.getElementById('elevationLoading' + suffix);
-
-                if (!baseProfileUrl) return;
-
-                // Build URL parameters
-                var params = '';
-                var collapseCheckbox = document.getElementById('collapseStops' + suffix);
-                if (collapseCheckbox && collapseCheckbox.checked) params += '&collapse_stops=true';
-                if (typeof _buildOverlayParams === 'function') params += _buildOverlayParams();
-
-                // Add zoom parameters
-                if (isZoomed && zoomMinHours !== null && zoomMaxHours !== null) {
-                    params += '&min_xlim_hours=' + zoomMinHours.toFixed(4);
-                    params += '&max_xlim_hours=' + zoomMaxHours.toFixed(4);
-                }
-
-                // Show loading spinner
-                if (loading) loading.classList.remove('hidden');
-                img.classList.add('loading');
-
-                // Update image
-                img.src = baseProfileUrl + params;
-
-                img.onload = function() {
-                    if (loading) loading.classList.add('hidden');
-                    img.classList.remove('loading');
-
-                    // Show/hide zoom out link
-                    if (zoomOutLink) {
-                        zoomOutLink.style.display = isZoomed ? 'block' : 'none';
-                        if (isZoomed) {
-                            zoomOutLink.querySelector('a').onclick = function(e) {
-                                e.preventDefault();
-                                zoomOut();
-                            };
-                        }
-                    }
-
-                    // Reposition selection if zoomed
-                    if (isZoomed && selectionStartTime !== null && selectionEndTime !== null) {
-                        repositionSelectionAfterZoom();
-                    }
+            // Setup zoom out link
+            if (zoomOutLink) {
+                zoomOutLink.querySelector('a').onclick = function(e) {
+                    e.preventDefault();
+                    if (renderer) renderer.resetZoom();
+                    zoomOutLink.style.display = 'none';
+                    clearSelection();
                 };
             }
 
-            function repositionSelectionAfterZoom() {
-                if (!selection || !isZoomed || selectionStartTime === null || selectionEndTime === null) return;
+            // Fetch profile data and initialize renderer
+            if (loading) loading.classList.remove('hidden');
 
-                // Calculate the new position of selection in zoomed view
-                const zoomRange = zoomMaxHours - zoomMinHours;
-                const plotRange = plotRightPct - plotLeftPct;
+            fetch(dataUrl)
+                .then(r => {
+                    if (!r.ok) throw new Error('HTTP ' + r.status);
+                    return r.json();
+                })
+                .then(data => {
+                    if (data.error) throw new Error(data.error);
 
-                // Convert time to plot percentage
-                const startPct = plotLeftPct + ((selectionStartTime - zoomMinHours) / zoomRange) * plotRange;
-                const endPct = plotLeftPct + ((selectionEndTime - zoomMinHours) / zoomRange) * plotRange;
+                    if (loading) loading.classList.add('hidden');
 
-                // Clamp to plot boundaries
-                const clampedStart = Math.max(plotLeftPct, Math.min(plotRightPct, startPct));
-                const clampedEnd = Math.max(plotLeftPct, Math.min(plotRightPct, endPct));
+                    // Get overlay options from checkboxes
+                    const speedCheckbox = document.getElementById('overlay_speed');
+                    const gradeCheckbox = document.getElementById('overlay_grade');
+                    const gravelCheckbox = document.getElementById('overlay_gravel');
 
-                selection.style.left = (Math.min(clampedStart, clampedEnd) * 100) + '%';
-                selection.style.width = (Math.abs(clampedEnd - clampedStart) * 100) + '%';
-                selection.classList.add('visible');
+                    const options = {
+                        imperial: isImperial(),
+                        showSpeedOverlay: speedCheckbox && speedCheckbox.checked,
+                        showGradeOverlay: gradeCheckbox && gradeCheckbox.checked,
+                        showGravel: gravelCheckbox && gravelCheckbox.checked
+                    };
 
-                // Re-show popup with Zoom Out button
-                const centerXPct = (clampedStart + clampedEnd) / 2;
-                const startIdx = getIndexAtTime(selectionStartTime);
-                const endIdx = getIndexAtTime(selectionEndTime);
-                const stats = computeSelectionStats(startIdx, endIdx);
-                if (stats) {
-                    showSelectionPopup(stats, centerXPct);
-                }
-            }
+                    // Create renderer
+                    renderer = new ElevationProfileRenderer(canvas, data, options);
+                    container._renderer = renderer;
 
-            // Event handlers
-            function onMouseMove(e) {
-                if (!profileData) {
-                    // Uncomment for debugging: console.log('No profile data yet for', containerId);
-                    return;
-                }
-                const rect = img.getBoundingClientRect();
-                const xPct = (e.clientX - rect.left) / rect.width;
+                    // Set up hover callback
+                    renderer.onHover = function(point, x, y) {
+                        updateTooltip(point, x, y);
+                    };
 
-                if (isSelecting) {
-                    updateSelectionHighlight(selectionStart, xPct);
-                    updateTooltip(xPct, e.clientX);
-                } else if (!selectionActive) {
-                    updateTooltip(xPct, e.clientX);
-                }
-            }
+                    // Hide tooltip when leaving canvas
+                    canvas.addEventListener('mouseleave', hideTooltip);
 
-            function onMouseDown(e) {
-                if (!profileData) return;
-                // If popup is showing and click is outside popup, dismiss popup but keep selection if zoomed
-                if (selectionActive) {
-                    // Don't dismiss if clicking inside the popup
-                    if (selectionPopup && selectionPopup.contains(e.target)) {
-                        return;
-                    }
-                    if (selectionPopup) {
-                        selectionPopup.style.display = 'none';
-                        selectionPopup.innerHTML = '';
-                    }
-                    selectionActive = false;
-                    // Keep selection visible if zoomed
-                    if (!isZoomed && selection) {
-                        selection.classList.remove('visible');
-                    }
-                    return;
-                }
-                const rect = img.getBoundingClientRect();
-                selectionStart = (e.clientX - rect.left) / rect.width;
-                isSelecting = true;
-                e.preventDefault();
-            }
-
-            function onMouseUp(e) {
-                if (!isSelecting) return;
-                isSelecting = false;
-                const rect = img.getBoundingClientRect();
-                const xPctEnd = (e.clientX - rect.left) / rect.width;
-                const dragPx = Math.abs(e.clientX - rect.left - selectionStart * rect.width);
-
-                if (dragPx > 5) {
-                    const startIdx = getIndexAtPosition(selectionStart);
-                    const endIdx = getIndexAtPosition(xPctEnd);
-                    if (startIdx >= 0 && endIdx >= 0 && startIdx !== endIdx) {
-                        const stats = computeSelectionStats(startIdx, endIdx);
-                        const centerXPct = (selectionStart + xPctEnd) / 2;
+                    // Set up selection callback
+                    renderer.onSelect = function(stats, selection) {
                         hideTooltip();
-                        showSelectionPopup(stats, centerXPct);
-                    } else {
-                        clearSelection();
-                    }
-                } else {
-                    clearSelection();
-                }
-            }
+                        const rect = canvas.getBoundingClientRect();
+                        const centerX = renderer._normToCanvasX((selection.start + selection.end) / 2);
+                        showSelectionPopup(stats, centerX);
+                    };
 
-            function onMouseLeave(e) {
-                if (isSelecting) {
-                    // Finish selection on leave
-                    onMouseUp(e);
-                }
-                hideTooltip();
-            }
+                    // Initialize renderer
+                    renderer.init();
 
-            // Long-press touch selection
-            const LONG_PRESS_DURATION = 400;  // ms to trigger long-press
-            const LONG_PRESS_MOVE_THRESHOLD = 15;  // px movement allowed during long-press wait
-            let longPressTimer = null;
-            let longPressStartX = 0;
-            let longPressStartY = 0;
-            let longPressPending = false;
+                    // Handle window resize
+                    window.addEventListener('resize', function() {
+                        if (renderer) renderer.resize();
+                    });
+                })
+                .catch(err => {
+                    console.error('Profile data fetch error:', err);
+                    if (loading) loading.classList.add('hidden');
+                });
 
-            // Create long-press indicator element
-            let longPressIndicator = container.querySelector('.long-press-indicator');
-            if (!longPressIndicator) {
-                longPressIndicator = document.createElement('div');
-                longPressIndicator.className = 'long-press-indicator';
-                longPressIndicator.innerHTML = '<div class="long-press-ring"></div>';
-                container.appendChild(longPressIndicator);
-            }
-
-            function showLongPressIndicator(clientX, clientY) {
-                const rect = container.getBoundingClientRect();
-                longPressIndicator.style.left = (clientX - rect.left) + 'px';
-                longPressIndicator.style.top = (clientY - rect.top) + 'px';
-                longPressIndicator.classList.add('active');
-            }
-
-            function hideLongPressIndicator() {
-                longPressIndicator.classList.remove('active');
-            }
-
-            function triggerHapticFeedback() {
-                if (navigator.vibrate) {
-                    navigator.vibrate(50);
-                }
-            }
-
-            function cancelLongPress() {
-                if (longPressTimer) {
-                    clearTimeout(longPressTimer);
-                    longPressTimer = null;
-                }
-                longPressPending = false;
-                hideLongPressIndicator();
-            }
-
-            function onTouchStart(e) {
-                if (!profileData) return;
-                // If popup is showing, check if tap is inside popup
-                if (selectionActive) {
-                    // Don't dismiss if tapping inside the popup
-                    if (selectionPopup && e.touches[0] && selectionPopup.contains(document.elementFromPoint(e.touches[0].clientX, e.touches[0].clientY))) {
-                        return;
-                    }
-                    if (selectionPopup) {
-                        selectionPopup.style.display = 'none';
-                        selectionPopup.innerHTML = '';
-                    }
-                    selectionActive = false;
-                    // Keep selection visible if zoomed
-                    if (!isZoomed && selection) {
-                        selection.classList.remove('visible');
-                    }
-                    return;
-                }
-
-                const touch = e.touches[0];
-                longPressStartX = touch.clientX;
-                longPressStartY = touch.clientY;
-                longPressPending = true;
-
-                // Show visual indicator immediately
-                showLongPressIndicator(touch.clientX, touch.clientY);
-
-                // Start long-press timer
-                longPressTimer = setTimeout(() => {
-                    if (!longPressPending) return;
-                    longPressPending = false;
-                    hideLongPressIndicator();
-
-                    // Trigger haptic feedback
-                    triggerHapticFeedback();
-
-                    // Enter selection mode
-                    const rect = img.getBoundingClientRect();
-                    selectionStart = (touch.clientX - rect.left) / rect.width;
-                    isSelecting = true;
-
-                    // Show initial selection highlight at touch point
-                    updateSelectionHighlight(selectionStart, selectionStart);
-                }, LONG_PRESS_DURATION);
-            }
-
-            function onTouchMove(e) {
-                if (!profileData) return;
-
-                const touch = e.touches[0];
-
-                // If waiting for long-press, check if moved too much
-                if (longPressPending) {
-                    const dx = touch.clientX - longPressStartX;
-                    const dy = touch.clientY - longPressStartY;
-                    const distance = Math.sqrt(dx * dx + dy * dy);
-                    if (distance > LONG_PRESS_MOVE_THRESHOLD) {
-                        // User is scrolling, cancel long-press
-                        cancelLongPress();
-                        return;
-                    }
-                    // Still waiting for long-press, don't prevent default (allow scroll)
-                    return;
-                }
-
-                // In selection mode - prevent scrolling and update selection
-                if (isSelecting) {
-                    e.preventDefault();
-                    const rect = img.getBoundingClientRect();
-                    const xPct = (touch.clientX - rect.left) / rect.width;
-                    updateSelectionHighlight(selectionStart, xPct);
-                    updateTooltip(xPct, touch.clientX);
-                }
-            }
-
-            function onTouchEnd(e) {
-                // Cancel any pending long-press
-                if (longPressPending) {
-                    cancelLongPress();
-                    hideTooltip();
-                    return;
-                }
-
-                if (!isSelecting) { hideTooltip(); return; }
-                isSelecting = false;
-                if (!selection) { hideTooltip(); return; }
-
-                const rect = img.getBoundingClientRect();
-                const selLeft = parseFloat(selection.style.left) / 100;
-                const selWidth = parseFloat(selection.style.width) / 100;
-                if (selWidth * rect.width > 30) {
-                    const startIdx = getIndexAtPosition(selLeft);
-                    const endIdx = getIndexAtPosition(selLeft + selWidth);
-                    if (startIdx >= 0 && endIdx >= 0 && startIdx !== endIdx) {
-                        const stats = computeSelectionStats(startIdx, endIdx);
-                        hideTooltip();
-                        showSelectionPopup(stats, selLeft + selWidth / 2);
-                    } else clearSelection();
-                } else clearSelection();
-                hideTooltip();
-            }
-
-            function onTouchCancel(e) {
-                cancelLongPress();
-                if (isSelecting) {
-                    isSelecting = false;
-                    clearSelection();
-                }
-                hideTooltip();
-            }
-
-            function onKeyDown(e) {
+            // Keyboard handler for escape
+            document.addEventListener('keydown', function(e) {
                 if (e.key === 'Escape') clearSelection();
-            }
+            });
 
-            // Clean up old listeners if this profile was previously set up
-            if (container._profileCleanup) {
-                container._profileCleanup();
-            }
+            // Click outside handler to dismiss selection popup
+            document.addEventListener('click', function(e) {
+                // Skip if selection was just created (prevents immediate dismissal after mouseup)
+                if (selectionJustCreated) return;
+                if (!selectionPopup || selectionPopup.style.display === 'none') return;
+                // Check if click is inside popup
+                if (selectionPopup.contains(e.target)) return;
+                // Click anywhere else (including on canvas) - dismiss popup and selection
+                clearSelection();
+            });
 
-            var abortController = new AbortController();
-            container.addEventListener('mousemove', onMouseMove, { signal: abortController.signal });
-            container.addEventListener('mousedown', onMouseDown, { signal: abortController.signal });
-            container.addEventListener('mouseup', onMouseUp, { signal: abortController.signal });
-            container.addEventListener('mouseleave', onMouseLeave, { signal: abortController.signal });
-            container.addEventListener('touchstart', onTouchStart, { passive: true, signal: abortController.signal });
-            container.addEventListener('touchmove', onTouchMove, { passive: false, signal: abortController.signal });
-            container.addEventListener('touchend', onTouchEnd, { passive: true, signal: abortController.signal });
-            container.addEventListener('touchcancel', onTouchCancel, { passive: true, signal: abortController.signal });
-            document.addEventListener('keydown', onKeyDown, { signal: abortController.signal });
-
+            // Cleanup function
             container._profileCleanup = function() {
-                abortController.abort();
+                if (renderer) renderer.destroy();
             };
+
+            // Method to update renderer options (called by overlay toggles)
+            container._updateRendererOptions = function() {
+                if (!renderer) return;
+                const speedCheckbox = document.getElementById('overlay_speed');
+                const gradeCheckbox = document.getElementById('overlay_grade');
+                const gravelCheckbox = document.getElementById('overlay_gravel');
+
+                renderer.showSpeedOverlay = speedCheckbox && speedCheckbox.checked;
+                renderer.showGradeOverlay = gradeCheckbox && gradeCheckbox.checked;
+                renderer.showGravel = gravelCheckbox && gravelCheckbox.checked;
+                renderer.imperial = isImperial();
+                renderer.render();
+            };
+
         };
+
 
         (function() {
             // Check for comparison mode (two profiles)
@@ -3711,12 +3173,12 @@
                 // Comparison mode - setup both profiles with synchronized x-axis
                 var maxXlimHours = parseFloat(container1.getAttribute('data-max-xlim-hours')) || null;
                 window.setupElevationProfile(
-                    'elevationContainer1', 'elevationImg1', 'elevationTooltip1', 'elevationCursor1',
+                    'elevationContainer1', 'elevationCanvas1', 'elevationTooltip1',
                     '/elevation-profile-data?url={{ url|urlencode }}&climbing_power={{ climbing_power }}&flat_power={{ flat_power }}&mass={{ mass }}&headwind={{ headwind }}&descending_power={{ descending_power }}&descent_braking_factor={{ descent_braking_factor }}&gravel_grade={{ gravel_grade }}&smoothing={{ smoothing|int }}',
                     maxXlimHours
                 );
                 window.setupElevationProfile(
-                    'elevationContainer2', 'elevationImg2', 'elevationTooltip2', 'elevationCursor2',
+                    'elevationContainer2', 'elevationCanvas2', 'elevationTooltip2',
                     '/elevation-profile-data?url={{ url2|urlencode if url2 else "" }}&climbing_power={{ climbing_power }}&flat_power={{ flat_power }}&mass={{ mass }}&headwind={{ headwind }}&descending_power={{ descending_power }}&descent_braking_factor={{ descent_braking_factor }}&gravel_grade={{ gravel_grade }}&smoothing={{ smoothing|int }}',
                     maxXlimHours
                 );
@@ -3728,7 +3190,7 @@
             } else {
                 // Single route mode
                 window.setupElevationProfile(
-                    'elevationContainer', 'elevationImg', 'elevationTooltip', 'elevationCursor',
+                    'elevationContainer', 'elevationCanvas', 'elevationTooltip',
                     '/elevation-profile-data?url={{ url|urlencode }}&climbing_power={{ climbing_power }}&flat_power={{ flat_power }}&mass={{ mass }}&headwind={{ headwind }}&descending_power={{ descending_power }}&descent_braking_factor={{ descent_braking_factor }}&gravel_grade={{ gravel_grade }}&smoothing={{ smoothing|int }}'
                 );
                 // Initialize settings from localStorage (may trigger refresh)

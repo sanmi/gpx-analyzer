@@ -7,16 +7,22 @@
  * - Pages: Network First with cache fallback
  */
 
-const CACHE_VERSION = 'v4';
+const CACHE_VERSION = 'v12';
 const STATIC_CACHE = `gpx-static-${CACHE_VERSION}`;
 const DYNAMIC_CACHE = `gpx-dynamic-${CACHE_VERSION}`;
 
 // Static assets to pre-cache on install
 const STATIC_ASSETS = [
   '/',
+  '/saved',
   '/static/css/main.css',
   '/static/css/ride.css',
-  '/static/manifest.json',
+  '/manifest.json',
+  '/static/js/sw-register.js',
+  '/static/js/offline-storage.js',
+  '/static/js/offline-status.js',
+  '/static/js/profile-renderer.js',
+  '/static/icons/apple-touch-icon.png',
 ];
 
 // Install event - pre-cache static assets

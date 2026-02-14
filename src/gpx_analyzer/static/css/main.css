@@ -443,6 +443,15 @@ button:disabled { background: #999; cursor: not-allowed; }
     -webkit-user-select: none;
     user-select: none;
 }
+.elevation-canvas {
+    width: 100%;
+    height: 200px;
+    display: block;
+    /* Prevent Safari long-press context menu */
+    -webkit-touch-callout: none;
+    -webkit-user-select: none;
+    user-select: none;
+}
 .elevation-tooltip {
     position: absolute;
     background: rgba(0, 0, 0, 0.85);

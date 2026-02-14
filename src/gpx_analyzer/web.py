@@ -791,6 +791,12 @@ def saved_routes():
                            umami_script_url=analytics.get("umami_script_url"))
 
 
+@app.route("/canvas-test")
+def canvas_test():
+    """Test page for Canvas-based elevation profile renderer."""
+    return render_template("canvas-test.html")
+
+
 @app.route("/cache-stats")
 def cache_stats():
     """Return cache statistics as JSON for all caches."""
@@ -1599,6 +1605,11 @@ def elevation_profile_data():
             result["elev_gains"] = elev_gains
         if elev_losses:
             result["elev_losses"] = elev_losses
+        # Include highlight ranges for client-side rendering
+        if data.get("tunnel_time_ranges"):
+            result["tunnel_ranges"] = data["tunnel_time_ranges"]
+        if data.get("unpaved_time_ranges"):
+            result["unpaved_ranges"] = data["unpaved_time_ranges"]
         return jsonify(result)
     except Exception as e:
         return jsonify({"error": str(e)}), 500
