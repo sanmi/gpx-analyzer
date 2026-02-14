@@ -3718,7 +3718,7 @@
                 <a href="https://github.com/sanmi/gpx-analyzer" target="_blank">Source Code</a>
                 <a href="https://github.com/sanmi/gpx-analyzer/issues" target="_blank">Report a Bug</a>
             </div>
-            <div class="footer-version">{{ version_date }} ({{ git_hash }}) · SW v46</div>
+            <div class="footer-version">{{ version_date }} ({{ git_hash }}) · SW v47</div>
             <div class="footer-copyright">© 2025 Frank San Miguel</div>
         </div>
     </div>
@@ -3757,5 +3757,90 @@
         });
     </script>
     {% endif %}
+
+    <!-- Offline navigation for iOS PWA -->
+    <script>
+    (function() {
+        // Intercept saved routes link when offline (iOS PWA can't navigate offline)
+        var savedLink = document.getElementById('savedRoutesLink');
+        if (savedLink) {
+            savedLink.addEventListener('click', function(e) {
+                if (!navigator.onLine) {
+                    e.preventDefault();
+                    showOfflineSavedRoutes();
+                }
+            });
+        }
+
+        window.showOfflineSavedRoutes = async function() {
+            try {
+                if (typeof offlineStorage === 'undefined') {
+                    alert('Offline storage not available');
+                    return;
+                }
+                await offlineStorage.init();
+                var routes = await offlineStorage.getSavedRoutes();
+                showSavedRoutesModal(routes);
+            } catch (err) {
+                alert('Error loading saved routes: ' + err.message);
+            }
+        };
+
+        window.showSavedRoutesModal = function(routes) {
+            var existing = document.getElementById('offlineSavedModal');
+            if (existing) existing.remove();
+
+            var modal = document.createElement('div');
+            modal.id = 'offlineSavedModal';
+            modal.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:#f5f5f7;z-index:10000;overflow:auto;';
+
+            var html = '<div style="background:#FF6B35;color:white;padding:16px 20px;display:flex;justify-content:space-between;align-items:center;">';
+            html += '<h2 style="margin:0;font-size:1.2em;">Saved Routes (Offline)</h2>';
+            html += '<button onclick="closeSavedModal()" style="background:rgba(255,255,255,0.2);border:none;padding:8px 16px;border-radius:4px;cursor:pointer;color:white;font-weight:500;">✕ Close</button>';
+            html += '</div>';
+            html += '<div style="padding:20px;max-width:600px;margin:0 auto;">';
+
+            if (routes.length === 0) {
+                html += '<p style="text-align:center;color:#666;padding:40px 0;">No saved routes.</p>';
+            } else {
+                routes.forEach(function(route) {
+                    var name = route.name || 'Unnamed Route';
+                    var encodedUrl = encodeURIComponent(route.url);
+                    html += '<div style="background:white;padding:16px;margin-bottom:12px;border-radius:8px;box-shadow:0 1px 3px rgba(0,0,0,0.1);">';
+                    html += '<div style="font-weight:500;color:#333;margin-bottom:4px;">' + name + '</div>';
+                    if (route.distance_km || route.elevation_m) {
+                        html += '<div style="font-size:0.85em;color:#666;margin-bottom:8px;">';
+                        if (route.distance_km) html += route.distance_km.toFixed(1) + ' km';
+                        if (route.distance_km && route.elevation_m) html += ' · ';
+                        if (route.elevation_m) html += Math.round(route.elevation_m) + ' m';
+                        html += '</div>';
+                    }
+                    html += '<button onclick="loadOfflineRoute(\'' + encodedUrl + '\')" style="background:#FF6B35;color:white;border:none;padding:8px 16px;border-radius:4px;cursor:pointer;font-size:0.9em;">Load Route</button>';
+                    html += '</div>';
+                });
+            }
+            html += '</div>';
+            modal.innerHTML = html;
+            document.body.appendChild(modal);
+        };
+
+        window.closeSavedModal = function() {
+            var modal = document.getElementById('offlineSavedModal');
+            if (modal) modal.remove();
+        };
+
+        window.loadOfflineRoute = function(encodedUrl) {
+            closeSavedModal();
+            var urlInput = document.getElementById('url');
+            if (urlInput) {
+                urlInput.value = decodeURIComponent(encodedUrl);
+                // Trigger offline analysis
+                if (typeof loadOfflineAnalysis === 'function') {
+                    loadOfflineAnalysis(decodeURIComponent(encodedUrl));
+                }
+            }
+        };
+    })();
+    </script>
 </body>
 </html>
