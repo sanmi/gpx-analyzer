@@ -89,11 +89,12 @@
             text-overflow: ellipsis;
         }
         .route-name a {
-            color: inherit;
+            color: var(--accent);
             text-decoration: none;
         }
         .route-name a:hover {
             color: var(--primary);
+            text-decoration: underline;
         }
         .route-meta {
             display: block;
@@ -288,8 +289,8 @@
 
                     var html = '<li style="display:flex; justify-content:space-between; align-items:center; padding:16px 0; border-bottom:1px solid #eee;">' +
                         '<div style="flex:1; min-width:0;">' +
-                            '<div style="font-weight:600; color:#333; margin-bottom:6px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">' +
-                                '<a href="/?url=' + routeUrl + '" style="color:#2D3047; text-decoration:none;">' + routeName + '</a>' +
+                            '<div class="route-name">' +
+                                '<a href="/?url=' + routeUrl + '">' + routeName + '</a>' +
                             '</div>' +
                             '<div style="display:flex; gap:16px; flex-wrap:wrap; font-size:0.85em; color:#555; margin-bottom:4px;">' +
                                 '<span title="Estimated time">' + time + '</span>' +
