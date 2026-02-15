@@ -81,7 +81,7 @@
         <p class="tagline">Physics-based cycling time and energy estimates from elevation, surface, and rider parameters</p>
         <div class="header-links">
             <a href="#" class="how-link" onclick="showModal('physicsModal'); return false;">How does it work?</a>
-            <a href="/saved" class="saved-routes-link" id="savedRoutesLink">
+            <a href="#" class="saved-routes-link" id="savedRoutesLink" onclick="handleSavedRoutesClick(event)">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M19 12v7H5v-7H3v7c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2v-7h-2zm-6 .67l2.59-2.58L17 11.5l-5 5-5-5 1.41-1.41L11 12.67V3h2v9.67z"/></svg>
                 <span>Saved Routes</span>
                 <span class="count-badge" id="savedCountBadge" style="display: none;">0</span>
@@ -1230,9 +1230,36 @@
             });
         }
 
-        function goToRidePage() {
+        async function goToRidePage() {
             var urlInput = document.getElementById('url');
             if (!urlInput || !urlInput.value) return;
+
+            // If offline, try to show offline ride view from saved data
+            if (!navigator.onLine) {
+                try {
+                    if (typeof offlineStorage !== 'undefined') {
+                        await offlineStorage.init();
+                        var routeUrl = urlInput.value;
+                        var savedRoute = await offlineStorage.getSavedRoute(routeUrl);
+                        if (savedRoute && savedRoute.analysisParams) {
+                            var params = savedRoute.analysisParams;
+                            var imperial = document.getElementById('imperial')?.checked || false;
+                            var profileData = await offlineStorage.getProfileData(routeUrl, params);
+                            var climbs = await offlineStorage.getClimbs(routeUrl, params);
+                            if (profileData) {
+                                showOfflineRideView(savedRoute.name, savedRoute, climbs || [], profileData, params, imperial);
+                                return;
+                            }
+                        }
+                    }
+                    alert('This route is not saved for offline use. Save the route first while online.');
+                    return;
+                } catch (err) {
+                    alert('Error loading offline data: ' + err.message);
+                    return;
+                }
+            }
+
             var url = '/ride?url=' + encodeURIComponent(urlInput.value);
             url += '&climbing_power={{ climbing_power }}&flat_power={{ flat_power }}&mass={{ mass }}&headwind={{ headwind }}&smoothing={{ smoothing }}';
             // Add route name for offline display
@@ -3710,7 +3737,7 @@
                 <a href="https://github.com/sanmi/gpx-analyzer" target="_blank">Source Code</a>
                 <a href="https://github.com/sanmi/gpx-analyzer/issues" target="_blank">Report a Bug</a>
             </div>
-            <div class="footer-version">{{ version_date }} ({{ git_hash }}) · SW v55</div>
+            <div class="footer-version">{{ version_date }} ({{ git_hash }}) · SW v56</div>
             <div class="footer-copyright">© 2025 Frank San Miguel</div>
         </div>
     </div>
@@ -3753,16 +3780,15 @@
     <!-- Offline navigation for iOS PWA -->
     <script>
     (function() {
-        // Intercept saved routes link when offline (iOS PWA can't navigate offline)
-        var savedLink = document.getElementById('savedRoutesLink');
-        if (savedLink) {
-            savedLink.addEventListener('click', function(e) {
-                if (!navigator.onLine) {
-                    e.preventDefault();
-                    showOfflineSavedRoutes();
-                }
-            });
-        }
+        // Handle saved routes link click - works both online and offline
+        window.handleSavedRoutesClick = function(e) {
+            e.preventDefault();
+            if (!navigator.onLine) {
+                showOfflineSavedRoutes();
+            } else {
+                window.location.href = '/saved';
+            }
+        };
 
         window.showOfflineSavedRoutes = async function() {
             try {
