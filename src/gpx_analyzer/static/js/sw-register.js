@@ -33,6 +33,16 @@
       }
     });
 
+    // Listen for version responses from SW
+    navigator.serviceWorker.addEventListener('message', (event) => {
+      if (event.data && event.data.version) {
+        var el = document.querySelector('.footer-version');
+        if (el) {
+          el.textContent = el.textContent.replace(/· SW \S+/, '· SW ' + event.data.version);
+        }
+      }
+    });
+
     // Handle controller change (new SW took over)
     navigator.serviceWorker.addEventListener('controllerchange', () => {
       console.log('[SW] New service worker activated');
@@ -49,16 +59,7 @@
   function updateVersionDisplay(sw) {
     sw = sw || navigator.serviceWorker.controller;
     if (!sw) return;
-    const channel = new MessageChannel();
-    channel.port1.onmessage = (event) => {
-      if (event.data.version) {
-        const el = document.querySelector('.footer-version');
-        if (el) {
-          el.textContent = el.textContent.replace(/· SW \S+/, '· SW ' + event.data.version);
-        }
-      }
-    };
-    sw.postMessage({ type: 'GET_VERSION' }, [channel.port2]);
+    sw.postMessage({ type: 'GET_VERSION' });
   }
 
   /**

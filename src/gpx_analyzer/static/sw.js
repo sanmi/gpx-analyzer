@@ -7,7 +7,7 @@
  * - Pages: Network First with cache fallback
  */
 
-const CACHE_VERSION = 'v70';
+const CACHE_VERSION = 'v72';
 const STATIC_CACHE = `gpx-static-${CACHE_VERSION}`;
 const DYNAMIC_CACHE = `gpx-dynamic-${CACHE_VERSION}`;
 
@@ -237,6 +237,10 @@ self.addEventListener('message', (event) => {
     self.skipWaiting();
   }
   if (event.data.type === 'GET_VERSION') {
-    event.ports[0].postMessage({ version: CACHE_VERSION });
+    self.clients.matchAll().then(function(clients) {
+      clients.forEach(function(client) {
+        client.postMessage({ version: CACHE_VERSION });
+      });
+    });
   }
 });
