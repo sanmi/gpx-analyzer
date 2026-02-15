@@ -325,10 +325,7 @@
                             climbTooltip.classList.add('visible');
                         };
 
-                        // Wire up selection callback
-                        climbRenderer.onSelect = function(stats, selection) {
-                            showSelectionPopup(stats, selection, climbRenderer, climbProfileContainer);
-                        };
+                        // No selection on climb graph - just hover tooltip
 
                         climbRenderer.init();
 
@@ -727,9 +724,7 @@
                 climbTooltip.classList.add('visible');
             };
 
-            climbRenderer.onSelect = function(stats, selection) {
-                showSelectionPopup(stats, selection, climbRenderer, climbProfileContainer);
-            };
+            // No selection on climb graph - just hover tooltip
 
             climbRenderer.init();
 

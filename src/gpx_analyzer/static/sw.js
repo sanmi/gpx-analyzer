@@ -7,7 +7,7 @@
  * - Pages: Network First with cache fallback
  */
 
-const CACHE_VERSION = 'v47';
+const CACHE_VERSION = 'v55';
 const STATIC_CACHE = `gpx-static-${CACHE_VERSION}`;
 const DYNAMIC_CACHE = `gpx-dynamic-${CACHE_VERSION}`;
 

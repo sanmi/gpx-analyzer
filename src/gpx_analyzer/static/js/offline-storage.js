@@ -101,6 +101,21 @@
     }
 
     /**
+     * Get saved route metadata (includes analysisParams)
+     */
+    async getSavedRoute(url) {
+      await this.init();
+      return new Promise((resolve, reject) => {
+        const transaction = this.db.transaction([STORES.SAVED_ROUTES], 'readonly');
+        const store = transaction.objectStore(STORES.SAVED_ROUTES);
+        const request = store.get(url);
+
+        request.onsuccess = () => resolve(request.result || null);
+        request.onerror = () => reject(request.error);
+      });
+    }
+
+    /**
      * Save a route/trip for offline use
      */
     async saveRoute(url, name, analysisParams, analysisResult, profileData, climbs = null) {
