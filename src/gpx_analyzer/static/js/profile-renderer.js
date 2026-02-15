@@ -491,6 +491,24 @@
         const x1 = this.plotLeft + Math.min(1, (endTime - minTime) / timeRange) * this.plotWidth;
 
         ctx.fillRect(x0, this.plotTop, x1 - x0, this.plotHeight);
+
+        // Draw climb number badge (green circle with white numeral)
+        if (climb.climb_id !== undefined) {
+          const centerX = (x0 + x1) / 2;
+          const radius = 8;
+          const centerY = this.plotTop + radius + 3;
+          ctx.save();
+          ctx.beginPath();
+          ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
+          ctx.fillStyle = '#2e7d32';
+          ctx.fill();
+          ctx.font = 'bold 12px -apple-system, BlinkMacSystemFont, sans-serif';
+          ctx.fillStyle = '#ffffff';
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillText(climb.climb_id, centerX, centerY);
+          ctx.restore();
+        }
       }
     }
 
