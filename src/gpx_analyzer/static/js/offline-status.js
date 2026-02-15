@@ -80,10 +80,7 @@
       this._banner = document.createElement('div');
       this._banner.id = 'offline-banner';
       this._banner.className = 'offline-banner';
-      this._banner.innerHTML = `
-        <span>You're offline. Only saved routes are available.</span>
-        <button type="button" class="offline-banner-link" onclick="if(typeof showOfflineSavedRoutes==='function')showOfflineSavedRoutes();" style="background:none;border:none;color:inherit;text-decoration:underline;cursor:pointer;font:inherit;">View Saved Routes</button>
-      `;
+      this._banner.innerHTML = `You're offline — only saved routes are available`;
       document.body.insertBefore(this._banner, document.body.firstChild);
     }
 

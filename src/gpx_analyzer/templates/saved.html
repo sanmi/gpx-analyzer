@@ -14,143 +14,14 @@
     <link rel="apple-touch-icon" href="{{ url_for('static', filename='icons/apple-touch-icon.png') }}">
 
     <link rel="stylesheet" href="{{ url_for('static', filename='css/main.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/ride.css') }}">
     {% if umami_website_id %}
     <script defer src="{{ umami_script_url }}" data-website-id="{{ umami_website_id }}"></script>
     {% endif %}
     <script defer src="{{ url_for('static', filename='js/sw-register.js') }}"></script>
     <script defer src="{{ url_for('static', filename='js/offline-storage.js') }}"></script>
     <script defer src="{{ url_for('static', filename='js/offline-status.js') }}"></script>
-    <style>
-        .saved-routes-page {
-            background: white;
-            border-radius: 12px;
-            padding: 20px;
-            margin-top: 20px;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
-        }
-        .saved-routes-page h2 {
-            margin-top: 0;
-            color: var(--accent);
-        }
-        .storage-stats {
-            background: #f5f5f7;
-            padding: 12px 16px;
-            border-radius: 8px;
-            margin-bottom: 20px;
-        }
-        .storage-stats p {
-            margin: 0 0 8px 0;
-            font-size: 0.9em;
-            color: var(--text-muted);
-        }
-        .storage-bar {
-            height: 8px;
-            background: #ddd;
-            border-radius: 4px;
-            overflow: hidden;
-        }
-        .storage-used {
-            height: 100%;
-            background: var(--primary);
-            border-radius: 4px;
-            transition: width 0.3s;
-        }
-        .storage-used.warning {
-            background: #ff9800;
-        }
-        .storage-used.critical {
-            background: #f44336;
-        }
-        .saved-routes-list {
-            list-style: none;
-            padding: 0;
-            margin: 0;
-        }
-        .saved-route-item {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding: 12px 0;
-            border-bottom: 1px solid #eee;
-        }
-        .saved-route-item:last-child {
-            border-bottom: none;
-        }
-        .route-info {
-            flex: 1;
-            min-width: 0;
-        }
-        .route-name {
-            display: block;
-            font-weight: 500;
-            color: var(--text-dark);
-            margin-bottom: 4px;
-        }
-        .route-name a {
-            color: var(--accent);
-            text-decoration: none;
-        }
-        .route-name a:hover {
-            color: var(--primary);
-            text-decoration: underline;
-        }
-        .route-meta {
-            display: block;
-            font-size: 0.8em;
-            color: var(--text-muted);
-            white-space: nowrap;
-        }
-        .delete-btn {
-            width: auto !important;
-            padding: 8px 16px !important;
-            margin: 0 !important;
-            margin-left: 16px !important;
-            background: #f5f5f5 !important;
-            border: 1px solid #ddd !important;
-            color: #666 !important;
-            border-radius: 4px !important;
-            cursor: pointer;
-            font-size: 0.85em !important;
-            flex-shrink: 0;
-        }
-        .delete-btn:hover {
-            background: #fee !important;
-            border-color: #f99 !important;
-            color: #c00 !important;
-        }
-        .empty-state {
-            text-align: center;
-            padding: 40px 20px;
-            color: var(--text-muted);
-        }
-        .empty-state p {
-            margin: 8px 0;
-        }
-        .empty-state a {
-            color: var(--primary);
-        }
-        .clear-all-btn {
-            width: auto !important;
-            background: #f5f5f5 !important;
-            border: 1px solid #ddd !important;
-            color: #666 !important;
-            padding: 8px 16px !important;
-            border-radius: 6px !important;
-            cursor: pointer;
-            font-size: 0.85em !important;
-            margin-top: 16px !important;
-        }
-        .clear-all-btn:hover {
-            background: #fee !important;
-            border-color: #f99;
-            color: #c00;
-        }
-        .loading {
-            text-align: center;
-            padding: 40px;
-            color: var(--text-muted);
-        }
-    </style>
+    <script defer src="{{ url_for('static', filename='js/router.js') }}"></script>
 </head>
 <body>
     <div class="header-section">
@@ -178,10 +49,10 @@
             </svg>
             <h1>Reality Check my Route</h1>
         </div>
-        <p class="tagline">Saved Routes for Offline Use</p>
-        <a href="/" class="how-link">&larr; Back to Analysis</a>
     </div>
 
+    <main id="app-content">
+    <a href="/" class="back-link">&larr; Back to Analysis</a>
     <div class="saved-routes-page">
         <h2>My Saved Routes</h2>
 
@@ -375,16 +246,35 @@
             }
         }
 
-        // Initialize
-        document.addEventListener('DOMContentLoaded', function() {
+        // Initialize - handles both fresh page load and router navigation
+        function initSavedRoutes() {
             // Wait for offlineStorage to be available
             if (typeof offlineStorage !== 'undefined') {
                 loadSavedRoutes();
             } else {
                 // Scripts are deferred, try again after a short delay
-                setTimeout(loadSavedRoutes, 100);
+                setTimeout(initSavedRoutes, 100);
             }
-        });
+        }
+
+        // Run on DOMContentLoaded or immediately if already loaded (router navigation)
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', initSavedRoutes);
+        } else {
+            initSavedRoutes();
+        }
     </script>
+    </main>
+
+    <div class="footer">
+        <div class="footer-content">
+            <div class="footer-links">
+                <a href="https://github.com/sanmi/gpx-analyzer" target="_blank" data-no-router>Source Code</a>
+                <a href="https://github.com/sanmi/gpx-analyzer/issues" target="_blank" data-no-router>Report a Bug</a>
+            </div>
+            <div class="footer-version">{{ version_date }} ({{ git_hash }}) · SW --</div>
+            <div class="footer-copyright">© 2025 Frank San Miguel</div>
+        </div>
+    </div>
 </body>
 </html>

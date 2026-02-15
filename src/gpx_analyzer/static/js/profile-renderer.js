@@ -808,6 +808,7 @@
     }
 
     _onMouseDown(e) {
+      if (!this.onSelect) return;
       const rect = this.canvas.getBoundingClientRect();
       const x = e.clientX - rect.left;
 
@@ -834,6 +835,7 @@
     _onTouchStart(e) {
       if (e.touches.length === 1) {
         e.preventDefault();
+        if (!this.onSelect) return;
         const rect = this.canvas.getBoundingClientRect();
         const x = e.touches[0].clientX - rect.left;
 

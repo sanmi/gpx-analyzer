@@ -14,6 +14,7 @@
     <link rel="manifest" href="/manifest.json">
     <link rel="apple-touch-icon" href="{{ url_for('static', filename='icons/apple-touch-icon.png') }}">
 
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/main.css') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/ride.css') }}">
     {% if umami_website_id %}
     <script defer src="{{ umami_script_url }}" data-website-id="{{ umami_website_id }}"></script>
@@ -21,6 +22,7 @@
     <script defer src="{{ url_for('static', filename='js/sw-register.js') }}"></script>
     <script defer src="{{ url_for('static', filename='js/offline-storage.js') }}"></script>
     <script defer src="{{ url_for('static', filename='js/profile-renderer.js') }}"></script>
+    <script defer src="{{ url_for('static', filename='js/router.js') }}"></script>
 </head>
 <body>
     <div class="header-section">
@@ -48,10 +50,10 @@
             </svg>
             <h1>Reality Check my Route</h1>
         </div>
-        <p class="tagline">Climb Details</p>
-        <a href="/" class="back-link" id="backLink">&larr; Back to Analysis</a>
     </div>
 
+    <main id="app-content">
+    <a href="/" class="back-link" id="backLink">&larr; Back to Analysis</a>
     <div class="summary-card">
         <div class="route-name">{{ route_name or "Route" }}</div>
         <div class="summary-grid">
@@ -733,8 +735,8 @@
             });
         }
 
-        // Initial load
-        document.addEventListener('DOMContentLoaded', async () => {
+        // Initial load - handles both fresh page load and router navigation
+        async function initRidePage() {
             // Try offline first
             const loadedOffline = await handleOfflinePageLoad();
 
@@ -747,7 +749,13 @@
                 setupElevationProfile('elevationContainer', 'elevationCanvas', 'elevationTooltip', dataUrl, null);
             }
             updateClimbs(true);
-        });
+        }
+
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', initRidePage);
+        } else {
+            initRidePage();
+        }
 
         // Save sensitivity to localStorage when changed
         slider.addEventListener('change', () => {
@@ -873,16 +881,6 @@
         updateBackLink();
     </script>
 
-    <div class="footer">
-        <div class="footer-content">
-            <div class="footer-links">
-                <a href="https://github.com/sanmi/gpx-analyzer" target="_blank">Source Code</a>
-                <a href="https://github.com/sanmi/gpx-analyzer/issues" target="_blank">Report a Bug</a>
-            </div>
-            <div class="footer-version">{{ version_date }} ({{ git_hash }})</div>
-            <div class="footer-copyright">© 2025 Frank San Miguel</div>
-        </div>
-    </div>
     {% if umami_website_id and route_name %}
     <script>
         // Track ride page view with Umami (wait for script to load)
@@ -898,5 +896,17 @@
         });
     </script>
     {% endif %}
+    </main>
+
+    <div class="footer">
+        <div class="footer-content">
+            <div class="footer-links">
+                <a href="https://github.com/sanmi/gpx-analyzer" target="_blank" data-no-router>Source Code</a>
+                <a href="https://github.com/sanmi/gpx-analyzer/issues" target="_blank" data-no-router>Report a Bug</a>
+            </div>
+            <div class="footer-version">{{ version_date }} ({{ git_hash }}) · SW --</div>
+            <div class="footer-copyright">© 2025 Frank San Miguel</div>
+        </div>
+    </div>
 </body>
 </html>

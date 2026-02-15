@@ -35,6 +35,7 @@
     <link rel="apple-touch-icon" href="{{ url_for('static', filename='icons/apple-touch-icon.png') }}">
 
     <link rel="stylesheet" href="{{ url_for('static', filename='css/main.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/ride.css') }}">
     {% if umami_website_id %}
     <script defer src="{{ umami_script_url }}" data-website-id="{{ umami_website_id }}"></script>
     {% endif %}
@@ -42,6 +43,7 @@
     <script defer src="{{ url_for('static', filename='js/offline-storage.js') }}"></script>
     <script defer src="{{ url_for('static', filename='js/profile-renderer.js') }}"></script>
     <script defer src="{{ url_for('static', filename='js/offline-status.js') }}"></script>
+    <script defer src="{{ url_for('static', filename='js/router.js') }}"></script>
 </head>
 <body>
     <div class="header-section">
@@ -78,18 +80,19 @@
             </svg>
             <h1>Reality Check my Route</h1>
         </div>
-        <p class="tagline">Physics-based cycling time and energy estimates from elevation, surface, and rider parameters</p>
-        <div class="header-links">
-            <a href="#" class="how-link" onclick="showModal('physicsModal'); return false;">How does it work?</a>
-            <a href="#" class="saved-routes-link" id="savedRoutesLink" onclick="handleSavedRoutesClick(event)">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M19 12v7H5v-7H3v7c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2v-7h-2zm-6 .67l2.59-2.58L17 11.5l-5 5-5-5 1.41-1.41L11 12.67V3h2v9.67z"/></svg>
-                <span>Saved Routes</span>
-                <span class="count-badge" id="savedCountBadge" style="display: none;">0</span>
-            </a>
-        </div>
     </div>
 
-    <form method="POST" id="analyzeForm">
+    <main id="app-content">
+    <p class="tagline">Physics-based cycling time and energy estimates from elevation, surface, and rider parameters</p>
+    <div class="header-links">
+        <a href="#" class="how-link" onclick="showModal('physicsModal'); return false;">How does it work?</a>
+        <a href="/saved" class="saved-routes-link" id="savedRoutesLink">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M19 12v7H5v-7H3v7c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2v-7h-2zm-6 .67l2.59-2.58L17 11.5l-5 5-5-5 1.41-1.41L11 12.67V3h2v9.67z"/></svg>
+            <span>Saved Routes</span>
+            <span class="count-badge" id="savedCountBadge" style="display: none;">0</span>
+        </a>
+    </div>
+    <form method="POST" id="analyzeForm" data-no-router>
         <div class="label-row">
             <label for="url">RideWithGPS URL (route, trip, or collection)</label>
             <button type="button" class="info-btn" onclick="showModal('urlModal')">?</button>
@@ -1230,35 +1233,9 @@
             });
         }
 
-        async function goToRidePage() {
+        function goToRidePage() {
             var urlInput = document.getElementById('url');
             if (!urlInput || !urlInput.value) return;
-
-            // If offline, try to show offline ride view from saved data
-            if (!navigator.onLine) {
-                try {
-                    if (typeof offlineStorage !== 'undefined') {
-                        await offlineStorage.init();
-                        var routeUrl = urlInput.value;
-                        var savedRoute = await offlineStorage.getSavedRoute(routeUrl);
-                        if (savedRoute && savedRoute.analysisParams) {
-                            var params = savedRoute.analysisParams;
-                            var imperial = document.getElementById('imperial')?.checked || false;
-                            var profileData = await offlineStorage.getProfileData(routeUrl, params);
-                            var climbs = await offlineStorage.getClimbs(routeUrl, params);
-                            if (profileData) {
-                                showOfflineRideView(savedRoute.name, savedRoute, climbs || [], profileData, params, imperial);
-                                return;
-                            }
-                        }
-                    }
-                    alert('This route is not saved for offline use. Save the route first while online.');
-                    return;
-                } catch (err) {
-                    alert('Error loading offline data: ' + err.message);
-                    return;
-                }
-            }
 
             var url = '/ride?url=' + encodeURIComponent(urlInput.value);
             url += '&climbing_power={{ climbing_power }}&flat_power={{ flat_power }}&mass={{ mass }}&headwind={{ headwind }}&smoothing={{ smoothing }}';
@@ -1273,7 +1250,13 @@
                 localStorage.setItem('ride_show_gravel', document.getElementById('overlay_gravel')?.checked || false);
                 localStorage.setItem('ride_imperial', document.getElementById('imperial')?.checked || false);
             } catch (e) {}
-            window.location.href = url;
+
+            // Use router if available, otherwise fallback to direct navigation
+            if (typeof Router !== 'undefined' && Router.navigate) {
+                Router.navigate(url);
+            } else {
+                window.location.href = url;
+            }
         }
 
         function toggleOverlay(type) {
@@ -1549,14 +1532,22 @@
 
             container.style.display = 'block';
 
-            // Set up View Climbs link - show full ride view when offline on iOS
-            document.getElementById('offlineViewClimbsLink').onclick = async function(e) {
+            // Set up View Climbs link - navigate to ride page (works offline via router + SW cache)
+            document.getElementById('offlineViewClimbsLink').onclick = function(e) {
                 e.preventDefault();
-                try {
-                    var climbs = await offlineStorage.getClimbs(url, params);
-                    showOfflineRideView(r.name, r, climbs || [], profileData, params, imperial);
-                } catch (err) {
-                    alert('Error loading climbs: ' + err.message);
+                var rideUrl = '/ride?url=' + encodeURIComponent(url);
+                rideUrl += '&climbing_power=' + params.climbing_power;
+                rideUrl += '&flat_power=' + params.flat_power;
+                rideUrl += '&mass=' + params.mass;
+                rideUrl += '&headwind=' + params.headwind;
+                rideUrl += '&smoothing=' + params.smoothing;
+                if (r.name) rideUrl += '&route_name=' + encodeURIComponent(r.name);
+                if (imperial) rideUrl += '&imperial=1';
+
+                if (typeof Router !== 'undefined' && Router.navigate) {
+                    Router.navigate(rideUrl);
+                } else {
+                    window.location.href = rideUrl;
                 }
             };
 
@@ -3602,6 +3593,24 @@
             // Fetch profile data and initialize renderer
             if (loading) loading.classList.remove('hidden');
 
+            // Wait for ElevationProfileRenderer to be available (deferred script may not have loaded yet)
+            function waitForRenderer() {
+                if (typeof ElevationProfileRenderer !== 'undefined') return Promise.resolve();
+                return new Promise(resolve => {
+                    if (document.readyState === 'loading') {
+                        document.addEventListener('DOMContentLoaded', resolve);
+                    } else {
+                        // Poll as fallback (e.g. hard refresh timing)
+                        const check = setInterval(() => {
+                            if (typeof ElevationProfileRenderer !== 'undefined') {
+                                clearInterval(check);
+                                resolve();
+                            }
+                        }, 50);
+                    }
+                });
+            }
+
             fetch(dataUrl)
                 .then(r => {
                     if (!r.ok) throw new Error('HTTP ' + r.status);
@@ -3609,7 +3618,9 @@
                 })
                 .then(data => {
                     if (data.error) throw new Error(data.error);
-
+                    return waitForRenderer().then(() => data);
+                })
+                .then(data => {
                     if (loading) loading.classList.add('hidden');
 
                     // Get overlay options from checkboxes
@@ -3731,16 +3742,6 @@
     </script>
     {% endif %}
 
-    <div class="footer">
-        <div class="footer-content">
-            <div class="footer-links">
-                <a href="https://github.com/sanmi/gpx-analyzer" target="_blank">Source Code</a>
-                <a href="https://github.com/sanmi/gpx-analyzer/issues" target="_blank">Report a Bug</a>
-            </div>
-            <div class="footer-version">{{ version_date }} ({{ git_hash }}) · SW v56</div>
-            <div class="footer-copyright">© 2025 Frank San Miguel</div>
-        </div>
-    </div>
     {% if umami_website_id and result %}
     <script>
         // Track analysis with Umami (wait for script to load)
@@ -3776,378 +3777,17 @@
         });
     </script>
     {% endif %}
+    </main>
 
-    <!-- Offline navigation for iOS PWA -->
-    <script>
-    (function() {
-        // Handle saved routes link click - works both online and offline
-        window.handleSavedRoutesClick = function(e) {
-            e.preventDefault();
-            if (!navigator.onLine) {
-                showOfflineSavedRoutes();
-            } else {
-                window.location.href = '/saved';
-            }
-        };
-
-        window.showOfflineSavedRoutes = async function() {
-            try {
-                if (typeof offlineStorage === 'undefined') {
-                    alert('Offline storage not available');
-                    return;
-                }
-                await offlineStorage.init();
-                var routes = await offlineStorage.getSavedRoutes();
-                showSavedRoutesModal(routes);
-            } catch (err) {
-                alert('Error loading saved routes: ' + err.message);
-            }
-        };
-
-        window.showSavedRoutesModal = function(routes) {
-            var existing = document.getElementById('offlineSavedModal');
-            if (existing) existing.remove();
-
-            var modal = document.createElement('div');
-            modal.id = 'offlineSavedModal';
-            modal.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:#f5f5f7;z-index:10000;overflow:auto;';
-
-            var html = '<div style="background:#FF6B35;color:white;padding:16px 20px;display:flex;justify-content:space-between;align-items:center;">';
-            html += '<h2 style="margin:0;font-size:1.2em;">Saved Routes (Offline)</h2>';
-            html += '<button onclick="closeSavedModal()" style="background:rgba(255,255,255,0.2);border:none;padding:8px 16px;border-radius:4px;cursor:pointer;color:white;font-weight:500;">✕ Close</button>';
-            html += '</div>';
-            html += '<div style="padding:20px;max-width:600px;margin:0 auto;">';
-
-            if (routes.length === 0) {
-                html += '<p style="text-align:center;color:#666;padding:40px 0;">No saved routes.</p>';
-            } else {
-                routes.forEach(function(route) {
-                    var name = route.name || 'Unnamed Route';
-                    var encodedUrl = encodeURIComponent(route.url);
-                    html += '<div style="background:white;padding:16px;margin-bottom:12px;border-radius:8px;box-shadow:0 1px 3px rgba(0,0,0,0.1);">';
-                    html += '<div style="font-weight:500;color:#333;margin-bottom:4px;">' + name + '</div>';
-                    if (route.distance_km || route.elevation_m) {
-                        html += '<div style="font-size:0.85em;color:#666;margin-bottom:8px;">';
-                        if (route.distance_km) html += route.distance_km.toFixed(1) + ' km';
-                        if (route.distance_km && route.elevation_m) html += ' · ';
-                        if (route.elevation_m) html += Math.round(route.elevation_m) + ' m';
-                        html += '</div>';
-                    }
-                    html += '<button onclick="loadOfflineRoute(\'' + encodedUrl + '\')" style="background:#FF6B35;color:white;border:none;padding:8px 16px;border-radius:4px;cursor:pointer;font-size:0.9em;">Load Route</button>';
-                    html += '</div>';
-                });
-            }
-            html += '</div>';
-            modal.innerHTML = html;
-            document.body.appendChild(modal);
-        };
-
-        window.closeSavedModal = function() {
-            var modal = document.getElementById('offlineSavedModal');
-            if (modal) modal.remove();
-        };
-
-        window.loadOfflineRoute = function(encodedUrl) {
-            closeSavedModal();
-            var urlInput = document.getElementById('url');
-            if (urlInput) {
-                urlInput.value = decodeURIComponent(encodedUrl);
-                // Trigger offline analysis
-                if (typeof loadOfflineAnalysis === 'function') {
-                    loadOfflineAnalysis(decodeURIComponent(encodedUrl));
-                }
-            }
-        };
-
-        // Show full ride view (for offline iOS) - inline styles to match ride page
-        window.showOfflineRideView = function(routeName, analysisResult, climbs, profileData, params, imperial) {
-            var existing = document.getElementById('offlineRideView');
-            if (existing) existing.remove();
-
-            var view = document.createElement('div');
-            view.id = 'offlineRideView';
-
-            // Format summary values
-            var timeStr = analysisResult.time_str || formatOfflineTime(analysisResult.time_seconds);
-            var workKj = Math.round(analysisResult.work_kj || 0);
-            var distKm = analysisResult.distance_km || 0;
-            var elevM = analysisResult.elevation_m || 0;
-            var distDisplay = imperial ? (distKm * 0.621371).toFixed(1) + ' mi' : distKm.toFixed(1) + ' km';
-            var elevDisplay = imperial ? Math.round(elevM * 3.28084) + ' ft' : Math.round(elevM) + ' m';
-
-            // Inject scoped styles
-            var styles = '<style id="offlineRideStyles">' +
-                '#offlineRideView{position:fixed;top:0;left:0;right:0;bottom:0;background:#f5f5f7;z-index:10000;overflow:auto;-webkit-overflow-scrolling:touch;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;}' +
-                '#offlineRideView .orv-header{background:linear-gradient(135deg,#FF6B35 0%,#F7931E 100%);color:white;padding:16px;text-align:center;}' +
-                '#offlineRideView .orv-header h1{font-size:1.2em;margin:0 0 4px 0;font-weight:600;}' +
-                '#offlineRideView .orv-header .tagline{font-size:0.85em;opacity:0.9;margin-bottom:8px;}' +
-                '#offlineRideView .orv-back{color:white;text-decoration:none;font-size:14px;opacity:0.9;}' +
-                '#offlineRideView .orv-back:hover{opacity:1;}' +
-                '#offlineRideView .orv-container{max-width:1400px;margin:0 auto;padding:16px;}' +
-                '#offlineRideView .orv-card{background:white;border-radius:12px;padding:16px;margin-bottom:16px;box-shadow:0 2px 8px rgba(0,0,0,0.08);}' +
-                '#offlineRideView .orv-name{font-size:1.2em;font-weight:600;margin-bottom:12px;color:#333;}' +
-                '#offlineRideView .orv-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;}' +
-                '#offlineRideView .orv-stat{text-align:center;padding:8px;background:#f5f5f7;border-radius:8px;}' +
-                '#offlineRideView .orv-stat-val{font-size:1.4em;font-weight:700;color:#333;}' +
-                '#offlineRideView .orv-stat-lbl{font-size:0.75em;color:#666;text-transform:uppercase;}' +
-                '#offlineRideView .orv-section{background:white;border-radius:12px;padding:16px;margin-bottom:16px;box-shadow:0 2px 8px rgba(0,0,0,0.08);}' +
-                '#offlineRideView .orv-section-title{font-size:0.9em;font-weight:600;color:#666;margin-bottom:12px;text-transform:uppercase;}' +
-                '#offlineRideView .orv-profile{position:relative;height:200px;background:#fafafa;border-radius:8px;overflow:visible;}' +
-                '#offlineRideView .orv-profile canvas{width:100%;height:100%;display:block;}' +
-                '#offlineRideView .orv-tooltip{position:absolute;background:rgba(0,0,0,0.85);color:white;padding:6px 10px;border-radius:4px;font-size:12px;pointer-events:none;opacity:0;transition:opacity 0.15s;white-space:nowrap;z-index:100;bottom:60px;}' +
-                '#offlineRideView .orv-zoom-link{position:absolute;bottom:2px;right:10%;z-index:100;display:none;}' +
-                '#offlineRideView .orv-zoom-link a{color:#3b82f6;font-size:12px;text-decoration:none;}' +
-                '#offlineRideView .orv-zoom-link a:hover{text-decoration:underline;}' +
-                '#offlineRideView .orv-selection-popup{position:absolute;background:rgba(0,0,0,0.9);color:white;border-radius:6px;padding:10px 14px;z-index:200;transform:translateX(-50%);display:none;min-width:140px;font-size:13px;}' +
-                '#offlineRideView .orv-selection-popup .selection-close{position:absolute;top:2px;right:6px;cursor:pointer;font-size:16px;color:#888;}' +
-                '#offlineRideView .orv-selection-popup .selection-close:hover{color:white;}' +
-                '#offlineRideView .orv-selection-popup .selection-stat{display:flex;justify-content:space-between;gap:12px;}' +
-                '#offlineRideView .orv-selection-popup .stat-label{color:#aaa;}' +
-                '#offlineRideView .orv-selection-popup .stat-value{font-weight:bold;}' +
-                '#offlineRideView .orv-selection-popup .selection-zoom-btn{margin-top:8px;padding:6px 12px;background:#3b82f6;color:white;border:none;border-radius:4px;cursor:pointer;width:100%;text-align:center;}' +
-                '#offlineRideView .orv-selection-popup .selection-zoom-btn:hover{background:#2563eb;}' +
-                '#offlineRideView .orv-climb{display:flex;padding:12px;margin-bottom:8px;background:#f5f5f7;border-radius:8px;border-left:4px solid #4CAF50;}' +
-                '#offlineRideView .orv-climb-num{width:32px;height:32px;background:#4CAF50;color:white;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:0.9em;flex-shrink:0;margin-right:12px;}' +
-                '#offlineRideView .orv-climb-details{flex:1;}' +
-                '#offlineRideView .orv-climb-name{font-weight:600;margin-bottom:6px;color:#333;}' +
-                '#offlineRideView .orv-metrics{display:grid;grid-template-columns:repeat(4,1fr);gap:4px 12px;font-size:0.85em;}' +
-                '#offlineRideView .orv-metric{display:flex;gap:6px;}' +
-                '#offlineRideView .orv-metric-lbl{color:#666;}' +
-                '#offlineRideView .orv-metric-lbl::after{content:":";}' +
-                '#offlineRideView .orv-metric-val{font-weight:500;color:#333;}' +
-                '#offlineRideView .orv-no-climbs{text-align:center;padding:24px;color:#666;font-style:italic;}' +
-                '@media(max-width:600px){ #offlineRideView .orv-grid{grid-template-columns:repeat(2,1fr);} #offlineRideView .orv-metrics{grid-template-columns:repeat(2,1fr);}}' +
-                '</style>';
-
-            var html = styles;
-
-            // Header section (matches ride.html style)
-            html += '<div class="orv-header">';
-            html += '<h1>Reality Check my Route</h1>';
-            html += '<div class="tagline">Climb Details</div>';
-            html += '<a href="#" onclick="closeOfflineRideView();return false;" class="orv-back">&larr; Back to Analysis</a>';
-            html += '</div>';
-
-            html += '<div class="orv-container">';
-
-            // Summary card
-            html += '<div class="orv-card">';
-            html += '<div class="orv-name">' + (routeName || 'Route') + '</div>';
-            html += '<div class="orv-grid">';
-            html += '<div class="orv-stat"><div class="orv-stat-val">' + timeStr + '</div><div class="orv-stat-lbl">Est. Time</div></div>';
-            html += '<div class="orv-stat"><div class="orv-stat-val">' + workKj + ' kJ</div><div class="orv-stat-lbl">Work</div></div>';
-            html += '<div class="orv-stat"><div class="orv-stat-val">' + distDisplay + '</div><div class="orv-stat-lbl">Distance</div></div>';
-            html += '<div class="orv-stat"><div class="orv-stat-val">' + elevDisplay + '</div><div class="orv-stat-lbl">Elevation</div></div>';
-            html += '</div></div>';
-
-            // Elevation profile section
-            html += '<div class="orv-section">';
-            html += '<div class="orv-section-title">Elevation Profile</div>';
-            html += '<div class="orv-profile" id="offlineMainProfile">';
-            html += '<canvas id="offlineRideCanvas"></canvas>';
-            html += '<div class="orv-tooltip" id="offlineRideTooltip"></div>';
-            html += '<div class="orv-selection-popup" id="offlineMainPopup"></div>';
-            html += '<div class="orv-zoom-link" id="offlineMainZoom"><a href="#">Zoom Out</a></div>';
-            html += '</div>';
-            html += '</div>';
-
-            // Climb detection profile section (second graph with climb regions - no selection)
-            html += '<div class="orv-section">';
-            html += '<div class="orv-section-title">Climb Detection</div>';
-            html += '<div class="orv-profile" id="offlineClimbProfile">';
-            html += '<canvas id="offlineClimbCanvas"></canvas>';
-            html += '<div class="orv-tooltip" id="offlineClimbTooltip"></div>';
-            html += '</div>';
-            html += '</div>';
-
-            // Climbs list section
-            html += '<div class="orv-section">';
-            html += '<div class="orv-section-title">Detected Climbs (' + climbs.length + ')</div>';
-
-            if (climbs.length === 0) {
-                html += '<div class="orv-no-climbs">No significant climbs detected</div>';
-            } else {
-                climbs.forEach(function(climb) {
-                    var climbDist = imperial ? (climb.distance_m / 1000 * 0.621371).toFixed(1) + ' mi' : (climb.distance_m / 1000).toFixed(1) + ' km';
-                    var climbElev = imperial ? Math.round(climb.elevation_gain * 3.28084) + ' ft' : Math.round(climb.elevation_gain) + ' m';
-                    var climbSpeed = imperial ? (climb.avg_speed_kmh * 0.621371).toFixed(1) + ' mph' : climb.avg_speed_kmh.toFixed(1) + ' km/h';
-                    var climbDur = climb.duration_seconds >= 3600
-                        ? Math.floor(climb.duration_seconds / 3600) + 'h ' + Math.floor((climb.duration_seconds % 3600) / 60) + 'm'
-                        : Math.round(climb.duration_seconds / 60) + ' min';
-
-                    html += '<div class="orv-climb">';
-                    html += '<div class="orv-climb-num">' + climb.climb_id + '</div>';
-                    html += '<div class="orv-climb-details">';
-                    html += '<div class="orv-climb-name">' + climb.label + '</div>';
-                    html += '<div class="orv-metrics">';
-                    html += '<div class="orv-metric"><span class="orv-metric-lbl">Distance</span><span class="orv-metric-val">' + climbDist + '</span></div>';
-                    html += '<div class="orv-metric"><span class="orv-metric-lbl">Gain</span><span class="orv-metric-val">' + climbElev + '</span></div>';
-                    html += '<div class="orv-metric"><span class="orv-metric-lbl">Avg Grade</span><span class="orv-metric-val">' + climb.avg_grade.toFixed(1) + '%</span></div>';
-                    html += '<div class="orv-metric"><span class="orv-metric-lbl">Max Grade</span><span class="orv-metric-val">' + climb.max_grade.toFixed(1) + '%</span></div>';
-                    html += '<div class="orv-metric"><span class="orv-metric-lbl">Duration</span><span class="orv-metric-val">' + climbDur + '</span></div>';
-                    html += '<div class="orv-metric"><span class="orv-metric-lbl">Work</span><span class="orv-metric-val">' + Math.round(climb.work_kj) + ' kJ</span></div>';
-                    html += '<div class="orv-metric"><span class="orv-metric-lbl">Avg Power</span><span class="orv-metric-val">' + Math.round(climb.avg_power) + ' W</span></div>';
-                    html += '<div class="orv-metric"><span class="orv-metric-lbl">Avg Speed</span><span class="orv-metric-val">' + climbSpeed + '</span></div>';
-                    html += '</div></div></div>';
-                });
-            }
-            html += '</div>';
-            html += '</div>'; // close container
-
-            view.innerHTML = html;
-            document.body.appendChild(view);
-
-            // Helper functions for selection popup
-            function formatDurationPopup(hours) {
-                var totalMin = Math.round(hours * 60);
-                if (totalMin < 60) return totalMin + 'min';
-                return Math.floor(totalMin / 60) + 'h ' + (totalMin % 60).toString().padStart(2, '0') + 'm';
-            }
-
-            function showSelectionPopup(stats, selection, renderer, popupEl, zoomLinkEl) {
-                var imp = imperial;
-                var distVal = imp ? (stats.distance / 1000 * 0.621371) : (stats.distance / 1000);
-                var distUnit = imp ? 'mi' : 'km';
-                var elevGainVal = imp ? (stats.elevGain * 3.28084) : stats.elevGain;
-                var elevLossVal = imp ? (stats.elevLoss * 3.28084) : stats.elevLoss;
-                var elevUnit = imp ? 'ft' : 'm';
-                var isZoomed = renderer.viewRange.start > 0 || renderer.viewRange.end < 1;
-
-                var popupHtml = '<span class="selection-close">&times;</span>';
-                popupHtml += '<div class="selection-stat"><span class="stat-label">Duration</span><span class="stat-value">' + formatDurationPopup(stats.duration) + '</span></div>';
-                popupHtml += '<div class="selection-stat"><span class="stat-label">Distance</span><span class="stat-value">' + distVal.toFixed(1) + ' ' + distUnit + '</span></div>';
-                popupHtml += '<div class="selection-stat"><span class="stat-label">Elev Gain</span><span class="stat-value">+' + Math.round(elevGainVal) + ' ' + elevUnit + '</span></div>';
-                popupHtml += '<div class="selection-stat"><span class="stat-label">Elev Loss</span><span class="stat-value">' + Math.round(elevLossVal) + ' ' + elevUnit + '</span></div>';
-                popupHtml += '<div class="selection-zoom-btn">' + (isZoomed ? 'Zoom Out' : 'Zoom In') + '</div>';
-
-                popupEl.innerHTML = popupHtml;
-                popupEl.style.display = 'block';
-
-                var centerNorm = (selection.start + selection.end) / 2;
-                var centerX = renderer._normToCanvasX(centerNorm);
-                popupEl.style.left = centerX + 'px';
-                popupEl.style.bottom = '70px';
-
-                popupEl.querySelector('.selection-close').onclick = function(e) {
-                    e.stopPropagation();
-                    popupEl.style.display = 'none';
-                    renderer.selection = null;
-                    renderer.render();
-                };
-
-                popupEl.querySelector('.selection-zoom-btn').onclick = function(e) {
-                    e.stopPropagation();
-                    if (isZoomed) {
-                        renderer.resetZoom();
-                        zoomLinkEl.style.display = 'none';
-                    } else {
-                        renderer.zoomToSelection();
-                        zoomLinkEl.style.display = 'block';
-                    }
-                    popupEl.style.display = 'none';
-                    renderer.selection = null;
-                    renderer.render();
-                };
-            }
-
-            // Initialize elevation profile renderers
-            if (profileData && typeof ElevationProfileRenderer !== 'undefined') {
-                setTimeout(function() {
-                    // Main profile
-                    var canvas = document.getElementById('offlineRideCanvas');
-                    var tooltip = document.getElementById('offlineRideTooltip');
-                    var popup = document.getElementById('offlineMainPopup');
-                    var zoomLink = document.getElementById('offlineMainZoom');
-
-                    if (canvas && tooltip && profileData) {
-                        var renderer = new ElevationProfileRenderer(canvas, profileData, {
-                            imperial: imperial,
-                            showSpeedOverlay: false,
-                            showGradeOverlay: false,
-                            showGravel: false
-                        });
-
-                        renderer.onHover = function(dataPoint, x, y) {
-                            var elevUnit = imperial ? 'ft' : 'm';
-                            var elevVal = imperial ? dataPoint.elevation * 3.28084 : dataPoint.elevation;
-                            var gradeStr = dataPoint.grade !== null ? ((dataPoint.grade >= 0 ? '+' : '') + dataPoint.grade.toFixed(1) + '%') : 'N/A';
-                            tooltip.innerHTML = '<div style="font-weight:600;">' + gradeStr + '</div><div>' + Math.round(elevVal) + ' ' + elevUnit + '</div>';
-                            tooltip.style.left = x + 'px';
-                            tooltip.style.opacity = '1';
-                        };
-
-                        renderer.onSelect = function(stats, selection) {
-                            showSelectionPopup(stats, selection, renderer, popup, zoomLink);
-                        };
-
-                        canvas.addEventListener('mouseleave', function() { tooltip.style.opacity = '0'; });
-
-                        zoomLink.querySelector('a').onclick = function(e) {
-                            e.preventDefault();
-                            renderer.resetZoom();
-                            zoomLink.style.display = 'none';
-                        };
-
-                        renderer.init();
-                    }
-
-                    // Climb detection profile (with climb regions highlighted - no selection/zoom)
-                    var climbCanvas = document.getElementById('offlineClimbCanvas');
-                    var climbTooltip = document.getElementById('offlineClimbTooltip');
-
-                    if (climbCanvas && climbTooltip && profileData) {
-                        // Create climb regions from climbs data
-                        var climbRegions = climbs.map(function(c) {
-                            return {
-                                start_time: c.start_time_hours,
-                                end_time: c.end_time_hours,
-                                climb_id: c.climb_id,
-                                label: c.label
-                            };
-                        });
-
-                        // Clone profile data and add climb regions
-                        var climbProfileData = Object.assign({}, profileData);
-                        climbProfileData.climb_regions = climbRegions;
-
-                        var climbRenderer = new ElevationProfileRenderer(climbCanvas, climbProfileData, {
-                            imperial: imperial,
-                            showSpeedOverlay: false,
-                            showGradeOverlay: false,
-                            showGravel: false
-                        });
-
-                        climbRenderer.onHover = function(dataPoint, x, y) {
-                            var elevUnit = imperial ? 'ft' : 'm';
-                            var elevVal = imperial ? dataPoint.elevation * 3.28084 : dataPoint.elevation;
-                            var gradeStr = dataPoint.grade !== null ? ((dataPoint.grade >= 0 ? '+' : '') + dataPoint.grade.toFixed(1) + '%') : 'N/A';
-                            climbTooltip.innerHTML = '<div style="font-weight:600;">' + gradeStr + '</div><div>' + Math.round(elevVal) + ' ' + elevUnit + '</div>';
-                            climbTooltip.style.left = x + 'px';
-                            climbTooltip.style.opacity = '1';
-                        };
-
-                        climbCanvas.addEventListener('mouseleave', function() { climbTooltip.style.opacity = '0'; });
-
-                        climbRenderer.init();
-                    }
-                }, 100);
-            }
-        };
-
-        window.closeOfflineRideView = function() {
-            var view = document.getElementById('offlineRideView');
-            if (view) view.remove();
-            var styles = document.getElementById('offlineRideStyles');
-            if (styles) styles.remove();
-        };
-
-        function formatOfflineTime(seconds) {
-            if (!seconds) return '-';
-            var h = Math.floor(seconds / 3600);
-            var m = Math.floor((seconds % 3600) / 60);
-            return h + 'h ' + (m < 10 ? '0' : '') + m + 'm';
-        }
-    })();
-    </script>
+    <div class="footer">
+        <div class="footer-content">
+            <div class="footer-links">
+                <a href="https://github.com/sanmi/gpx-analyzer" target="_blank" data-no-router>Source Code</a>
+                <a href="https://github.com/sanmi/gpx-analyzer/issues" target="_blank" data-no-router>Report a Bug</a>
+            </div>
+            <div class="footer-version">{{ version_date }} ({{ git_hash }}) · SW --</div>
+            <div class="footer-copyright">© 2025 Frank San Miguel</div>
+        </div>
+    </div>
 </body>
 </html>

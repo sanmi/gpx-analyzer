@@ -36,7 +36,29 @@
     // Handle controller change (new SW took over)
     navigator.serviceWorker.addEventListener('controllerchange', () => {
       console.log('[SW] New service worker activated');
+      updateVersionDisplay();
     });
+
+    // Query SW version once it's ready
+    navigator.serviceWorker.ready.then((reg) => updateVersionDisplay(reg.active));
+  }
+
+  /**
+   * Query the active service worker for its version and update the footer
+   */
+  function updateVersionDisplay(sw) {
+    sw = sw || navigator.serviceWorker.controller;
+    if (!sw) return;
+    const channel = new MessageChannel();
+    channel.port1.onmessage = (event) => {
+      if (event.data.version) {
+        const el = document.querySelector('.footer-version');
+        if (el) {
+          el.textContent = el.textContent.replace(/· SW \S+/, '· SW ' + event.data.version);
+        }
+      }
+    };
+    sw.postMessage({ type: 'GET_VERSION' }, [channel.port2]);
   }
 
   /**

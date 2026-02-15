@@ -7,7 +7,7 @@
  * - Pages: Network First with cache fallback
  */
 
-const CACHE_VERSION = 'v56';
+const CACHE_VERSION = 'v66';
 const STATIC_CACHE = `gpx-static-${CACHE_VERSION}`;
 const DYNAMIC_CACHE = `gpx-dynamic-${CACHE_VERSION}`;
 
@@ -23,6 +23,7 @@ const STATIC_ASSETS = [
   '/static/js/offline-storage.js',
   '/static/js/offline-status.js',
   '/static/js/profile-renderer.js',
+  '/static/js/router.js',
   '/static/icons/apple-touch-icon.png',
 ];
 
@@ -232,5 +233,8 @@ async function networkFirstWithOfflineFallback(request, pagePath) {
 self.addEventListener('message', (event) => {
   if (event.data.type === 'SKIP_WAITING') {
     self.skipWaiting();
+  }
+  if (event.data.type === 'GET_VERSION') {
+    event.ports[0].postMessage({ version: CACHE_VERSION });
   }
 });
