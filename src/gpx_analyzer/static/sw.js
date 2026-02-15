@@ -7,7 +7,7 @@
  * - Pages: Network First with cache fallback
  */
 
-const CACHE_VERSION = 'v72';
+const CACHE_VERSION = 'v74';
 const STATIC_CACHE = `gpx-static-${CACHE_VERSION}`;
 const DYNAMIC_CACHE = `gpx-dynamic-${CACHE_VERSION}`;
 
@@ -93,13 +93,16 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Pages - use network-first, but fall back to cache when offline
+  // Known pages - use network-first with offline fallback (handles both
+  // top-level navigations and programmatic router fetch() requests)
+  const pagePath = url.pathname;
+  if (OFFLINE_PAGES.includes(pagePath)) {
+    event.respondWith(networkFirstWithOfflineFallback(event.request, pagePath));
+    return;
+  }
+
+  // Other navigations - network first
   if (event.request.mode === 'navigate') {
-    const pagePath = url.pathname;
-    if (OFFLINE_PAGES.includes(pagePath)) {
-      event.respondWith(networkFirstWithOfflineFallback(event.request, pagePath));
-      return;
-    }
     event.respondWith(networkFirst(event.request, DYNAMIC_CACHE));
     return;
   }

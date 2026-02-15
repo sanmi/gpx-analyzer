@@ -168,7 +168,7 @@
 
     <script>
         // Use var (not const/let) so the script can be re-executed by the router
-        var routeUrl = "{{ url }}";
+        var routeUrl = "{{ url }}" || new URLSearchParams(window.location.search).get('url') || "";
         var baseParams = "climbing_power={{ climbing_power }}&flat_power={{ flat_power }}&mass={{ mass }}&headwind={{ headwind }}&smoothing={{ smoothing }}";
 
         // Climb detection

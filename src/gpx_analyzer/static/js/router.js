@@ -98,13 +98,14 @@
             // Swap content
             currentContent.innerHTML = newContent.innerHTML;
 
-            // Execute scripts in the new content
-            this.executeScripts(currentContent);
-
-            // Update URL in browser
+            // Update URL in browser BEFORE executing scripts,
+            // so scripts see the correct window.location
             if (pushState) {
                 history.pushState({ routerNav: true }, '', url);
             }
+
+            // Execute scripts in the new content
+            this.executeScripts(currentContent);
 
             // Scroll to top (or to hash if present)
             const hash = url.split('#')[1];

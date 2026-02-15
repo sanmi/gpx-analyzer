@@ -28,6 +28,11 @@
             }
           });
         });
+
+        // Check for SW updates every 30 seconds during development,
+        // and on every router navigation
+        setInterval(() => registration.update(), 30 * 1000);
+        window.addEventListener('router:navigate', () => registration.update());
       } catch (error) {
         console.error('[SW] Service worker registration failed:', error);
       }
