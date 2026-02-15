@@ -1,6 +1,6 @@
 {
-  "name": "GPX Analyzer - Reality Check my Route",
-  "short_name": "GPX Analyzer",
+  "name": "Reality Check My Route",
+  "short_name": "Reality Check",
   "description": "Physics-based cycling time and energy estimates from elevation, surface, and rider parameters",
   "start_url": "/",
   "display": "standalone",
@@ -35,18 +35,11 @@
   ],
   "screenshots": [
     {
-      "src": "/static/icons/screenshot-wide.png",
-      "sizes": "1280x720",
+      "src": "/static/icons/RCMR-screenshot.png",
+      "sizes": "1282x900",
       "type": "image/png",
       "form_factor": "wide",
-      "label": "GPX Analyzer desktop view"
-    },
-    {
-      "src": "/static/icons/screenshot-narrow.png",
-      "sizes": "390x844",
-      "type": "image/png",
-      "form_factor": "narrow",
-      "label": "GPX Analyzer mobile view"
+      "label": "Reality Check My Route"
     }
   ],
   "categories": ["sports", "fitness", "utilities"]
