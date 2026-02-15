@@ -186,19 +186,20 @@
     </div>
 
     <script>
-        const routeUrl = "{{ url }}";
-        const baseParams = "climbing_power={{ climbing_power }}&flat_power={{ flat_power }}&mass={{ mass }}&headwind={{ headwind }}&smoothing={{ smoothing }}";
+        // Use var (not const/let) so the script can be re-executed by the router
+        var routeUrl = "{{ url }}";
+        var baseParams = "climbing_power={{ climbing_power }}&flat_power={{ flat_power }}&mass={{ mass }}&headwind={{ headwind }}&smoothing={{ smoothing }}";
 
         // Climb detection
-        const slider = document.getElementById('sensitivitySlider');
-        const climbCanvas = document.getElementById('climbCanvas');
-        const climbProfileContainer = document.getElementById('climbProfileContainer');
-        const climbList = document.getElementById('climbList');
-        const climbCount = document.getElementById('climbCount');
-        let debounceTimer = null;
-        let resizeTimer = null;
-        let lastAspectRatio = null;
-        let climbRenderer = null;
+        var slider = document.getElementById('sensitivitySlider');
+        var climbCanvas = document.getElementById('climbCanvas');
+        var climbProfileContainer = document.getElementById('climbProfileContainer');
+        var climbList = document.getElementById('climbList');
+        var climbCount = document.getElementById('climbCount');
+        var debounceTimer = null;
+        var resizeTimer = null;
+        var lastAspectRatio = null;
+        var climbRenderer = null;
 
         // Calculate aspect ratio based on container width
         function getAspectRatio() {
@@ -366,9 +367,9 @@
         }
 
         // Selection popup state
-        let selectionPopup = null;
-        let currentSelection = null;
-        let selectionJustCreated = false;
+        var selectionPopup = null;
+        var currentSelection = null;
+        var selectionJustCreated = false;
 
         function updateZoomOutLink(renderer) {
             const zoomOutLink = document.getElementById('zoomOutLink');
@@ -460,7 +461,9 @@
         }
 
         // Click outside handler for dismissing selection popup
-        document.addEventListener('click', (e) => {
+        // Remove previous listener if re-executed by router
+        if (window._rideClickHandler) document.removeEventListener('click', window._rideClickHandler);
+        window._rideClickHandler = function(e) {
             // Skip if selection was just created (prevents immediate dismissal after mouseup)
             if (selectionJustCreated) return;
             if (!currentSelection) return;
@@ -468,7 +471,8 @@
             if (selectionPopup && selectionPopup.contains(e.target)) return;
             // Click anywhere else (including on canvas) - dismiss popup and selection
             clearSelectionAndPopup(currentSelection.renderer);
-        });
+        };
+        document.addEventListener('click', window._rideClickHandler);
 
         // Setup main elevation profile with Canvas renderer
         function setupElevationProfile(containerId, canvasId, tooltipId, dataUrl, maxXlimHours) {
@@ -554,11 +558,14 @@
         }
 
         // Handle window resize and orientation change
+        // Remove previous listeners if re-executed by router
+        if (window._rideResizeHandler) window.removeEventListener('resize', window._rideResizeHandler);
+        if (window._rideOrientHandler) window.removeEventListener('orientationchange', window._rideOrientHandler);
         function handleResize() {
             clearTimeout(resizeTimer);
             resizeTimer = setTimeout(() => {
                 // Re-render both canvases on resize
-                const container = document.getElementById('elevationContainer');
+                var container = document.getElementById('elevationContainer');
                 if (container?._renderer) {
                     container._renderer.init();
                 }
@@ -567,8 +574,10 @@
                 }
             }, 250);
         }
-        window.addEventListener('resize', handleResize);
-        window.addEventListener('orientationchange', () => setTimeout(handleResize, 100));
+        window._rideResizeHandler = handleResize;
+        window._rideOrientHandler = function() { setTimeout(handleResize, 100); };
+        window.addEventListener('resize', window._rideResizeHandler);
+        window.addEventListener('orientationchange', window._rideOrientHandler);
 
         // Handle offline page load using cached data from IndexedDB
         async function handleOfflinePageLoad() {
