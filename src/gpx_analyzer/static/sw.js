@@ -7,7 +7,7 @@
  * - Pages: Network First with cache fallback
  */
 
-const CACHE_VERSION = 'v67';
+const CACHE_VERSION = 'v68';
 const STATIC_CACHE = `gpx-static-${CACHE_VERSION}`;
 const DYNAMIC_CACHE = `gpx-dynamic-${CACHE_VERSION}`;
 
@@ -25,6 +25,8 @@ const STATIC_ASSETS = [
   '/static/js/profile-renderer.js',
   '/static/js/router.js',
   '/static/icons/apple-touch-icon.png',
+  '/static/icons/favicon.png',
+  '/static/icons/logo-reality-check-my-route.png',
 ];
 
 // Pages that should use cached version when offline (ignoring query params)

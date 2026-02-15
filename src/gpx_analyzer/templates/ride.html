@@ -13,6 +13,7 @@
     <meta name="apple-mobile-web-app-title" content="GPX Analyzer">
     <link rel="manifest" href="/manifest.json">
     <link rel="apple-touch-icon" href="{{ url_for('static', filename='icons/apple-touch-icon.png') }}">
+    <link rel="icon" type="image/png" href="{{ url_for('static', filename='icons/favicon.png') }}">
 
     <link rel="stylesheet" href="{{ url_for('static', filename='css/main.css') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/ride.css') }}">
@@ -27,27 +28,7 @@
 <body>
     <div class="header-section">
         <div class="logo-container">
-            <svg class="logo" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
-                <defs>
-                    <linearGradient id="mountainGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-                        <stop offset="0%" style="stop-color:#FF6B35"/>
-                        <stop offset="100%" style="stop-color:#F7931E"/>
-                    </linearGradient>
-                </defs>
-                <path d="M0 85 L25 45 L40 60 L60 30 L80 50 L100 85 Z" fill="url(#mountainGrad)"/>
-                <path d="M60 30 L67 42 L53 42 Z" fill="white" opacity="0.85"/>
-                <path d="M25 45 L30 52 L20 52 Z" fill="white" opacity="0.7"/>
-                <g transform="translate(18, 50) rotate(-20) scale(1.5)">
-                    <circle cx="0" cy="14" r="7" fill="none" stroke="#2D3047" stroke-width="1.5"/>
-                    <circle cx="22" cy="14" r="7" fill="none" stroke="#2D3047" stroke-width="1.5"/>
-                    <path d="M0 14 L8 6 L18 6 L22 14 M8 6 L11 14 L18 6 M11 14 L0 14"
-                          fill="none" stroke="#2D3047" stroke-width="1.5" stroke-linejoin="round"/>
-                    <line x1="8" y1="6" x2="7" y2="3" stroke="#2D3047" stroke-width="1.5"/>
-                    <line x1="7" y1="3" x2="14" y2="-1" stroke="#2D3047" stroke-width="2" stroke-linecap="round"/>
-                    <circle cx="16" cy="-2" r="2.5" fill="#2D3047"/>
-                    <line x1="12" y1="-1" x2="18" y2="5" stroke="#2D3047" stroke-width="1.5" stroke-linecap="round"/>
-                </g>
-            </svg>
+            <img class="logo" src="{{ url_for('static', filename='icons/logo-reality-check-my-route.png') }}" alt="Reality Check my Route logo">
             <h1>Reality Check my Route</h1>
         </div>
     </div>
