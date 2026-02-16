@@ -3082,33 +3082,31 @@
         {% set t2_elapsed = (result2.elapsed_time_seconds | default(result2.time_seconds)) / 3600 %}
         {% set max_time_hours = [t1_elapsed, t2_elapsed] | max %}
         <div class="elevation-profiles-stacked">
-            <div class="elevation-profile-header" style="margin-bottom: 8px;">
-                <div class="elevation-profile-toggles">
-                    <div class="collapse-stops-toggle">
-                        <input type="checkbox" id="overlay_speed" onchange="toggleOverlay('speed')">
-                        <label for="overlay_speed">Speed</label>
-                    </div>
-                    <div class="collapse-stops-toggle">
-                        <input type="checkbox" id="overlay_grade" onchange="toggleOverlay('grade')">
-                        <label for="overlay_grade">Grade</label>
-                    </div>
-                    {% if not is_trip or not is_trip2 %}
-                    <div class="collapse-stops-toggle">
-                        <input type="checkbox" id="overlay_gravel" onchange="toggleOverlay('gravel')">
-                        <label for="overlay_gravel">Unpaved</label>
-                    </div>
-                    {% endif %}
-                </div>
-            </div>
             <div class="elevation-profile">
                 <div class="elevation-profile-header">
                     <h4><a href="{{ url }}" target="_blank">{{ (result.name or ('Trip 1' if is_trip else 'Route 1'))|truncate(40) }}</a> <span class="result-badge {% if is_trip %}trip-badge{% else %}route-badge{% endif %}">{% if is_trip %}Ride{% else %}Route{% endif %}</span> - {{ "%.1f"|format(result.time_seconds / 3600) }}h</h4>
-                    {% if is_trip %}
-                    <div class="collapse-stops-toggle">
-                        <input type="checkbox" id="collapseStops1" onchange="toggleCollapseStops(1)">
-                        <label for="collapseStops1">Moving time</label>
+                    <div class="elevation-profile-toggles">
+                        {% if is_trip %}
+                        <div class="collapse-stops-toggle">
+                            <input type="checkbox" id="collapseStops1" onchange="toggleCollapseStops(1)">
+                            <label for="collapseStops1">Moving time</label>
+                        </div>
+                        {% endif %}
+                        <div class="collapse-stops-toggle">
+                            <input type="checkbox" id="overlay_speed" onchange="toggleOverlay('speed')">
+                            <label for="overlay_speed">Speed</label>
+                        </div>
+                        <div class="collapse-stops-toggle">
+                            <input type="checkbox" id="overlay_grade" onchange="toggleOverlay('grade')">
+                            <label for="overlay_grade">Grade</label>
+                        </div>
+                        {% if not is_trip or not is_trip2 %}
+                        <div class="collapse-stops-toggle">
+                            <input type="checkbox" id="overlay_gravel" onchange="toggleOverlay('gravel')">
+                            <label for="overlay_gravel">Unpaved</label>
+                        </div>
+                        {% endif %}
                     </div>
-                    {% endif %}
                 </div>
                 <div class="elevation-profile-container" id="elevationContainer1"
                      data-url="{{ url|urlencode }}"
@@ -3604,7 +3602,8 @@
                         imperial: isImperial(),
                         showSpeedOverlay: speedCheckbox && speedCheckbox.checked,
                         showGradeOverlay: gradeCheckbox && gradeCheckbox.checked,
-                        showGravel: gravelCheckbox && gravelCheckbox.checked
+                        showGravel: gravelCheckbox && gravelCheckbox.checked,
+                        maxTimeHours: xlimHours
                     };
 
                     // Create renderer

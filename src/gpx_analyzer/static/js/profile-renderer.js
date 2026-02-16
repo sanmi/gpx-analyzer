@@ -90,6 +90,7 @@
       this.showSpeedOverlay = options.showSpeedOverlay || false;
       this.showGradeOverlay = options.showGradeOverlay || false;
       this.showGravel = options.showGravel || false;
+      this.maxTimeHours = options.maxTimeHours || null;  // Fixed x-axis max for comparison mode
 
       // View state (normalized 0-1 range)
       this.viewRange = { start: 0, end: 1 };
@@ -259,7 +260,12 @@
 
       // Get time range for visible data
       const minTime = times[startIdx];
-      const maxTime = times[Math.min(endIdx, n - 1)];
+      let maxTime = times[Math.min(endIdx, n - 1)];
+
+      // In comparison mode, extend x-axis to the longer route's time
+      if (this.maxTimeHours && this.viewRange.start === 0 && this.viewRange.end === 1) {
+        maxTime = Math.max(maxTime, this.maxTimeHours);
+      }
 
       // Draw tunnel/anomaly highlights (behind everything)
       this._drawTunnelHighlights(minTime, maxTime, maxElev);
