@@ -851,34 +851,59 @@
     }
 
     _onTouchStart(e) {
-      if (e.touches.length === 1) {
-        e.preventDefault();
-        if (!this.onSelect) return;
-        const rect = this.canvas.getBoundingClientRect();
-        const x = e.touches[0].clientX - rect.left;
+      if (e.touches.length !== 1) return;
+      e.preventDefault();
+      const rect = this.canvas.getBoundingClientRect();
+      const x = e.touches[0].clientX - rect.left;
+      const y = e.touches[0].clientY - rect.top;
 
-        if (x >= this.plotLeft && x <= this.plotRight) {
-          this._isDragging = true;
-          this._dragStart = x;
-          this.selection = null;
-        }
+      if (x < this.plotLeft || x > this.plotRight) return;
+
+      // Always show tooltip on touch
+      this.hoverX = x;
+      this._touchStartX = x;
+      this._isDragging = false;
+      this.render();
+
+      if (this.onHover) {
+        const data = this.getDataAtX(x);
+        if (data) this.onHover(data, x, y);
       }
     }
 
     _onTouchMove(e) {
-      if (e.touches.length === 1 && this._isDragging) {
-        e.preventDefault();
-        const rect = this.canvas.getBoundingClientRect();
-        const x = e.touches[0].clientX - rect.left;
+      if (e.touches.length !== 1) return;
+      e.preventDefault();
+      const rect = this.canvas.getBoundingClientRect();
+      const x = e.touches[0].clientX - rect.left;
+      const y = e.touches[0].clientY - rect.top;
 
+      // Start drag selection after 10px threshold
+      if (!this._isDragging && this.onSelect && this._touchStartX !== null) {
+        if (Math.abs(x - this._touchStartX) > 10) {
+          this._isDragging = true;
+          this._dragStart = this._touchStartX;
+          this.selection = null;
+        }
+      }
+
+      // Update selection if dragging
+      if (this._isDragging) {
         const startNorm = this._canvasXToNorm(this._dragStart);
         const endNorm = this._canvasXToNorm(x);
         this.selection = {
           start: Math.min(startNorm, endNorm),
           end: Math.max(startNorm, endNorm)
         };
+      }
 
-        this.render();
+      // Always update tooltip
+      this.hoverX = x;
+      this.render();
+
+      if (this.onHover) {
+        const data = this.getDataAtX(x);
+        if (data) this.onHover(data, x, y);
       }
     }
 
@@ -892,6 +917,8 @@
         }
       }
       this._isDragging = false;
+      this._touchStartX = null;
+      // Keep hoverX visible so tooltip stays until next interaction
     }
 
     // --- Resize handling ---
